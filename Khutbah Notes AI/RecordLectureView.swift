@@ -69,13 +69,33 @@ struct RecordLectureView: View {
                 .foregroundColor(.secondary)
             
             HStack(spacing: 12) {
-                Button(action: saveLecture) {
+                Button(action: {
+                    guard let url = lastRecordingURL else {
+                        print("No recording URL available when saving lecture.")
+                        showTitleSheet = false
+                        return
+                    }
+                    
+                    let finalTitle = titleText.isEmpty ? defaultTitle() : titleText
+                    store.createLecture(withTitle: finalTitle, recordingURL: url)
+                    showTitleSheet = false
+                }) {
                     Text("Save")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 
-                Button(action: skipLecture) {
+                Button(action: {
+                    guard let url = lastRecordingURL else {
+                        print("No recording URL available when skipping title.")
+                        showTitleSheet = false
+                        return
+                    }
+                    
+                    let finalTitle = defaultTitle()
+                    store.createLecture(withTitle: finalTitle, recordingURL: url)
+                    showTitleSheet = false
+                }) {
                     Text("Skip")
                         .frame(maxWidth: .infinity)
                 }
@@ -105,43 +125,12 @@ struct RecordLectureView: View {
         }
         
         lastRecordingURL = url
-        titleText = makeDefaultTitle()
+        titleText = defaultTitle()
         
         showTitleSheet = true
     }
     
-    private func saveLecture() {
-        let trimmed = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let defaultTitle = trimmed.isEmpty ? makeDefaultTitle() : trimmed
-        createLecture(with: defaultTitle)
-    }
-    
-    private func skipLecture() {
-        createLecture(with: makeDefaultTitle())
-    }
-    
-    private func createLecture(with title: String) {
-        let newLecture = Lecture(
-            id: UUID().uuidString,
-            title: title,
-            date: Date(),
-            durationMinutes: nil,
-            isFavorite: false,
-            status: .processing,
-            transcript: nil,
-            summary: nil
-        )
-        
-        store.addLecture(newLecture)
-        
-        if let url = lastRecordingURL {
-            store.attachRecordingURL(url, to: newLecture.id)
-        }
-        
-        showTitleSheet = false
-    }
-    
-    private func makeDefaultTitle() -> String {
+    private func defaultTitle() -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
@@ -152,6 +141,6 @@ struct RecordLectureView: View {
 struct RecordLectureView_Previews: PreviewProvider {
     static var previews: some View {
         RecordLectureView()
-            .environmentObject(LectureStore.mockStoreWithSampleData())
+            .environmentObject(LectureStore())
     }
 }

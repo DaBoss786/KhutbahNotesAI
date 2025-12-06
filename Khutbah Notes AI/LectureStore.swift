@@ -1,13 +1,14 @@
 import SwiftUI
 import Combine
-import FirebaseFirestore
 import FirebaseAuth
+import FirebaseFirestore
+import FirebaseStorage
 
 @MainActor
 final class LectureStore: ObservableObject {
     @Published var lectures: [Lecture] = []
-    private var recordingURLs: [String: URL] = [:]
-    private var db: Firestore?
+    private let db = Firestore.firestore()
+    private let storage = Storage.storage()
     private var listener: ListenerRegistration?
     private(set) var userId: String?
     
@@ -55,14 +56,6 @@ final class LectureStore: ObservableObject {
         ]
     }
     
-    func addLecture(_ lecture: Lecture) {
-        lectures.append(lecture)
-    }
-    
-    func attachRecordingURL(_ url: URL, to lectureId: String) {
-        recordingURLs[lectureId] = url
-    }
-    
     func updateLecture(_ lecture: Lecture) {
         guard let index = lectures.firstIndex(where: { $0.id == lecture.id }) else { return }
         lectures[index] = lecture
@@ -70,7 +63,130 @@ final class LectureStore: ObservableObject {
     
     func start(for userId: String) {
         self.userId = userId
-        db = Firestore.firestore()
+        
+        // Stop any previous listener
+        listener?.remove()
+        
+        // Listen to this user's lectures collection
+        listener = db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .order(by: "date", descending: true)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+                if let error = error {
+                    print("Error listening to lectures: \(error)")
+                    return
+                }
+                
+                guard let documents = snapshot?.documents else {
+                    self.lectures = []
+                    return
+                }
+                
+                self.lectures = documents.compactMap { doc in
+                    let data = doc.data()
+                    let id = doc.documentID
+                    
+                    guard let title = data["title"] as? String,
+                          let timestamp = data["date"] as? Timestamp,
+                          let statusString = data["status"] as? String else {
+                        return nil
+                    }
+                    
+                    let date = timestamp.dateValue()
+                    let durationMinutes = data["durationMinutes"] as? Int
+                    let isFavorite = data["isFavorite"] as? Bool ?? false
+                    let transcript = data["transcript"] as? String
+                    let summary = data["summary"] as? String
+                    
+                    let status: LectureStatus
+                    switch statusString {
+                    case "recording": status = .recording
+                    case "processing": status = .processing
+                    case "ready": status = .ready
+                    case "failed": status = .failed
+                    default: status = .processing
+                    }
+                    
+                    return Lecture(
+                        id: id,
+                        title: title,
+                        date: date,
+                        durationMinutes: durationMinutes,
+                        isFavorite: isFavorite,
+                        status: status,
+                        transcript: transcript,
+                        summary: summary
+                    )
+                }
+            }
+    }
+    
+    func createLecture(withTitle title: String, recordingURL: URL) {
+        guard let userId = userId else {
+            print("No userId set on LectureStore; cannot create lecture.")
+            return
+        }
+        
+        let lectureId = UUID().uuidString
+        let now = Date()
+        
+        // Optimistically insert a local lecture while upload happens
+        let newLecture = Lecture(
+            id: lectureId,
+            title: title,
+            date: now,
+            durationMinutes: nil,
+            isFavorite: false,
+            status: .processing,
+            transcript: nil,
+            summary: nil
+        )
+        
+        // Insert at top so UI feels instant; Firestore listener will overwrite as needed
+        lectures.insert(newLecture, at: 0)
+        
+        // Storage path: audio/{userId}/{lectureId}.m4a
+        let audioRef = storage.reference()
+            .child("audio")
+            .child(userId)
+            .child("\(lectureId).m4a")
+        
+        audioRef.putFile(from: recordingURL, metadata: nil) { [weak self] metadata, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("Error uploading audio: \(error)")
+                // Optionally update status to .failed in Firestore later
+                return
+            }
+            
+            let audioPath = audioRef.fullPath
+            
+            let docData: [String: Any] = [
+                "title": title,
+                "date": Timestamp(date: now),
+                "durationMinutes": NSNull(), // can fill later
+                "isFavorite": false,
+                "status": "processing",
+                "transcript": NSNull(),
+                "summary": NSNull(),
+                "audioPath": audioPath
+            ]
+            
+            self.db.collection("users")
+                .document(userId)
+                .collection("lectures")
+                .document(lectureId)
+                .setData(docData, merge: true) { error in
+                    if let error = error {
+                        print("Error saving lecture doc: \(error)")
+                    } else {
+                        print("Lecture metadata saved to Firestore for \(lectureId)")
+                    }
+                }
+        }
     }
 }
 
