@@ -6,12 +6,49 @@
 //
 
 import SwiftUI
+import FirebaseCore
+import FirebaseAuth
 
 @main
 struct Khutbah_Notes_AIApp: App {
+    @StateObject private var store: LectureStore
+    
+    init() {
+        FirebaseApp.configure()
+        let lectureStore = LectureStore(seedMockData: true)
+        _store = StateObject(wrappedValue: lectureStore)
+        signInAnonymouslyIfNeeded(using: lectureStore)
+    }
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
+                .environmentObject(store)
+        }
+    }
+    
+    private func signInAnonymouslyIfNeeded(using store: LectureStore) {
+        if let user = Auth.auth().currentUser {
+            print("Firebase already signed in with uid: \(user.uid)")
+            store.start(for: user.uid)
+            return
+        }
+        
+        Auth.auth().signInAnonymously { result, error in
+            if let error {
+                print("Anonymous sign-in failed: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let user = result?.user else {
+                print("Anonymous sign-in returned no user.")
+                return
+            }
+            
+            print("Signed in anonymously with uid: \(user.uid)")
+            DispatchQueue.main.async {
+                self.store.start(for: user.uid)
+            }
         }
     }
 }

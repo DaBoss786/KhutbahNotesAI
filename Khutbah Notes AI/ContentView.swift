@@ -15,6 +15,7 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environmentObject(LectureStore(seedMockData: true))
 }
 
 struct Theme {
@@ -80,14 +81,10 @@ struct MainTabView: View {
 }
 
 struct NotesView: View {
+    @EnvironmentObject var store: LectureStore
     @State private var selectedSegment = 0
     
     private let segments = ["All Notes", "Folders"]
-    private let lectures: [Lecture] = [
-        Lecture(title: "Tafseer of Surah Al-Kahf", dateLabel: "Today", duration: "45 mins"),
-        Lecture(title: "Understanding Taqwa", dateLabel: "Yesterday", duration: "32 mins"),
-        Lecture(title: "Mercy and Patience", dateLabel: "Last Friday", duration: "28 mins")
-    ]
     
     private var formattedDate: String {
         let formatter = DateFormatter()
@@ -96,17 +93,20 @@ struct NotesView: View {
     }
     
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                PromoBannerView()
-                segmentPicker
-                lectureList
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    PromoBannerView()
+                    segmentPicker
+                    lectureList
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 24)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 24)
+            .background(Theme.background.ignoresSafeArea())
+            .navigationBarHidden(true)
         }
-        .background(Theme.background.ignoresSafeArea())
     }
     
     private var header: some View {
@@ -139,8 +139,13 @@ struct NotesView: View {
     
     private var lectureList: some View {
         VStack(spacing: 12) {
-            ForEach(lectures) { lecture in
-                LectureCardView(lecture: lecture)
+            ForEach(store.lectures) { lecture in
+                NavigationLink {
+                    LectureDetailView(lecture: lecture)
+                } label: {
+                    LectureCardView(lecture: lecture)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -178,15 +183,23 @@ struct PromoBannerView: View {
     }
 }
 
-struct Lecture: Identifiable {
-    let id = UUID()
-    let title: String
-    let dateLabel: String
-    let duration: String
-}
-
 struct LectureCardView: View {
     let lecture: Lecture
+    
+    private var dateText: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(lecture.date) { return "Today" }
+        if calendar.isDateInYesterday(lecture.date) { return "Yesterday" }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: lecture.date)
+    }
+    
+    private var durationText: String? {
+        guard let minutes = lecture.durationMinutes else { return nil }
+        return "\(minutes) mins"
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -205,9 +218,11 @@ struct LectureCardView: View {
                     .foregroundColor(.black)
                 
                 HStack(spacing: 6) {
-                    Text(lecture.dateLabel)
-                    Text("•")
-                    Text(lecture.duration)
+                    Text(dateText)
+                    if let durationText {
+                        Text("•")
+                        Text(durationText)
+                    }
                 }
                 .font(Theme.bodyFont)
                 .foregroundColor(Theme.mutedText)
@@ -226,23 +241,74 @@ struct LectureCardView: View {
     }
 }
 
-struct RecordLectureView: View {
+struct LectureDetailView: View {
+    let lecture: Lecture
+    @State private var selectedTab = 0
+    
+    private let tabs = ["AI Summary", "Transcript"]
+    
+    private var dateText: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter.string(from: lecture.date)
+    }
+    
+    private var durationText: String {
+        if let minutes = lecture.durationMinutes {
+            return "\(minutes) mins"
+        }
+        return "Duration pending"
+    }
+    
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "mic.circle.fill")
-                .font(.system(size: 56))
-                .foregroundColor(Theme.primaryGreen)
-            Text("Record a new khutbah")
-                .font(Theme.titleFont)
-                .foregroundColor(.black)
-            Text("Tap the microphone to start a new recording and keep your notes organized.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(lecture.title)
+                    .font(Theme.largeTitleFont)
+                    .foregroundColor(.black)
+                
+                HStack(spacing: 8) {
+                    Label(dateText, systemImage: "calendar")
+                    Label(durationText, systemImage: "clock")
+                    Label(lecture.status.rawValue.capitalized, systemImage: "bolt.horizontal.circle")
+                }
                 .font(Theme.bodyFont)
                 .foregroundColor(Theme.mutedText)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
+                
+                Divider()
+                
+                Picker("Content", selection: $selectedTab) {
+                    ForEach(0..<tabs.count, id: \.self) { index in
+                        Text(tabs[index]).tag(index)
+                    }
+                }
+                .pickerStyle(.segmented)
+                
+                if selectedTab == 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("AI Summary")
+                            .font(Theme.titleFont)
+                        Text(lecture.summary ?? "AI summary will appear here once processed.")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Transcript")
+                            .font(Theme.titleFont)
+                        Text(lecture.transcript ?? "Transcript will appear here once ready.")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background.ignoresSafeArea())
+        .navigationTitle("Lecture")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -264,4 +330,15 @@ struct SettingsView: View {
             .navigationTitle("Settings")
         }
     }
+}
+
+#Preview("Notes") {
+    NotesView()
+        .environmentObject(LectureStore(seedMockData: true))
+}
+
+#Preview("Lecture Card") {
+    LectureCardView(lecture: .mock)
+        .padding()
+        .background(Theme.background)
 }
