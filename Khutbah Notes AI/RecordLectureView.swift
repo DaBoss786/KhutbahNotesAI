@@ -50,7 +50,12 @@ struct RecordLectureView: View {
         .padding()
         .background(Theme.background.ignoresSafeArea())
         .sheet(isPresented: $showTitleSheet) {
-            namingSheet
+            if #available(iOS 16.0, *) {
+                namingSheet
+                    .presentationDetents([.medium, .large])
+            } else {
+                namingSheet
+            }
         }
     }
     
@@ -106,7 +111,6 @@ struct RecordLectureView: View {
             Spacer()
         }
         .padding()
-        .presentationDetents([.medium, .large])
     }
     
     private func startRecordingTapped() {

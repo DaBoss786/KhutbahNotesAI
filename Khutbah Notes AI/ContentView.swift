@@ -93,20 +93,32 @@ struct NotesView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    PromoBannerView()
-                    segmentPicker
-                    lectureList
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 24)
+        if #available(iOS 16.0, *) {
+            NavigationStack {
+                content
             }
-            .background(Theme.background.ignoresSafeArea())
+            .navigationBarHidden(true)
+        } else {
+            NavigationView {
+                content
+            }
             .navigationBarHidden(true)
         }
+    }
+    
+    @ViewBuilder
+    private var content: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                PromoBannerView()
+                segmentPicker
+                lectureList
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 24)
+        }
+        .background(Theme.background.ignoresSafeArea())
     }
     
     private var header: some View {
