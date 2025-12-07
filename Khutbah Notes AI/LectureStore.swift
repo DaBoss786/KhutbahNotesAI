@@ -98,7 +98,23 @@ final class LectureStore: ObservableObject {
                     let durationMinutes = data["durationMinutes"] as? Int
                     let isFavorite = data["isFavorite"] as? Bool ?? false
                     let transcript = data["transcript"] as? String
-                    let summary = data["summary"] as? String
+                    
+                    var summary: LectureSummary? = nil
+                    if let summaryMap = data["summary"] as? [String: Any] {
+                        let mainTheme = summaryMap["mainTheme"] as? String ?? "Not mentioned"
+                        let keyPoints = summaryMap["keyPoints"] as? [String] ?? []
+                        let explicitAyatOrHadith = summaryMap["explicitAyatOrHadith"] as? [String] ?? []
+                        let characterTraits = summaryMap["characterTraits"] as? [String] ?? []
+                        let weeklyActions = summaryMap["weeklyActions"] as? [String] ?? []
+                        
+                        summary = LectureSummary(
+                            mainTheme: mainTheme,
+                            keyPoints: keyPoints,
+                            explicitAyatOrHadith: explicitAyatOrHadith,
+                            characterTraits: characterTraits,
+                            weeklyActions: weeklyActions
+                        )
+                    }
                     
                     let status: LectureStatus
                     switch statusString {

@@ -297,14 +297,7 @@ struct LectureDetailView: View {
                 .pickerStyle(.segmented)
                 
                 if selectedTab == 0 {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("AI Summary")
-                            .font(Theme.titleFont)
-                        Text(lecture.summary ?? "AI summary will appear here once processed.")
-                            .font(Theme.bodyFont)
-                            .foregroundColor(Theme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    SummaryView(summary: lecture.summary)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Transcript")
@@ -321,6 +314,67 @@ struct LectureDetailView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("Lecture")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct SummaryView: View {
+    let summary: LectureSummary?
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("AI Summary")
+                .font(Theme.titleFont)
+            
+            if let summary {
+                summarySection(title: "Main Theme", content: [summary.mainTheme])
+                summarySection(title: "Key Points", content: summary.keyPoints)
+                summarySection(title: "Explicit Ayat or Hadith",
+                               content: summary.explicitAyatOrHadith)
+                summarySection(title: "Character Traits",
+                               content: summary.characterTraits)
+                summarySection(title: "Weekly Actions",
+                               content: summary.weeklyActions)
+            } else {
+                Text("AI summary will appear here once processed.")
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func summarySection(title: String, content: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.black)
+            
+            if content.isEmpty {
+                Text("None mentioned")
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.mutedText)
+            } else if content.count == 1 {
+                Text(content[0])
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(content, id: \.self) { item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("•")
+                                .font(Theme.bodyFont)
+                                .foregroundColor(Theme.mutedText)
+                            Text(item)
+                                .font(Theme.bodyFont)
+                                .foregroundColor(Theme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

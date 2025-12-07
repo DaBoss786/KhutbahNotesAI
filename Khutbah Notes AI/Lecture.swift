@@ -22,7 +22,7 @@ struct Lecture: Identifiable, Hashable, Codable {
     var isFavorite: Bool
     var status: LectureStatus
     var transcript: String?
-    var summary: String?
+    var summary: LectureSummary?
 }
 
 extension Lecture {
@@ -34,6 +34,26 @@ extension Lecture {
         isFavorite: true,
         status: .ready,
         transcript: "Sample transcript...",
-        summary: "Key lessons and reminders summarized for quick review."
+        summary: LectureSummary(
+            mainTheme: "Patience during hardship",
+            keyPoints: [
+                "Trials are a test",
+                "Remain patient and grateful"
+            ],
+            explicitAyatOrHadith: [
+                "Indeed, Allah is with the patient."
+            ],
+            characterTraits: ["Sabr"],
+            weeklyActions: ["Check in on your family this week"]
+        )
     )
+}
+
+struct LectureSummary: Identifiable, Hashable, Codable {
+    var id: String { mainTheme + keyPoints.joined() }
+    var mainTheme: String
+    var keyPoints: [String]
+    var explicitAyatOrHadith: [String]
+    var characterTraits: [String]
+    var weeklyActions: [String]
 }
