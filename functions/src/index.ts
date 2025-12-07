@@ -16,23 +16,70 @@ const openaiKey = defineSecret("OPENAI_API_KEY");
 const storageBucketName = "khutbah-notes-ai.firebasestorage.app";
 
 const SUMMARY_SYSTEM_PROMPT = [
-  "You are a summarization engine.",
+  "You are a careful summarization engine for Islamic khutbah (sermon)",
+  "transcripts.",
   "",
-  "Summarize the khutbah using ONLY the transcript provided.",
+  "Your ONLY source of information is the khutbah transcript provided.",
   "",
-  "Do not interpret, explain, infer, or add religious meaning.",
-  "Do not add Qur’an, hadith, rulings, or advice unless they are explicitly",
-  "stated in the transcript.",
-  "Do not use phrases such as “Islam teaches,” “Muslims should,” or similar",
-  "normative language unless those exact words appear in the",
-  "transcript.",
-  "If information is missing or unclear, say so explicitly.",
+  "Rules about content:",
+  "- Use ONLY information that appears in the transcript.",
+  "- Do NOT interpret, explain, infer, or add new religious meaning.",
+  "- Do NOT add Qur’an verses, hadith, rulings, stories, or advice unless",
+  "  they are explicitly stated in the transcript.",
+  "- Do NOT use phrases such as \"Islam teaches\" or \"Muslims should\" unless",
+  "  those exact words appear in the transcript.",
+  "- If information is missing or unclear, say that it was not mentioned.",
   "",
-  "If a requested section is not present in the transcript, write",
-  "“Not mentioned” or “None mentioned” exactly.",
-  "You must output ONLY valid JSON.",
-  "Do not include markdown, explanations, or extra text.",
-  "Your entire response must be a single JSON object.",
+  "Output format:",
+  "- You MUST return a single JSON object.",
+  "- Do NOT include markdown, prose explanations, comments, or any text",
+  "  outside the JSON.",
+  "- Do NOT include any keys other than the ones listed below.",
+  "",
+  "The JSON object MUST have EXACTLY these keys and value types:",
+  "{",
+  "  \"mainTheme\": string,",
+  "  \"keyPoints\": string[],",
+  "  \"explicitAyatOrHadith\": string[],",
+  "  \"characterTraits\": string[],",
+  "  \"weeklyActions\": string[]",
+  "}",
+  "",
+  "Field rules:",
+  "- mainTheme:",
+  "  - Use 1–3 sentences to describe the main topic or message of the",
+  "    khutbah, based only on the transcript.",
+  "  - If the main theme is not clearly stated, use the exact string",
+  "    \"Not mentioned\".",
+  "",
+  "- keyPoints:",
+  "  - Return 2–5 concise bullet-style points capturing the main ideas of",
+  "    the khutbah.",
+  "  - Each array item must be a single sentence or short phrase.",
+  "  - If there are fewer than 2 clear points, return all that are",
+  "    available (at least 1).",
+  "",
+  "- explicitAyatOrHadith:",
+  "  - Each array item should be one explicit Qur’an verse or hadith that is",
+  "    clearly quoted or referenced in the transcript.",
+  "  - Text must be copied verbatim or very closely paraphrased from the",
+  "    transcript only.",
+  "  - If none are mentioned, return an empty array: [].",
+  "",
+  "- characterTraits:",
+  "  - Each array item should be one character trait explicitly named in the",
+  "    transcript (e.g., sabr, shukr, taqwa, humility).",
+  "  - Do NOT infer traits from stories or implications.",
+  "  - If no traits are explicitly mentioned, return an empty array: [].",
+  "",
+  "- weeklyActions:",
+  "  - Each array item should be one practical action clearly and explicitly",
+  "    encouraged in the khutbah.",
+  "  - If multiple actions are clearly stated, include them as separate",
+  "    items in the array.",
+  "  - If no explicit action is given, return an array with a single item:",
+  "    \"No action mentioned\".",
+  "",
   "You must output ONLY valid JSON.",
   "Do not include markdown, explanations, comments, or extra text.",
   "Your entire response must be a single JSON object and nothing else.",
@@ -304,26 +351,13 @@ export const summarizeKhutbah = onDocumentWritten(
         throw new Error("Model did not return valid JSON");
       }
 
-      type SummaryShape = {
-        mainTheme: unknown;
-        keyPoints: unknown;
-        explicitAyatOrHadith: unknown;
-        characterTraits: unknown;
-        weeklyAction: unknown;
-        // Alternate keys we may map
-        topic?: unknown;
-        main_points?: unknown;
-        quote?: unknown;
-        closing_advice?: unknown;
-      };
-
       const summaryObj = normalizeSummary(parsed as SummaryShape);
 
       const mainTheme = summaryObj.mainTheme;
       const keyPoints = summaryObj.keyPoints;
       const explicitAyatOrHadith = summaryObj.explicitAyatOrHadith;
       const characterTraits = summaryObj.characterTraits;
-      const weeklyAction = summaryObj.weeklyAction;
+      const weeklyActions = summaryObj.weeklyActions;
 
       const isValid =
         typeof mainTheme === "string" &&
@@ -333,7 +367,8 @@ export const summarizeKhutbah = onDocumentWritten(
         explicitAyatOrHadith.every((i) => typeof i === "string") &&
         Array.isArray(characterTraits) &&
         characterTraits.every((i) => typeof i === "string") &&
-        typeof weeklyAction === "string";
+        Array.isArray(weeklyActions) &&
+        weeklyActions.every((i) => typeof i === "string");
 
       if (!isValid) {
         logger.error("Invalid summary schema", {
@@ -347,7 +382,7 @@ export const summarizeKhutbah = onDocumentWritten(
         keyPoints: (keyPoints as string[]).slice(0, 7),
         explicitAyatOrHadith: explicitAyatOrHadith as string[],
         characterTraits: characterTraits as string[],
-        weeklyAction: weeklyAction as string,
+        weeklyActions: (weeklyActions as string[]).slice(0, 5),
       };
 
       await docRef.update({
@@ -468,7 +503,7 @@ type SummaryShape = {
   keyPoints: unknown;
   explicitAyatOrHadith: unknown;
   characterTraits: unknown;
-  weeklyAction: unknown;
+  weeklyActions: unknown;
   topic?: unknown;
   main_theme?: unknown;
   main_points?: unknown;
@@ -498,6 +533,17 @@ function normalizeSummary(raw: SummaryShape): SummaryShape {
     normalized.keyPoints = raw.main_points;
   }
 
+  // Backward compatibility for single weeklyAction key
+  if (
+    !normalized.weeklyActions &&
+    typeof (raw as {weeklyAction?: unknown}).weeklyAction === "string"
+  ) {
+    const action = (raw as {weeklyAction?: string}).weeklyAction;
+    if (action && action.trim()) {
+      normalized.weeklyActions = [action.trim()];
+    }
+  }
+
   if (
     !normalized.explicitAyatOrHadith &&
     typeof raw.quote === "string" &&
@@ -515,11 +561,11 @@ function normalizeSummary(raw: SummaryShape): SummaryShape {
   }
 
   if (
-    !normalized.weeklyAction &&
+    !normalized.weeklyActions &&
     typeof raw.closing_advice === "string" &&
     raw.closing_advice.trim()
   ) {
-    normalized.weeklyAction = raw.closing_advice.trim();
+    normalized.weeklyActions = [raw.closing_advice.trim()];
   }
 
   // If explicitAyatOrHadith is a single string, wrap into array
@@ -536,6 +582,14 @@ function normalizeSummary(raw: SummaryShape): SummaryShape {
     normalized.keyPoints.trim()
   ) {
     normalized.keyPoints = [normalized.keyPoints.trim()];
+  }
+
+  // If weeklyActions is a single string, wrap into array
+  if (
+    typeof normalized.weeklyActions === "string" &&
+    normalized.weeklyActions.trim()
+  ) {
+    normalized.weeklyActions = [normalized.weeklyActions.trim()];
   }
 
   // If characterTraits is missing, set empty array (as per requirements)
@@ -566,8 +620,8 @@ function normalizeSummary(raw: SummaryShape): SummaryShape {
     normalized.keyPoints = [];
   }
 
-  if (typeof normalized.weeklyAction !== "string") {
-    normalized.weeklyAction = "No action mentioned";
+  if (!Array.isArray(normalized.weeklyActions)) {
+    normalized.weeklyActions = ["No action mentioned"];
   }
 
   return normalized;
