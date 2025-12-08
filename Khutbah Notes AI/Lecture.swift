@@ -23,6 +23,7 @@ struct Lecture: Identifiable, Hashable, Codable {
     var status: LectureStatus
     var transcript: String?
     var summary: LectureSummary?
+    var audioPath: String?
 }
 
 extension Lecture {
@@ -45,7 +46,8 @@ extension Lecture {
             ],
             characterTraits: ["Sabr"],
             weeklyActions: ["Check in on your family this week"]
-        )
+        ),
+        audioPath: nil
     )
 }
 

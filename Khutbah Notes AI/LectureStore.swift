@@ -31,7 +31,8 @@ final class LectureStore: ObservableObject {
                 isFavorite: true,
                 status: .ready,
                 transcript: nil,
-                summary: nil
+                summary: nil,
+                audioPath: nil
             ),
             Lecture(
                 id: "mock-2",
@@ -41,7 +42,8 @@ final class LectureStore: ObservableObject {
                 isFavorite: false,
                 status: .processing,
                 transcript: nil,
-                summary: nil
+                summary: nil,
+                audioPath: nil
             ),
             Lecture(
                 id: "mock-3",
@@ -51,7 +53,8 @@ final class LectureStore: ObservableObject {
                 isFavorite: false,
                 status: .failed,
                 transcript: nil,
-                summary: nil
+                summary: nil,
+                audioPath: nil
             )
         ]
     }
@@ -98,6 +101,7 @@ final class LectureStore: ObservableObject {
                     let durationMinutes = data["durationMinutes"] as? Int
                     let isFavorite = data["isFavorite"] as? Bool ?? false
                     let transcript = data["transcript"] as? String
+                    let audioPath = data["audioPath"] as? String
                     
                     var summary: LectureSummary? = nil
                     if let summaryMap = data["summary"] as? [String: Any] {
@@ -133,7 +137,8 @@ final class LectureStore: ObservableObject {
                         isFavorite: isFavorite,
                         status: status,
                         transcript: transcript,
-                        summary: summary
+                        summary: summary,
+                        audioPath: audioPath
                     )
                 }
             }
@@ -147,6 +152,7 @@ final class LectureStore: ObservableObject {
         
         let lectureId = UUID().uuidString
         let now = Date()
+        let audioPath = "audio/\(userId)/\(lectureId).m4a"
         
         // Optimistically insert a local lecture while upload happens
         let newLecture = Lecture(
@@ -157,17 +163,15 @@ final class LectureStore: ObservableObject {
             isFavorite: false,
             status: .processing,
             transcript: nil,
-            summary: nil
+            summary: nil,
+            audioPath: audioPath
         )
         
         // Insert at top so UI feels instant; Firestore listener will overwrite as needed
         lectures.insert(newLecture, at: 0)
         
         // Storage path: audio/{userId}/{lectureId}.m4a
-        let audioRef = storage.reference()
-            .child("audio")
-            .child(userId)
-            .child("\(lectureId).m4a")
+        let audioRef = storage.reference(withPath: audioPath)
         
         audioRef.putFile(from: recordingURL, metadata: nil) { [weak self] metadata, error in
             guard let self = self else { return }
