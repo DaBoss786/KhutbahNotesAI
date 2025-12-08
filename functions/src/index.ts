@@ -277,6 +277,8 @@ export const summarizeKhutbah = onDocumentWritten(
     document: "users/{userId}/lectures/{lectureId}",
     region: "us-central1",
     secrets: [openaiKey],
+    timeoutSeconds: 540,
+    memory: "1GiB",
   },
   async (event) => {
     const afterSnap = event.data?.after;

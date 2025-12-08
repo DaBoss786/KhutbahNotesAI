@@ -377,6 +377,19 @@ struct LectureAudioPlayerView: View {
                 .opacity(viewModel.canAdjustRate ? 1 : 0.5)
             }
             
+            Slider(
+                value: Binding(
+                    get: { viewModel.sliderValue },
+                    set: { newValue in viewModel.sliderChanged(to: newValue) }
+                ),
+                in: 0...1,
+                onEditingChanged: { isEditing in
+                    viewModel.sliderEditingChanged(isEditing: isEditing)
+                }
+            )
+            .tint(Theme.primaryGreen)
+            .disabled(!secondaryControlsEnabled)
+            
             if viewModel.isLoading {
                 ProgressView()
                     .progressViewStyle(.circular)
@@ -448,6 +461,9 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     @Published private(set) var playbackRate: Float = 1.0
     @Published private(set) var statusText: String = ""
     @Published private(set) var canPlay = false
+    @Published var sliderValue: Double = 0
+    @Published private(set) var duration: Double = 0
+    @Published private(set) var currentTime: Double = 0
     
     var rateLabel: String {
         String(format: "%.2gx", playbackRate)
@@ -458,9 +474,11 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     
     private var player: AVPlayer?
     private var endObserver: Any?
+    private var timeObserverToken: Any?
     private var currentPath: String?
     private var loadFailed = false
     private var hasAudioPath = false
+    private var isScrubbing = false
     
     func prepareIfNeeded(with audioPath: String?) {
         guard audioPath != currentPath || player == nil else { return }
@@ -496,6 +514,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         playbackRate = 1.0
         canPlay = true
         addEndObserver()
+        addTimeObserver()
     }
     
     func togglePlayPause() {
@@ -533,6 +552,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         }
         let target = CMTime(seconds: newTime, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        updateSlider(to: newTime)
     }
     
     func adjustRate(by delta: Float) {
@@ -546,6 +566,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     func cleanup() {
         player?.pause()
         removeEndObserver()
+        removeTimeObserver()
         player = nil
         canPlay = false
         isPlaying = false
@@ -553,15 +574,22 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         currentPath = nil
         loadFailed = false
         hasAudioPath = false
+        duration = 0
+        currentTime = 0
+        sliderValue = 0
     }
     
     private func resetPlayerState() {
         removeEndObserver()
+        removeTimeObserver()
         player?.pause()
         player = nil
         canPlay = false
         isPlaying = false
         loadFailed = false
+        duration = 0
+        currentTime = 0
+        sliderValue = 0
     }
     
     private func addEndObserver() {
@@ -584,6 +612,51 @@ final class LectureAudioPlayerViewModel: ObservableObject {
             NotificationCenter.default.removeObserver(endObserver)
             self.endObserver = nil
         }
+    }
+    
+    private func addTimeObserver() {
+        removeTimeObserver()
+        guard let player else { return }
+        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self else { return }
+            let currentSeconds = CMTimeGetSeconds(time)
+            self.currentTime = currentSeconds
+            if let durationTime = player.currentItem?.duration, durationTime.isNumeric {
+                self.duration = CMTimeGetSeconds(durationTime)
+            }
+            if !self.isScrubbing {
+                self.updateSlider(to: currentSeconds)
+            }
+        }
+    }
+    
+    private func removeTimeObserver() {
+        if let token = timeObserverToken, let player {
+            player.removeTimeObserver(token)
+        }
+        timeObserverToken = nil
+    }
+    
+    private func updateSlider(to currentSeconds: Double) {
+        guard duration > 0 else {
+            sliderValue = 0
+            return
+        }
+        sliderValue = min(max(0, currentSeconds / duration), 1)
+    }
+    
+    func sliderChanged(to newValue: Double) {
+        sliderValue = newValue
+    }
+    
+    func sliderEditingChanged(isEditing: Bool) {
+        isScrubbing = isEditing
+        guard !isEditing, canPlay, let player else { return }
+        let targetSeconds = duration * sliderValue
+        let target = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        updateSlider(to: targetSeconds)
     }
 }
 
