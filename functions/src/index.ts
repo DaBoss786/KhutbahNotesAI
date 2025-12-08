@@ -17,17 +17,18 @@ const storageBucketName = "khutbah-notes-ai.firebasestorage.app";
 
 const SUMMARY_SYSTEM_PROMPT = [
   "You are a careful summarization engine for Islamic khutbah (sermon)",
-  "transcripts.",
+  "content.",
   "",
-  "Your ONLY source of information is the khutbah transcript provided.",
+  "Your ONLY source of information is the khutbah material provided below.",
+  "Do NOT rely on prior knowledge.",
   "",
   "Rules about content:",
-  "- Use ONLY information that appears in the transcript.",
+  "- Use ONLY information that appears in the provided material.",
   "- Do NOT interpret, explain, infer, or add new religious meaning.",
-  "- Do NOT add Qur’an verses, hadith, rulings, stories, or advice unless",
-  "  they are explicitly stated in the transcript.",
+  "- Do NOT add Qur'an verses, hadith, rulings, stories, or advice unless",
+  "  they are explicitly stated in the provided text.",
   "- Do NOT use phrases such as \"Islam teaches\" or \"Muslims should\" unless",
-  "  those exact words appear in the transcript.",
+  "  those exact words appear in the provided text.",
   "- If information is missing or unclear, say that it was not mentioned.",
   "",
   "Output format:",
@@ -47,42 +48,70 @@ const SUMMARY_SYSTEM_PROMPT = [
   "",
   "Field rules:",
   "- mainTheme:",
-  "  - Use 1–3 sentences to describe the main topic or message of the",
-  "    khutbah, based only on the transcript.",
+  "  - Up to 300 words total (prefer 2–4 concise sentences) describing the",
+  "    main topic or message based only on the provided text.",
   "  - If the main theme is not clearly stated, use the exact string",
   "    \"Not mentioned\".",
   "",
   "- keyPoints:",
-  "  - Return 2–5 concise bullet-style points capturing the main ideas of",
-  "    the khutbah.",
-  "  - Each array item must be a single sentence or short phrase.",
-  "  - If there are fewer than 2 clear points, return all that are",
-  "    available (at least 1).",
+  "  - Up to 7 concise, complete sentences capturing the main ideas of the",
+  "    khutbah.",
+  "  - Each array item should stay under about 35 words to conserve tokens.",
+  "  - If fewer points are clear, return what is available (at least 1).",
   "",
   "- explicitAyatOrHadith:",
-  "  - Each array item should be one explicit Qur’an verse or hadith that is",
-  "    clearly quoted or referenced in the transcript.",
-  "  - Text must be copied verbatim or very closely paraphrased from the",
-  "    transcript only.",
+  "  - Include every explicit Qur'an verse or hadith that is clearly quoted",
+  "    or referenced in the provided text.",
+  "  - Copy the quote verbatim without paraphrasing or truncating it.",
   "  - If none are mentioned, return an empty array: [].",
   "",
   "- characterTraits:",
   "  - Each array item should be one character trait explicitly named in the",
-  "    transcript (e.g., sabr, shukr, taqwa, humility).",
+  "    provided text (e.g., sabr, shukr, taqwa, humility).",
   "  - Do NOT infer traits from stories or implications.",
   "  - If no traits are explicitly mentioned, return an empty array: [].",
   "",
   "- weeklyActions:",
-  "  - Each array item should be one practical action clearly and explicitly",
-  "    encouraged in the khutbah.",
-  "  - If multiple actions are clearly stated, include them as separate",
-  "    items in the array.",
+  "  - Up to 3 practical actions clearly and explicitly encouraged in the",
+  "    khutbah, written as complete sentences.",
   "  - If no explicit action is given, return an array with a single item:",
   "    \"No action mentioned\".",
   "",
-  "You must output ONLY valid JSON.",
-  "Do not include markdown, explanations, comments, or extra text.",
-  "Your entire response must be a single JSON object and nothing else.",
+  "Constraints:",
+  "- Keep the entire output compact so it fits within the output token limit.",
+  "- Use short, direct sentences and avoid repetition.",
+  "- Output ONLY valid JSON. No markdown, explanations, comments, or extra",
+  "  text. The entire response must be a single JSON object and nothing else.",
+].join("\n");
+
+const MAX_SUMMARY_OUTPUT_TOKENS = 3000;
+const CHUNK_CHAR_TARGET = 4000;
+const CHUNK_CHAR_OVERLAP = 300;
+const CHUNK_OUTPUT_TOKENS = 2000;
+const SUMMARY_MODEL = "gpt-5-mini";
+
+const COMPACT_RETRY_INSTRUCTIONS = [
+  "Your previous attempt exceeded the output token limit.",
+  "Retry with an ultra-compact JSON summary that MUST fit well under the",
+  "token budget.",
+  "",
+  "Hard limits:",
+  "- mainTheme: max 200 words (2–3 short sentences).",
+  "- keyPoints: max 6 sentences, each under ~22 words.",
+  "- weeklyActions: max 3 sentences, each under ~16 words.",
+  "- explicitAyatOrHadith: include verbatim quotes only; no paraphrasing.",
+].join("\n");
+
+const ULTRA_COMPACT_INSTRUCTIONS = [
+  "Your previous attempt still exceeded the output token limit.",
+  "Return an ultra-compact JSON summary that MUST fit comfortably under the",
+  "token budget.",
+  "",
+  "Hard limits:",
+  "- mainTheme: max 120 words (1–2 sentences).",
+  "- keyPoints: max 4 sentences, each under ~18 words.",
+  "- weeklyActions: max 2 sentences, each under ~12 words.",
+  "- explicitAyatOrHadith: include verbatim quotes only; avoid duplicates.",
 ].join("\n");
 
 export const onAudioUpload = onObjectFinalized(
@@ -306,84 +335,36 @@ export const summarizeKhutbah = onDocumentWritten(
         apiKey: openaiKey.value(),
       });
 
-      const response = await openai.responses.create({
-        model: "gpt-5-mini",
-        input: [
-          {role: "system", content: SUMMARY_SYSTEM_PROMPT},
-          {role: "user", content: transcript},
-        ],
-        max_output_tokens: 1800,
-        text: {format: {type: "json_object"}},
-      });
+      const chunks = chunkTranscript(
+        transcript,
+        CHUNK_CHAR_TARGET,
+        CHUNK_CHAR_OVERLAP
+      );
 
-      const incomplete =
-        (response as {incomplete_details?: {reason?: string}})
-          .incomplete_details?.reason;
-      if (incomplete) {
-        throw new Error(`OpenAI stopped early: ${incomplete}`);
+      const perChunkTokenLimit =
+        chunks.length === 1 ?
+          MAX_SUMMARY_OUTPUT_TOKENS :
+          CHUNK_OUTPUT_TOKENS;
+
+      const chunkSummaries: SummaryShape[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkSummary = await summarizeChunk(
+          openai,
+          chunks[i],
+          i + 1,
+          chunks.length,
+          perChunkTokenLimit
+        );
+        chunkSummaries.push(chunkSummary);
       }
 
-      const {text, refusal, debug} = extractTextOrRefusal(response);
-      if (!text) {
-        const apiError = (response as {error?: {message?: string}}).error;
-        const reason = apiError?.message ??
-          (refusal ?
-            `Model refusal: ${refusal}` :
-            "Empty response from OpenAI");
-        logger.error("OpenAI empty output", {
-          reason,
-          refusal,
-          hasOutputText: debug.hasOutputText,
-          outputLength: debug.outputLength,
-          incompleteDetails:
-            (response as {incomplete_details?: unknown}).incomplete_details ??
-            null,
-          rawResponse: safeJson(response),
-        });
-        throw new Error(reason);
-      }
+      const combinedSummary =
+        chunks.length === 1 ?
+          chunkSummaries[0] :
+          await aggregateChunkSummaries(openai, chunkSummaries);
 
-      // ---- Parse and validate JSON summary ----
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        throw new Error("Model did not return valid JSON");
-      }
-
-      const summaryObj = normalizeSummary(parsed as SummaryShape);
-
-      const mainTheme = summaryObj.mainTheme;
-      const keyPoints = summaryObj.keyPoints;
-      const explicitAyatOrHadith = summaryObj.explicitAyatOrHadith;
-      const characterTraits = summaryObj.characterTraits;
-      const weeklyActions = summaryObj.weeklyActions;
-
-      const isValid =
-        typeof mainTheme === "string" &&
-        Array.isArray(keyPoints) &&
-        keyPoints.every((i) => typeof i === "string") &&
-        Array.isArray(explicitAyatOrHadith) &&
-        explicitAyatOrHadith.every((i) => typeof i === "string") &&
-        Array.isArray(characterTraits) &&
-        characterTraits.every((i) => typeof i === "string") &&
-        Array.isArray(weeklyActions) &&
-        weeklyActions.every((i) => typeof i === "string");
-
-      if (!isValid) {
-        logger.error("Invalid summary schema", {
-          summary: safeJson(summaryObj),
-        });
-        throw new Error("Invalid summary schema");
-      }
-
-      const safeSummary = {
-        mainTheme: mainTheme as string,
-        keyPoints: (keyPoints as string[]).slice(0, 7),
-        explicitAyatOrHadith: explicitAyatOrHadith as string[],
-        characterTraits: characterTraits as string[],
-        weeklyActions: (weeklyActions as string[]).slice(0, 5),
-      };
+      const normalized = normalizeSummary(combinedSummary);
+      const safeSummary = enforceSummaryLimits(normalized);
 
       await docRef.update({
         summary: safeSummary,
@@ -406,6 +387,396 @@ export const summarizeKhutbah = onDocumentWritten(
     }
   }
 );
+
+type ResponseMessage = {role: "system" | "user"; content: string};
+
+/**
+ * Summarize a single transcript chunk using a tight token budget.
+ *
+ * @param {OpenAI} openai OpenAI client instance.
+ * @param {string} chunk Transcript chunk text.
+ * @param {number} chunkIndex 1-based index of this chunk.
+ * @param {number} totalChunks Total number of chunks.
+ * @param {number} maxOutputTokens Output token budget for this request.
+ * @return {Promise<SummaryShape>} Parsed summary for the chunk.
+ */
+async function summarizeChunk(
+  openai: OpenAI,
+  chunk: string,
+  chunkIndex: number,
+  totalChunks: number,
+  maxOutputTokens = CHUNK_OUTPUT_TOKENS
+): Promise<SummaryShape> {
+  const chunkContext = [
+    `You are summarizing chunk ${chunkIndex} of ${totalChunks} of a khutbah`,
+    "transcript.",
+    totalChunks > 1 ?
+      "Focus only on this chunk. Do not speculate about missing context." :
+      "This is the full transcript.",
+    "Keep the output brief to conserve tokens:",
+    "- mainTheme: up to ~150 words (2–3 sentences).",
+    "- keyPoints: up to 5 complete sentences, each kept concise.",
+    "- explicitAyatOrHadith: include every explicit quote verbatim from this",
+    "  chunk.",
+    "- weeklyActions: up to 2 explicit actions or \"No action mentioned\".",
+  ].join("\n");
+
+  let text: string;
+  try {
+    text = await runJsonSummaryRequest(
+      openai,
+      [
+        {role: "system", content: SUMMARY_SYSTEM_PROMPT},
+        {role: "user", content: chunkContext},
+        {role: "user", content: chunk},
+      ],
+      maxOutputTokens,
+      `Chunk ${chunkIndex}/${totalChunks}`
+    );
+  } catch (err: unknown) {
+    if (!isMaxOutputTokensError(err)) {
+      throw err;
+    }
+
+    // First retry: add more tokens with compact instructions
+    try {
+      text = await runJsonSummaryRequest(
+        openai,
+        [
+          {role: "system", content: SUMMARY_SYSTEM_PROMPT},
+          {role: "user", content: COMPACT_RETRY_INSTRUCTIONS},
+          {role: "user", content: chunkContext},
+          {role: "user", content: chunk},
+        ],
+        maxOutputTokens + 500,
+        `Chunk ${chunkIndex}/${totalChunks} (compact)`
+      );
+    } catch (err2: unknown) {
+      if (!isMaxOutputTokensError(err2)) {
+        throw err2;
+      }
+
+      // Second retry: even more tokens with ultra-compact instructions
+      text = await runJsonSummaryRequest(
+        openai,
+        [
+          {role: "system", content: SUMMARY_SYSTEM_PROMPT},
+          {role: "user", content: ULTRA_COMPACT_INSTRUCTIONS},
+          {role: "user", content: chunkContext},
+          {role: "user", content: chunk},
+        ],
+        maxOutputTokens + 1000,
+        `Chunk ${chunkIndex}/${totalChunks} (ultra-compact)`
+      );
+    }
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const invalidJsonMsg =
+      `Chunk ${chunkIndex}/${totalChunks}: Model did not return valid JSON`;
+    throw new Error(invalidJsonMsg);
+  }
+
+  return normalizeSummary(parsed as SummaryShape);
+}
+
+/**
+ * Combine multiple chunk-level summaries into a final summary within limits.
+ *
+ * @param {OpenAI} openai OpenAI client instance.
+ * @param {SummaryShape[]} summaries Chunk-level summaries to merge.
+ * @return {Promise<SummaryShape>} Combined summary.
+ */
+async function aggregateChunkSummaries(
+  openai: OpenAI,
+  summaries: SummaryShape[]
+): Promise<SummaryShape> {
+  const combineInstructions = [
+    "Combine the chunk-level summaries into one final khutbah summary using",
+    "the required JSON schema.",
+    "The next message is a JSON array of chunk summaries; use only that",
+    "content.",
+    "",
+    "Rules for combining:",
+    "- Merge overlapping ideas and remove duplicates.",
+    "- Keep explicitAyatOrHadith verbatim; include every unique verse or",
+    "  hadith mentioned in any chunk.",
+    "- Keep the final limits: mainTheme <= 300 words, keyPoints <= 7 complete",
+    "  sentences, weeklyActions <= 3 complete sentences.",
+    "- Prefer concise wording to stay within the output token limit.",
+  ].join("\n");
+
+  let text: string;
+  try {
+    text = await runJsonSummaryRequest(
+      openai,
+      [
+        {role: "system", content: SUMMARY_SYSTEM_PROMPT},
+        {role: "user", content: combineInstructions},
+        {role: "user", content: JSON.stringify(summaries)},
+      ],
+      MAX_SUMMARY_OUTPUT_TOKENS,
+      "Aggregation"
+    );
+  } catch (err: unknown) {
+    if (!isMaxOutputTokensError(err)) {
+      throw err;
+    }
+
+    // First retry: add more tokens with compact instructions
+    try {
+      text = await runJsonSummaryRequest(
+        openai,
+        [
+          {role: "system", content: SUMMARY_SYSTEM_PROMPT},
+          {role: "user", content: COMPACT_RETRY_INSTRUCTIONS},
+          {role: "user", content: combineInstructions},
+          {role: "user", content: JSON.stringify(summaries)},
+        ],
+        MAX_SUMMARY_OUTPUT_TOKENS + 500,
+        "Aggregation (compact)"
+      );
+    } catch (err2: unknown) {
+      if (!isMaxOutputTokensError(err2)) {
+        throw err2;
+      }
+
+      // Second retry: even more tokens with ultra-compact instructions
+      text = await runJsonSummaryRequest(
+        openai,
+        [
+          {role: "system", content: SUMMARY_SYSTEM_PROMPT},
+          {role: "user", content: ULTRA_COMPACT_INSTRUCTIONS},
+          {role: "user", content: combineInstructions},
+          {role: "user", content: JSON.stringify(summaries)},
+        ],
+        MAX_SUMMARY_OUTPUT_TOKENS + 1000,
+        "Aggregation (ultra-compact)"
+      );
+    }
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("Aggregation: Model did not return valid JSON");
+  }
+
+  return parsed as SummaryShape;
+}
+
+/**
+ * Invoke the OpenAI Responses API enforcing JSON and surfacing incomplete
+ * errors.
+ *
+ * @param {OpenAI} openai OpenAI client instance.
+ * @param {ResponseMessage[]} messages Messages to send to the model.
+ * @param {number} maxOutputTokens Output token budget.
+ * @param {string} stage Friendly label for logging/errors.
+ * @return {Promise<string>} Raw JSON string from the model.
+ */
+async function runJsonSummaryRequest(
+  openai: OpenAI,
+  messages: ResponseMessage[],
+  maxOutputTokens: number,
+  stage: string
+): Promise<string> {
+  const response = await openai.responses.create({
+    model: SUMMARY_MODEL,
+    input: messages,
+    max_output_tokens: maxOutputTokens,
+    text: {format: {type: "json_object"}},
+  });
+
+  const incomplete =
+    (response as {incomplete_details?: {reason?: string}})
+      .incomplete_details?.reason;
+  if (incomplete) {
+    throw new Error(`${stage}: OpenAI stopped early: ${incomplete}`);
+  }
+
+  const {text, refusal, debug} = extractTextOrRefusal(response);
+  if (!text) {
+    const apiError = (response as {error?: {message?: string}}).error;
+    const reason = apiError?.message ??
+      (refusal ? `Model refusal: ${refusal}` : "Empty response from OpenAI");
+    logger.error(`${stage} empty output`, {
+      reason,
+      refusal,
+      hasOutputText: debug.hasOutputText,
+      outputLength: debug.outputLength,
+      incompleteDetails:
+        (response as {incomplete_details?: unknown}).incomplete_details ?? null,
+      rawResponse: safeJson(response),
+    });
+    throw new Error(`${stage}: ${reason}`);
+  }
+
+  return text;
+}
+
+/**
+ * Detect whether an error came from a max_output_tokens cutoff.
+ *
+ * @param {unknown} err Error to inspect.
+ * @return {boolean} True if the error message mentions max_output_tokens.
+ */
+function isMaxOutputTokensError(err: unknown): boolean {
+  const message =
+    err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  return message.includes("max_output_tokens");
+}
+
+/**
+ * Split long transcripts into overlapping character-based chunks.
+ *
+ * @param {string} transcript Full transcript text.
+ * @param {number} targetChars Target characters per chunk.
+ * @param {number} overlapChars Overlap characters between chunks.
+ * @return {string[]} Array of chunk strings.
+ */
+function chunkTranscript(
+  transcript: string,
+  targetChars: number,
+  overlapChars: number
+): string[] {
+  const cleaned = transcript.replace(/\r\n/g, "\n").trim();
+  if (cleaned.length === 0) {
+    return [];
+  }
+
+  if (cleaned.length <= targetChars) {
+    return [cleaned];
+  }
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < cleaned.length) {
+    const end = Math.min(cleaned.length, start + targetChars);
+    const chunk = cleaned.slice(start, end).trim();
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
+
+    if (end >= cleaned.length) {
+      break;
+    }
+
+    start = Math.max(0, end - overlapChars);
+  }
+
+  return chunks;
+}
+
+/**
+ * Enforce field limits and validate the final summary shape.
+ *
+ * @param {SummaryShape} summaryObj Summary object to enforce.
+ * @return {{
+ *   mainTheme: string,
+ *   keyPoints: string[],
+ *   explicitAyatOrHadith: string[],
+ *   characterTraits: string[],
+ *   weeklyActions: string[]
+ * }} Summary with enforced limits.
+ */
+function enforceSummaryLimits(summaryObj: SummaryShape): {
+  mainTheme: string;
+  keyPoints: string[];
+  explicitAyatOrHadith: string[];
+  characterTraits: string[];
+  weeklyActions: string[];
+} {
+  const mainTheme = summaryObj.mainTheme;
+  const keyPoints = summaryObj.keyPoints;
+  const explicitAyatOrHadith = summaryObj.explicitAyatOrHadith;
+  const characterTraits = summaryObj.characterTraits;
+  const weeklyActions = summaryObj.weeklyActions;
+
+  const isValid =
+    typeof mainTheme === "string" &&
+    Array.isArray(keyPoints) &&
+    keyPoints.every((i) => typeof i === "string") &&
+    Array.isArray(explicitAyatOrHadith) &&
+    explicitAyatOrHadith.every((i) => typeof i === "string") &&
+    Array.isArray(characterTraits) &&
+    characterTraits.every((i) => typeof i === "string") &&
+    Array.isArray(weeklyActions) &&
+    weeklyActions.every((i) => typeof i === "string");
+
+  if (!isValid) {
+    logger.error("Invalid summary schema", {
+      summary: safeJson(summaryObj),
+    });
+    throw new Error("Invalid summary schema");
+  }
+
+  const dedupedKeyPoints = dedupeStrings(keyPoints).slice(0, 7);
+  const dedupedWeekly = dedupeStrings(weeklyActions).slice(0, 3);
+  const dedupedTraits = dedupeStrings(characterTraits);
+  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith);
+
+  const trimmedTheme = truncateWords(mainTheme, 300).trim();
+
+  return {
+    mainTheme: trimmedTheme.length > 0 ? trimmedTheme : "Not mentioned",
+    keyPoints: dedupedKeyPoints,
+    explicitAyatOrHadith: dedupedQuotes,
+    characterTraits: dedupedTraits,
+    weeklyActions:
+      dedupedWeekly.length > 0 ? dedupedWeekly : ["No action mentioned"],
+  };
+}
+
+/**
+ * Remove duplicates and empty strings from a string array while preserving
+ * order.
+ *
+ * @param {unknown} items Candidate list of strings.
+ * @return {string[]} Deduped string array.
+ */
+function dedupeStrings(items: unknown): string[] {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of items) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result;
+}
+
+/**
+ * Truncate a string to a maximum number of words.
+ *
+ * @param {string} text Text to truncate.
+ * @param {number} maxWords Maximum words to keep.
+ * @return {string} Truncated text.
+ */
+function truncateWords(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/);
+  if (words.length <= maxWords) {
+    return text.trim();
+  }
+  return words.slice(0, maxWords).join(" ");
+}
 
 /**
  * Extract plain text or refusal reason from an OpenAI Responses API response.
