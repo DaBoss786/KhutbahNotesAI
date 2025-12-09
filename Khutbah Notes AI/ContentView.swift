@@ -36,6 +36,7 @@ struct Theme {
 
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @State private var toastMessage: String? = nil
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -47,12 +48,21 @@ struct MainTabView: View {
                     }
                     .tag(0)
                 
-                RecordLectureView()
-                    .tabItem {
-                        Label("Record", systemImage: "plus")
-                            .opacity(0) // Hidden; replaced by floating button
+                RecordLectureView(selectedTab: $selectedTab) { message in
+                    withAnimation {
+                        toastMessage = message
                     }
-                    .tag(1)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        withAnimation {
+                            toastMessage = nil
+                        }
+                    }
+                }
+                .tabItem {
+                    Label("Record", systemImage: "plus")
+                        .opacity(0) // Hidden; replaced by floating button
+                }
+                .tag(1)
                 
                 SettingsView()
                     .tabItem {
@@ -79,6 +89,14 @@ struct MainTabView: View {
                 .shadow(color: Theme.primaryGreen.opacity(0.28), radius: 12, x: 0, y: 10)
             }
             .offset(y: -10)
+            
+            if let message = toastMessage {
+                ToastView(message: message, onDismiss: {
+                    withAnimation { toastMessage = nil }
+                })
+                .padding(.bottom, 90)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
     }
 }

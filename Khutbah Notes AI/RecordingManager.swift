@@ -5,8 +5,14 @@ import AVFoundation
 /// Handles microphone permissions and audio recording lifecycle.
 final class RecordingManager: ObservableObject {
     @Published var isRecording: Bool = false
+    @Published var isPaused: Bool = false
+    @Published var elapsedTime: TimeInterval = 0
+    @Published var level: Double = 0
     
     private var audioRecorder: AVAudioRecorder?
+    private var meterTimer: Timer?
+    private var startDate: Date?
+    private var accumulatedTime: TimeInterval = 0
     
     enum RecordingError: Error {
         case permissionDenied
@@ -58,6 +64,7 @@ final class RecordingManager: ObservableObject {
         ]
         
         audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
+        audioRecorder?.isMeteringEnabled = true
         audioRecorder?.prepareToRecord()
         
         guard audioRecorder?.record() == true else {
@@ -67,6 +74,12 @@ final class RecordingManager: ObservableObject {
         }
         
         isRecording = true
+        isPaused = false
+        level = 0
+        startDate = Date()
+        elapsedTime = 0
+        accumulatedTime = 0
+        startMeteringTimer()
     }
     
     func stopRecording() -> URL? {
@@ -78,6 +91,9 @@ final class RecordingManager: ObservableObject {
         
         recorder.stop()
         isRecording = false
+        isPaused = false
+        stopMeteringTimer()
+        resetTiming()
         let recordedURL = recorder.url
         audioRecorder = nil
         
@@ -88,5 +104,66 @@ final class RecordingManager: ObservableObject {
         }
         
         return recordedURL
+    }
+
+    func pauseRecording() {
+        guard isRecording, !isPaused else { return }
+        audioRecorder?.pause()
+        isPaused = true
+        if let startDate {
+            accumulatedTime += Date().timeIntervalSince(startDate)
+        }
+        self.startDate = nil
+    }
+
+    func resumeRecording() {
+        guard isRecording, isPaused else { return }
+        let resumed = audioRecorder?.record() ?? false
+        if resumed {
+            isPaused = false
+            startDate = Date()
+        }
+    }
+
+    private func startMeteringTimer() {
+        stopMeteringTimer()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
+            self?.updateMetersAndTime()
+        }
+        RunLoop.current.add(meterTimer!, forMode: .common)
+    }
+
+    private func stopMeteringTimer() {
+        meterTimer?.invalidate()
+        meterTimer = nil
+    }
+
+    private func resetTiming() {
+        startDate = nil
+        accumulatedTime = 0
+        elapsedTime = 0
+        level = 0
+    }
+
+    private func updateMetersAndTime() {
+        guard isRecording else { return }
+        if !isPaused, let startDate {
+            elapsedTime = accumulatedTime + Date().timeIntervalSince(startDate)
+        } else if isPaused {
+            level = 0
+            return
+        }
+
+        audioRecorder?.updateMeters()
+        guard let power = audioRecorder?.averagePower(forChannel: 0) else {
+            level = 0
+            return
+        }
+
+        // Convert decibel scale (-160...0) to 0...1 range for UI.
+        let minDb: Float = -80
+        let clamped = max(minDb, power)
+        let normalized = pow(10, clamped / 20)
+        level = Double(normalized)
     }
 }
