@@ -9,6 +9,7 @@ import SwiftUI
 import Combine
 import AVFoundation
 import FirebaseStorage
+import UIKit
 
 struct ContentView: View {
     var body: some View {
@@ -277,6 +278,9 @@ struct LectureCardView: View {
 struct LectureDetailView: View {
     let lecture: Lecture
     @State private var selectedTab = 0
+    @State private var shareItems: [Any]? = nil
+    @State private var isShareSheetPresented = false
+    @State private var copyBannerMessage: String? = nil
     
     private let tabs = ["Summary", "Transcript"]
     
@@ -294,49 +298,151 @@ struct LectureDetailView: View {
     }
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(lecture.title)
-                    .font(Theme.largeTitleFont)
-                    .foregroundColor(.black)
-                
-                HStack(spacing: 8) {
-                    Label(dateText, systemImage: "calendar")
-                    Label(durationText, systemImage: "clock")
-                    Label(lecture.status.rawValue.capitalized, systemImage: "bolt.horizontal.circle")
-                }
-                .font(Theme.bodyFont)
-                .foregroundColor(Theme.mutedText)
+        ZStack(alignment: .top) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(lecture.title)
+                        .font(Theme.largeTitleFont)
+                        .foregroundColor(.black)
+                    
+                    HStack(spacing: 8) {
+                        Label(dateText, systemImage: "calendar")
+                        Label(durationText, systemImage: "clock")
+                        Label(lecture.status.rawValue.capitalized, systemImage: "bolt.horizontal.circle")
+                    }
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.mutedText)
 
-                LectureAudioPlayerView(audioPath: lecture.audioPath)
-                
-                Divider()
-                
-                Picker("Content", selection: $selectedTab) {
-                    ForEach(0..<tabs.count, id: \.self) { index in
-                        Text(tabs[index]).tag(index)
+                    LectureAudioPlayerView(audioPath: lecture.audioPath)
+                    
+                    Divider()
+                    
+                    Picker("Content", selection: $selectedTab) {
+                        ForEach(0..<tabs.count, id: \.self) { index in
+                            Text(tabs[index]).tag(index)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    if selectedTab == 0 {
+                        SummaryView(summary: lecture.summary) {
+                            ExportIconButtons(
+                                onCopy: {
+                                    guard let text = exportableSummaryText() else { return }
+                                    copyToClipboard(text)
+                                },
+                                onShare: {
+                                    guard let text = exportableSummaryText() else { return }
+                                    presentShareSheet(with: text)
+                                },
+                                isDisabled: lecture.summary == nil
+                            )
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .center) {
+                                Text("Transcript")
+                                    .font(Theme.titleFont)
+                                Spacer()
+                                ExportIconButtons(
+                                    onCopy: {
+                                        guard let text = exportableTranscriptText() else { return }
+                                        copyToClipboard(text)
+                                    },
+                                    onShare: {
+                                        guard let text = exportableTranscriptText() else { return }
+                                        presentShareSheet(with: text)
+                                    },
+                                    isDisabled: (lecture.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                )
+                            }
+                            Text(lecture.transcript ?? "Transcript will appear here once ready.")
+                                .font(Theme.bodyFont)
+                                .foregroundColor(Theme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                
-                if selectedTab == 0 {
-                    SummaryView(summary: lecture.summary)
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Transcript")
-                            .font(Theme.titleFont)
-                        Text(lecture.transcript ?? "Transcript will appear here once ready.")
-                            .font(Theme.bodyFont)
-                            .foregroundColor(Theme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+                .padding()
             }
-            .padding()
+            .background(Theme.background.ignoresSafeArea())
+            .navigationTitle("Lecture")
+            .navigationBarTitleDisplayMode(.inline)
+            
+            if let message = copyBannerMessage {
+                CopyBanner(message: message)
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle("Lecture")
-        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $isShareSheetPresented) {
+            if let items = shareItems {
+                ShareSheet(activityItems: items)
+            }
+        }
+    }
+    
+    private var brandFooter: String { "\n\n— Created with Khutbah Notes" }
+    
+    private func exportableSummaryText() -> String? {
+        guard let summary = lecture.summary else { return nil }
+        
+        var lines: [String] = []
+        lines.append(lecture.title)
+        lines.append("Summary • \(dateText)")
+        lines.append("")
+        lines.append("Main Theme:")
+        lines.append(summary.mainTheme.isEmpty ? "Not mentioned" : summary.mainTheme)
+        
+        if !summary.keyPoints.isEmpty {
+            lines.append("")
+            lines.append("Key Points:")
+            lines.append(contentsOf: summary.keyPoints.map { "- \($0)" })
+        }
+        
+        if !summary.explicitAyatOrHadith.isEmpty {
+            lines.append("")
+            lines.append("Explicit Ayat or Hadith:")
+            lines.append(contentsOf: summary.explicitAyatOrHadith.map { "- \($0)" })
+        }
+        
+        if !summary.weeklyActions.isEmpty {
+            lines.append("")
+            lines.append("Weekly Actions:")
+            lines.append(contentsOf: summary.weeklyActions.map { "- \($0)" })
+        }
+        
+        return lines.joined(separator: "\n") + brandFooter
+    }
+    
+    private func exportableTranscriptText() -> String? {
+        guard let transcript = lecture.transcript?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !transcript.isEmpty else { return nil }
+        
+        var lines: [String] = []
+        lines.append("\(lecture.title) — Transcript")
+        lines.append("Date: \(dateText)")
+        lines.append("")
+        lines.append(transcript)
+        return lines.joined(separator: "\n") + brandFooter
+    }
+    
+    private func presentShareSheet(with text: String) {
+        shareItems = [text]
+        isShareSheetPresented = true
+    }
+    
+    private func copyToClipboard(_ text: String) {
+        UIPasteboard.general.string = text
+        withAnimation {
+            copyBannerMessage = "Copied to clipboard"
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+            withAnimation {
+                copyBannerMessage = nil
+            }
+        }
     }
 }
 
@@ -678,13 +784,23 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     }
 }
 
-struct SummaryView: View {
+struct SummaryView<Actions: View>: View {
     let summary: LectureSummary?
+    let actions: Actions
+    
+    init(summary: LectureSummary?, @ViewBuilder actions: () -> Actions = { EmptyView() }) {
+        self.summary = summary
+        self.actions = actions()
+    }
     
     var body: some View {
-            VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center) {
                 Text("Summary")
                     .font(Theme.titleFont)
+                Spacer()
+                actions
+            }
             
             if let summary {
                 summarySection(title: "Main Theme", content: [summary.mainTheme])
@@ -735,6 +851,65 @@ struct SummaryView: View {
             }
         }
     }
+}
+
+struct ExportIconButtons: View {
+    var onCopy: () -> Void
+    var onShare: () -> Void
+    var isDisabled: Bool
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            iconButton(systemName: "doc.on.doc", action: onCopy)
+            iconButton(systemName: "square.and.arrow.up", action: onShare)
+        }
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1)
+    }
+    
+    private func iconButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 34, height: 34)
+                .background(
+                    LinearGradient(colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing)
+                )
+                .clipShape(Circle())
+                .shadow(color: Theme.primaryGreen.opacity(0.18), radius: 6, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct CopyBanner: View {
+    let message: String
+    
+    var body: some View {
+        Text(message)
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .foregroundColor(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(Theme.primaryGreen.opacity(0.95))
+                    .shadow(color: Theme.primaryGreen.opacity(0.25), radius: 8, x: 0, y: 6)
+            )
+    }
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) { }
 }
 
 struct SettingsView: View {
