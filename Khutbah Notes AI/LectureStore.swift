@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AVFoundation
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
@@ -11,6 +12,7 @@ final class LectureStore: ObservableObject {
     private let storage = Storage.storage()
     private var listener: ListenerRegistration?
     private(set) var userId: String?
+    private var durationFetches: Set<String> = []
     
     init(seedMockData: Bool = false) {
         if seedMockData {
@@ -139,6 +141,8 @@ final class LectureStore: ObservableObject {
                         audioPath: audioPath
                     )
                 }
+                
+                self.fillMissingDurationsIfNeeded(for: self.lectures)
             }
     }
     
@@ -151,13 +155,14 @@ final class LectureStore: ObservableObject {
         let lectureId = UUID().uuidString
         let now = Date()
         let audioPath = "audio/\(userId)/\(lectureId).m4a"
+        let durationMinutes = durationMinutes(for: recordingURL)
         
         // Optimistically insert a local lecture while upload happens
         let newLecture = Lecture(
             id: lectureId,
             title: title,
             date: now,
-            durationMinutes: nil,
+            durationMinutes: durationMinutes,
             isFavorite: false,
             status: .processing,
             transcript: nil,
@@ -182,16 +187,16 @@ final class LectureStore: ObservableObject {
             
             let audioPath = audioRef.fullPath
             
-            let docData: [String: Any] = [
+            var docData: [String: Any] = [
                 "title": title,
                 "date": Timestamp(date: now),
-                "durationMinutes": NSNull(), // can fill later
                 "isFavorite": false,
                 "status": "processing",
                 "transcript": NSNull(),
                 "summary": NSNull(),
                 "audioPath": audioPath
             ]
+            docData["durationMinutes"] = durationMinutes ?? NSNull()
             
             self.db.collection("users")
                 .document(userId)
@@ -211,5 +216,81 @@ final class LectureStore: ObservableObject {
 extension LectureStore {
     static func mockStoreWithSampleData() -> LectureStore {
         LectureStore(seedMockData: true)
+    }
+}
+
+// MARK: - Duration helpers
+private extension LectureStore {
+    func durationMinutes(for recordingURL: URL) -> Int? {
+        let asset = AVURLAsset(url: recordingURL, options: [
+            AVURLAssetPreferPreciseDurationAndTimingKey: true
+        ])
+        return Self.durationMinutes(fromSeconds: CMTimeGetSeconds(asset.duration))
+    }
+    
+    static func durationMinutes(fromSeconds seconds: Double) -> Int? {
+        guard seconds.isFinite, seconds > 0 else { return nil }
+        let minutes = Int((seconds / 60).rounded())
+        return max(1, minutes)
+    }
+    
+    func fillMissingDurationsIfNeeded(for lectures: [Lecture]) {
+        for lecture in lectures {
+            guard lecture.durationMinutes == nil,
+                  let audioPath = lecture.audioPath,
+                  !durationFetches.contains(lecture.id) else { continue }
+            
+            durationFetches.insert(lecture.id)
+            
+            storage.reference(withPath: audioPath).downloadURL { [weak self] url, error in
+                guard let self else { return }
+                guard let url else {
+                    self.durationFetches.remove(lecture.id)
+                    if let error { print("Failed to fetch audio URL for duration: \(error)") }
+                    return
+                }
+                
+                let asset = AVURLAsset(url: url, options: [
+                    AVURLAssetPreferPreciseDurationAndTimingKey: true
+                ])
+                
+                asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
+                    guard let self else { return }
+                    
+                    var loadError: NSError?
+                    let status = asset.statusOfValue(forKey: "duration", error: &loadError)
+                    guard status == .loaded else {
+                        Task { @MainActor in
+                            self.durationFetches.remove(lecture.id)
+                            if let loadError {
+                                print("Failed to load duration for \(lecture.id): \(loadError)")
+                            }
+                        }
+                        return
+                    }
+                    
+                    let minutes = Self.durationMinutes(fromSeconds: CMTimeGetSeconds(asset.duration))
+                    Task { @MainActor in
+                        self.durationFetches.remove(lecture.id)
+                        guard let minutes else { return }
+                        self.persistDuration(minutes, for: lecture)
+                    }
+                }
+            }
+        }
+    }
+    
+    func persistDuration(_ minutes: Int, for lecture: Lecture) {
+        var updated = lecture
+        updated.durationMinutes = minutes
+        updateLecture(updated)
+        
+        guard let userId else { return }
+        
+        db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lecture.id)
+            .setData(["durationMinutes": minutes], merge: true)
     }
 }
