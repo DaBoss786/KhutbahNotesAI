@@ -42,13 +42,12 @@ const SUMMARY_SYSTEM_PROMPT = [
   "  \"mainTheme\": string,",
   "  \"keyPoints\": string[],",
   "  \"explicitAyatOrHadith\": string[],",
-  "  \"characterTraits\": string[],",
   "  \"weeklyActions\": string[]",
   "}",
   "",
   "Field rules:",
   "- mainTheme:",
-  "  - Up to 300 words total (prefer 2–4 concise sentences) describing the",
+  "  - Up to 400 words total (prefer 3–5 concise sentences) describing the",
   "    main topic or message based only on the provided text.",
   "  - If the main theme is not clearly stated, use the exact string",
   "    \"Not mentioned\".",
@@ -60,16 +59,10 @@ const SUMMARY_SYSTEM_PROMPT = [
   "  - If fewer points are clear, return what is available (at least 1).",
   "",
   "- explicitAyatOrHadith:",
-  "  - Include every explicit Qur'an verse or hadith that is clearly quoted",
-  "    or referenced in the provided text.",
-  "  - Copy the quote verbatim without paraphrasing or truncating it.",
+  "  - Include at most 2 explicit Qur'an verses or hadith that are clearly",
+  "    quoted in the provided text and most central to the khutbah's message.",
+  "  - Copy each quote verbatim without paraphrasing or truncating it.",
   "  - If none are mentioned, return an empty array: [].",
-  "",
-  "- characterTraits:",
-  "  - Each array item should be one character trait explicitly named in the",
-  "    provided text (e.g., sabr, shukr, taqwa, humility).",
-  "  - Do NOT infer traits from stories or implications.",
-  "  - If no traits are explicitly mentioned, return an empty array: [].",
   "",
   "- weeklyActions:",
   "  - Up to 3 practical actions clearly and explicitly encouraged in the",
@@ -99,7 +92,8 @@ const COMPACT_RETRY_INSTRUCTIONS = [
   "- mainTheme: max 200 words (2–3 short sentences).",
   "- keyPoints: max 6 sentences, each under ~22 words.",
   "- weeklyActions: max 3 sentences, each under ~16 words.",
-  "- explicitAyatOrHadith: include verbatim quotes only; no paraphrasing.",
+  "- explicitAyatOrHadith: include up to 2 verbatim quotes most central to",
+  "  the khutbah; no paraphrasing.",
 ].join("\n");
 
 const ULTRA_COMPACT_INSTRUCTIONS = [
@@ -111,7 +105,8 @@ const ULTRA_COMPACT_INSTRUCTIONS = [
   "- mainTheme: max 120 words (1–2 sentences).",
   "- keyPoints: max 4 sentences, each under ~18 words.",
   "- weeklyActions: max 2 sentences, each under ~12 words.",
-  "- explicitAyatOrHadith: include verbatim quotes only; avoid duplicates.",
+  "- explicitAyatOrHadith: include up to 2 verbatim quotes, prioritizing the",
+  "  most central; avoid duplicates.",
 ].join("\n");
 
 export const onAudioUpload = onObjectFinalized(
@@ -416,10 +411,11 @@ async function summarizeChunk(
       "Focus only on this chunk. Do not speculate about missing context." :
       "This is the full transcript.",
     "Keep the output brief to conserve tokens:",
-    "- mainTheme: up to ~150 words (2–3 sentences).",
+    "- mainTheme: up to ~200 words (3–4 sentences).",
     "- keyPoints: up to 5 complete sentences, each kept concise.",
-    "- explicitAyatOrHadith: include every explicit quote verbatim from this",
-    "  chunk.",
+    "- explicitAyatOrHadith: include a maximum of 2 explicit quotes",
+    "  verbatim from this chunk, prioritizing the most central to the",
+    "  khutbah's message.",
     "- weeklyActions: up to 2 explicit actions or \"No action mentioned\".",
   ].join("\n");
 
@@ -504,10 +500,11 @@ async function aggregateChunkSummaries(
     "",
     "Rules for combining:",
     "- Merge overlapping ideas and remove duplicates.",
-    "- Keep explicitAyatOrHadith verbatim; include every unique verse or",
-    "  hadith mentioned in any chunk.",
-    "- Keep the final limits: mainTheme <= 300 words, keyPoints <= 7 complete",
-    "  sentences, weeklyActions <= 3 complete sentences.",
+    "- Keep explicitAyatOrHadith verbatim; include up to 2 unique quotes that",
+    "  are most central across chunks.",
+    "- Keep the final limits: mainTheme <= 400 words, keyPoints <= 7 complete",
+    "  sentences, weeklyActions <= 3 complete sentences, explicitAyatOrHadith",
+    "  <= 2 quotes.",
     "- Prefer concise wording to stay within the output token limit.",
   ].join("\n");
 
@@ -683,7 +680,6 @@ function chunkTranscript(
  *   mainTheme: string,
  *   keyPoints: string[],
  *   explicitAyatOrHadith: string[],
- *   characterTraits: string[],
  *   weeklyActions: string[]
  * }} Summary with enforced limits.
  */
@@ -691,13 +687,11 @@ function enforceSummaryLimits(summaryObj: SummaryShape): {
   mainTheme: string;
   keyPoints: string[];
   explicitAyatOrHadith: string[];
-  characterTraits: string[];
   weeklyActions: string[];
 } {
   const mainTheme = summaryObj.mainTheme;
   const keyPoints = summaryObj.keyPoints;
   const explicitAyatOrHadith = summaryObj.explicitAyatOrHadith;
-  const characterTraits = summaryObj.characterTraits;
   const weeklyActions = summaryObj.weeklyActions;
 
   const isValid =
@@ -706,8 +700,6 @@ function enforceSummaryLimits(summaryObj: SummaryShape): {
     keyPoints.every((i) => typeof i === "string") &&
     Array.isArray(explicitAyatOrHadith) &&
     explicitAyatOrHadith.every((i) => typeof i === "string") &&
-    Array.isArray(characterTraits) &&
-    characterTraits.every((i) => typeof i === "string") &&
     Array.isArray(weeklyActions) &&
     weeklyActions.every((i) => typeof i === "string");
 
@@ -720,16 +712,14 @@ function enforceSummaryLimits(summaryObj: SummaryShape): {
 
   const dedupedKeyPoints = dedupeStrings(keyPoints).slice(0, 7);
   const dedupedWeekly = dedupeStrings(weeklyActions).slice(0, 3);
-  const dedupedTraits = dedupeStrings(characterTraits);
-  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith);
+  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith).slice(0, 2);
 
-  const trimmedTheme = truncateWords(mainTheme, 300).trim();
+  const trimmedTheme = truncateWords(mainTheme, 400).trim();
 
   return {
     mainTheme: trimmedTheme.length > 0 ? trimmedTheme : "Not mentioned",
     keyPoints: dedupedKeyPoints,
     explicitAyatOrHadith: dedupedQuotes,
-    characterTraits: dedupedTraits,
     weeklyActions:
       dedupedWeekly.length > 0 ? dedupedWeekly : ["No action mentioned"],
   };
@@ -875,7 +865,6 @@ type SummaryShape = {
   mainTheme: unknown;
   keyPoints: unknown;
   explicitAyatOrHadith: unknown;
-  characterTraits: unknown;
   weeklyActions: unknown;
   topic?: unknown;
   main_theme?: unknown;
@@ -963,11 +952,6 @@ function normalizeSummary(raw: SummaryShape): SummaryShape {
     normalized.weeklyActions.trim()
   ) {
     normalized.weeklyActions = [normalized.weeklyActions.trim()];
-  }
-
-  // If characterTraits is missing, set empty array (as per requirements)
-  if (normalized.characterTraits === undefined) {
-    normalized.characterTraits = [];
   }
 
   // If mainTheme is missing but we have keyPoints, fall back to first point

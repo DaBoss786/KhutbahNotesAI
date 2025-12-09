@@ -673,8 +673,6 @@ struct SummaryView: View {
                 summarySection(title: "Key Points", content: summary.keyPoints)
                 summarySection(title: "Explicit Ayat or Hadith",
                                content: summary.explicitAyatOrHadith)
-                summarySection(title: "Character Traits",
-                               content: summary.characterTraits)
                 summarySection(title: "Weekly Actions",
                                content: summary.weeklyActions)
             } else {

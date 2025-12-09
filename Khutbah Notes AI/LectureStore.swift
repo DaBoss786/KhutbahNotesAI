@@ -108,14 +108,12 @@ final class LectureStore: ObservableObject {
                         let mainTheme = summaryMap["mainTheme"] as? String ?? "Not mentioned"
                         let keyPoints = summaryMap["keyPoints"] as? [String] ?? []
                         let explicitAyatOrHadith = summaryMap["explicitAyatOrHadith"] as? [String] ?? []
-                        let characterTraits = summaryMap["characterTraits"] as? [String] ?? []
                         let weeklyActions = summaryMap["weeklyActions"] as? [String] ?? []
                         
                         summary = LectureSummary(
                             mainTheme: mainTheme,
                             keyPoints: keyPoints,
                             explicitAyatOrHadith: explicitAyatOrHadith,
-                            characterTraits: characterTraits,
                             weeklyActions: weeklyActions
                         )
                     }

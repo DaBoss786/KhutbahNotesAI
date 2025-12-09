@@ -44,7 +44,6 @@ extension Lecture {
             explicitAyatOrHadith: [
                 "Indeed, Allah is with the patient."
             ],
-            characterTraits: ["Sabr"],
             weeklyActions: ["Check in on your family this week"]
         ),
         audioPath: nil
@@ -56,6 +55,5 @@ struct LectureSummary: Identifiable, Hashable, Codable {
     var mainTheme: String
     var keyPoints: [String]
     var explicitAyatOrHadith: [String]
-    var characterTraits: [String]
     var weeklyActions: [String]
 }
