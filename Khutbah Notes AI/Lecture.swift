@@ -24,6 +24,8 @@ struct Lecture: Identifiable, Hashable, Codable {
     var transcript: String?
     var summary: LectureSummary?
     var audioPath: String?
+    var folderId: String?
+    var folderName: String?
 }
 
 extension Lecture {
@@ -46,7 +48,9 @@ extension Lecture {
             ],
             weeklyActions: ["Check in on your family this week"]
         ),
-        audioPath: nil
+        audioPath: nil,
+        folderId: nil,
+        folderName: nil
     )
 }
 
@@ -56,4 +60,10 @@ struct LectureSummary: Identifiable, Hashable, Codable {
     var keyPoints: [String]
     var explicitAyatOrHadith: [String]
     var weeklyActions: [String]
+}
+
+struct Folder: Identifiable, Hashable, Codable {
+    let id: String
+    var name: String
+    var createdAt: Date
 }

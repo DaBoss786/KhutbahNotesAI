@@ -8,9 +8,11 @@ import FirebaseStorage
 @MainActor
 final class LectureStore: ObservableObject {
     @Published var lectures: [Lecture] = []
+    @Published var folders: [Folder] = []
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
     private var listener: ListenerRegistration?
+    private var folderListener: ListenerRegistration?
     private(set) var userId: String?
     private var durationFetches: Set<String> = []
     
@@ -34,7 +36,9 @@ final class LectureStore: ObservableObject {
                 status: .ready,
                 transcript: nil,
                 summary: nil,
-                audioPath: nil
+                audioPath: nil,
+                folderId: nil,
+                folderName: nil
             ),
             Lecture(
                 id: "mock-2",
@@ -45,7 +49,9 @@ final class LectureStore: ObservableObject {
                 status: .processing,
                 transcript: nil,
                 summary: nil,
-                audioPath: nil
+                audioPath: nil,
+                folderId: nil,
+                folderName: nil
             ),
             Lecture(
                 id: "mock-3",
@@ -56,7 +62,9 @@ final class LectureStore: ObservableObject {
                 status: .failed,
                 transcript: nil,
                 summary: nil,
-                audioPath: nil
+                audioPath: nil,
+                folderId: nil,
+                folderName: nil
             )
         ]
     }
@@ -71,6 +79,7 @@ final class LectureStore: ObservableObject {
         
         // Stop any previous listener
         listener?.remove()
+        folderListener?.remove()
         
         // Listen to this user's lectures collection
         listener = db.collection("users")
@@ -104,6 +113,8 @@ final class LectureStore: ObservableObject {
                     let isFavorite = data["isFavorite"] as? Bool ?? false
                     let transcript = data["transcript"] as? String
                     let audioPath = data["audioPath"] as? String
+                    let folderId = data["folderId"] as? String
+                    let folderName = data["folderName"] as? String
                     
                     var summary: LectureSummary? = nil
                     if let summaryMap = data["summary"] as? [String: Any] {
@@ -138,11 +149,46 @@ final class LectureStore: ObservableObject {
                         status: status,
                         transcript: transcript,
                         summary: summary,
-                        audioPath: audioPath
+                        audioPath: audioPath,
+                        folderId: folderId,
+                        folderName: folderName
                     )
                 }
                 
                 self.fillMissingDurationsIfNeeded(for: self.lectures)
+            }
+        
+        // Listen to this user's folders collection
+        folderListener = db.collection("users")
+            .document(userId)
+            .collection("folders")
+            .order(by: "createdAt", descending: false)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                if let error = error {
+                    print("Error listening to folders: \(error)")
+                    return
+                }
+                
+                guard let documents = snapshot?.documents else {
+                    self.folders = []
+                    return
+                }
+                
+                self.folders = documents.compactMap { doc in
+                    let data = doc.data()
+                    let id = doc.documentID
+                    guard let name = data["name"] as? String else { return nil }
+                    
+                    let createdAt: Date
+                    if let ts = data["createdAt"] as? Timestamp {
+                        createdAt = ts.dateValue()
+                    } else {
+                        createdAt = Date()
+                    }
+                    
+                    return Folder(id: id, name: name, createdAt: createdAt)
+                }
             }
     }
     
@@ -167,7 +213,9 @@ final class LectureStore: ObservableObject {
             status: .processing,
             transcript: nil,
             summary: nil,
-            audioPath: audioPath
+            audioPath: audioPath,
+            folderId: nil,
+            folderName: nil
         )
         
         // Insert at top so UI feels instant; Firestore listener will overwrite as needed
@@ -209,6 +257,100 @@ final class LectureStore: ObservableObject {
                         print("Lecture metadata saved to Firestore for \(lectureId)")
                     }
                 }
+        }
+    }
+    
+    func createFolder(named name: String, folderId: String = UUID().uuidString) {
+        guard let userId else {
+            print("No userId set on LectureStore; cannot create folder.")
+            return
+        }
+        
+        let data: [String: Any] = [
+            "name": name,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        
+        db.collection("users")
+            .document(userId)
+            .collection("folders")
+            .document(folderId)
+            .setData(data) { error in
+                if let error = error {
+                    print("Error creating folder: \(error)")
+                }
+            }
+    }
+    
+    func renameLecture(_ lecture: Lecture, to newTitle: String) {
+        var updated = lecture
+        updated.title = newTitle
+        updateLecture(updated)
+        
+        guard let userId else { return }
+        db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lecture.id)
+            .setData(["title": newTitle], merge: true) { error in
+                if let error = error {
+                    print("Error renaming lecture: \(error)")
+                }
+            }
+    }
+    
+    func moveLecture(_ lecture: Lecture, to folder: Folder?) {
+        var updated = lecture
+        updated.folderId = folder?.id
+        updated.folderName = folder?.name
+        updateLecture(updated)
+        
+        guard let userId else { return }
+        
+        var data: [String: Any] = [:]
+        if let folder {
+            data["folderId"] = folder.id
+            data["folderName"] = folder.name
+        } else {
+            data["folderId"] = FieldValue.delete()
+            data["folderName"] = FieldValue.delete()
+        }
+        
+        db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lecture.id)
+            .setData(data, merge: true) { error in
+                if let error = error {
+                    print("Error moving lecture: \(error)")
+                }
+            }
+    }
+    
+    func deleteLecture(_ lecture: Lecture) {
+        guard let userId else { return }
+        
+        // Optimistically remove locally
+        lectures.removeAll { $0.id == lecture.id }
+        
+        let docRef = db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lecture.id)
+        
+        docRef.delete { [weak self] error in
+            if let error = error {
+                print("Error deleting lecture: \(error)")
+            }
+        }
+        
+        // Delete audio blob if present
+        if let audioPath = lecture.audioPath {
+            storage.reference(withPath: audioPath).delete { error in
+                if let error = error {
+                    print("Error deleting audio file: \(error)")
+                }
+            }
         }
     }
 }
