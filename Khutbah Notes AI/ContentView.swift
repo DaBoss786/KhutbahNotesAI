@@ -210,6 +210,9 @@ struct NotesView: View {
                     .font(.system(size: 26))
                     .foregroundColor(Theme.primaryGreen)
             }
+            Text("As-salamu alaikum")
+                .font(.subheadline)
+                .foregroundColor(Theme.mutedText)
         }
     }
     
