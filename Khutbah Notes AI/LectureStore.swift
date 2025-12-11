@@ -74,6 +74,27 @@ final class LectureStore: ObservableObject {
         lectures[index] = lecture
     }
     
+    func saveJumuahStartTime(_ time: String, timezoneIdentifier: String) async {
+        guard let userId else {
+            print("No userId set on LectureStore; cannot save Jumu'ah start time.")
+            return
+        }
+        
+        let data: [String: Any] = [
+            "preferences": [
+                "jumuahStartTime": time,
+                "jumuahTimezone": timezoneIdentifier
+            ]
+        ]
+        
+        do {
+            try await db.collection("users").document(userId).setData(data, merge: true)
+            print("Saved Jumu'ah start time for user \(userId): \(time) (\(timezoneIdentifier))")
+        } catch {
+            print("Failed to save Jumu'ah start time: \(error.localizedDescription)")
+        }
+    }
+    
     func start(for userId: String) {
         self.userId = userId
         

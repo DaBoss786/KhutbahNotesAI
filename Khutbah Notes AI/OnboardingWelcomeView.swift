@@ -17,6 +17,7 @@ struct OnboardingFlowView: View {
         case rememberEveryKhutbah
         case integrity
         case howItWorks
+        case jumuahReminder
         case nextPlaceholder
     }
     
@@ -46,6 +47,13 @@ struct OnboardingFlowView: View {
                 .transition(.opacity)
             case .howItWorks:
                 OnboardingHowItWorksView {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        step = .jumuahReminder
+                    }
+                }
+                .transition(.opacity)
+            case .jumuahReminder:
+                OnboardingJumuahReminderView {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .nextPlaceholder
                     }
@@ -322,6 +330,112 @@ struct HowItWorksRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+struct OnboardingJumuahReminderView: View {
+    var onContinue: () -> Void
+    
+    @EnvironmentObject private var store: LectureStore
+    @AppStorage("jumuahStartTime") private var storedJumuahStartTime: String?
+    @State private var selectedTime: String?
+    
+    private let times: [String] = [
+        "12:00", "12:15", "12:30", "12:45",
+        "1:00", "1:15", "1:30", "1:45", "2:00"
+    ]
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+    
+    var body: some View {
+        ZStack {
+            BrandBackground()
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                Spacer()
+                
+                VStack(spacing: 20) {
+                    Text("When does your Jumu'ah start?")
+                        .font(.system(size: 28, weight: .bold, design: .serif))
+                        .foregroundColor(BrandPalette.cream)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    
+                    LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
+                        ForEach(times, id: \.self) { time in
+                            Button(action: { selectedTime = time }) {
+                                Text(time)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(TimeChipStyle(isSelected: selectedTime == time))
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    
+                    Text("We'll send you a reminder shortly before the khutbah begins.")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(BrandPalette.cream.opacity(0.92))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 8)
+                }
+                
+                Spacer()
+                
+                Button(action: handleContinue) {
+                    Text("Continue")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(CreamButtonGreenTextStyle())
+                .opacity(selectedTime == nil ? 0.6 : 1)
+                .disabled(selectedTime == nil)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
+            }
+        }
+        .onAppear {
+            selectedTime = storedJumuahStartTime
+        }
+    }
+    
+    private func handleContinue() {
+        guard let selection = selectedTime else { return }
+        storedJumuahStartTime = selection
+        let timezone = TimeZone.current.identifier
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        Task {
+            await store.saveJumuahStartTime(selection, timezoneIdentifier: timezone)
+            await MainActor.run {
+                onContinue()
+            }
+        }
+    }
+}
+
+struct TimeChipStyle: ButtonStyle {
+    var isSelected: Bool
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .foregroundColor(isSelected ? BrandPalette.deepGreen : BrandPalette.cream)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isSelected ? BrandPalette.cream : BrandPalette.cream.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(BrandPalette.cream.opacity(isSelected ? 0.0 : 0.35), lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.95 : 1)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
