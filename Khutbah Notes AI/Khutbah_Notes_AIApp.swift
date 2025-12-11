@@ -12,6 +12,8 @@ import FirebaseAuth
 @main
 struct Khutbah_Notes_AIApp: App {
     @StateObject private var store: LectureStore
+    @State private var showSplash = true
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     
     init() {
         FirebaseApp.configure()
@@ -22,8 +24,21 @@ struct Khutbah_Notes_AIApp: App {
     
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environmentObject(store)
+            ZStack {
+                MainTabView()
+                    .opacity((showSplash || !hasCompletedOnboarding) ? 0 : 1)
+                
+                if !hasCompletedOnboarding && !showSplash {
+                    OnboardingFlowView(hasCompletedOnboarding: $hasCompletedOnboarding)
+                        .transition(.opacity)
+                }
+                
+                if showSplash {
+                    SplashView(isActive: $showSplash)
+                        .transition(.opacity)
+                }
+            }
+            .environmentObject(store)
         }
     }
     
