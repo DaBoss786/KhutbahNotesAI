@@ -16,6 +16,7 @@ struct OnboardingFlowView: View {
         case welcome
         case rememberEveryKhutbah
         case integrity
+        case howItWorks
         case nextPlaceholder
     }
     
@@ -38,6 +39,13 @@ struct OnboardingFlowView: View {
                 .transition(.opacity)
             case .integrity:
                 OnboardingIntegrityView {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        step = .howItWorks
+                    }
+                }
+                .transition(.opacity)
+            case .howItWorks:
+                OnboardingHowItWorksView {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .nextPlaceholder
                     }
@@ -230,6 +238,90 @@ struct OnboardingIntegrityView: View {
     private func handleContinue() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onContinue()
+    }
+}
+
+struct OnboardingHowItWorksView: View {
+    var onContinue: () -> Void
+    private let contentWidth: CGFloat = 340
+    
+    var body: some View {
+        ZStack {
+            BrandPalette.cream
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                Spacer()
+                
+                VStack(spacing: 22) {
+                    Text("How It Works")
+                        .font(.system(size: 32, weight: .bold, design: .serif))
+                        .foregroundColor(BrandPalette.deepGreen)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: contentWidth)
+                    
+                    VStack(alignment: .leading, spacing: 18) {
+                        HowItWorksRow(
+                            icon: "mic.circle.fill",
+                            title: "Record the khutbah",
+                            detail: "Discreetly capture the audio during Jumu'ah."
+                        )
+                        HowItWorksRow(
+                            icon: "list.bullet.rectangle.portrait",
+                            title: "Get key takeaways",
+                            detail: "Transcriptions, summaries, ayaths, and reminders"
+                        )
+                        HowItWorksRow(
+                            icon: "arrow.clockwise.circle.fill",
+                            title: "Reflect all week",
+                            detail: "Stay connected to the message beyond Friday."
+                        )
+                    }
+                    .frame(maxWidth: contentWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .padding(.horizontal, 28)
+                
+                Spacer()
+                
+                Button(action: handleContinue) {
+                    Text("Continue")
+                }
+                .buttonStyle(SolidGreenButtonStyle())
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
+            }
+        }
+    }
+    
+    private func handleContinue() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onContinue()
+    }
+}
+
+struct HowItWorksRow: View {
+    var icon: String
+    var title: String
+    var detail: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 32, weight: .semibold))
+                .foregroundColor(BrandPalette.deepGreen)
+                .frame(width: 42, alignment: .center)
+            
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 20, weight: .semibold, design: .serif))
+                    .foregroundColor(BrandPalette.deepGreen)
+                Text(detail)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(BrandPalette.deepGreen.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
