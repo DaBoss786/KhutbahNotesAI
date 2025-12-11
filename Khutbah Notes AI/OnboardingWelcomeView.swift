@@ -15,6 +15,7 @@ struct OnboardingFlowView: View {
     private enum Step {
         case welcome
         case rememberEveryKhutbah
+        case integrity
         case nextPlaceholder
     }
     
@@ -30,6 +31,13 @@ struct OnboardingFlowView: View {
                 .transition(.opacity)
             case .rememberEveryKhutbah:
                 OnboardingRememberView {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        step = .integrity
+                    }
+                }
+                .transition(.opacity)
+            case .integrity:
+                OnboardingIntegrityView {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .nextPlaceholder
                     }
@@ -132,20 +140,96 @@ struct OnboardingWelcomeView: View {
                 
                 Spacer()
                 
-        Button(action: handleGetStarted) {
-            Text("Get Started")
-                .frame(maxWidth: .infinity)
+                Button(action: handleGetStarted) {
+                    Text("Get Started")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(CreamButtonGreenTextStyle())
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
+            }
         }
-        .buttonStyle(CreamButtonGreenTextStyle())
-        .padding(.horizontal, 28)
-        .padding(.bottom, 28)
-    }
-}
     }
     
     private func handleGetStarted() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onGetStarted()
+    }
+}
+
+struct OnboardingIntegrityView: View {
+    var onContinue: () -> Void
+    private let contentWidth: CGFloat = 320
+    
+    var body: some View {
+        ZStack {
+            BrandBackground()
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                Spacer()
+                
+                VStack(alignment: .center, spacing: 18) {
+                    Text("Your Khutbah.\nNothing Added.")
+                        .font(.system(size: 30, weight: .bold, design: .serif))
+                        .foregroundColor(BrandPalette.cream)
+                        .padding(.bottom, 4)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: contentWidth)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        bullet("Uses only YOUR recording")
+                        bullet("No fatwas or rulings")
+                        bullet("No invented Quran or hadith")
+                        bullet("Private & secure")
+                    }
+                    .frame(maxWidth: contentWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    
+                    Divider()
+                        .background(BrandPalette.cream.opacity(0.35))
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: contentWidth)
+                    
+                    Text("Smart summaries never introduce Islamic content that was not said by the khateeb.")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundColor(BrandPalette.cream.opacity(0.9))
+                        .padding(.top, 2)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: contentWidth)
+                }
+                .padding(.horizontal, 28)
+                
+                Spacer()
+                
+                Button(action: handleContinue) {
+                    Text("Continue")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(CreamButtonGreenTextStyle())
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
+            }
+        }
+    }
+    
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(BrandPalette.cream.opacity(0.92))
+                .shadow(color: .black.opacity(0.08), radius: 3, x: 0, y: 2)
+            Text(text)
+                .font(.system(size: 18, weight: .semibold, design: .default))
+                .foregroundColor(BrandPalette.cream.opacity(0.95))
+                .multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    private func handleContinue() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onContinue()
     }
 }
 
