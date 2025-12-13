@@ -89,9 +89,42 @@ final class LectureStore: ObservableObject {
         
         do {
             try await db.collection("users").document(userId).setData(data, merge: true)
+            try await removeLegacyPreferenceDotFields(keys: ["jumuahStartTime", "jumuahTimezone"])
             print("Saved Jumu'ah start time for user \(userId): \(time) (\(timezoneIdentifier))")
         } catch {
             print("Failed to save Jumu'ah start time: \(error.localizedDescription)")
+        }
+    }
+    
+    func saveNotificationPreference(_ preference: String) async {
+        guard let userId else {
+            print("No userId set on LectureStore; cannot save notification preference.")
+            return
+        }
+        
+        let data: [String: Any] = [
+            "preferences": [
+                "notificationPreference": preference
+            ]
+        ]
+        
+        do {
+            try await db.collection("users").document(userId).setData(data, merge: true)
+            try await removeLegacyPreferenceDotFields(keys: ["notificationPreference"])
+            print("Saved notification preference for user \(userId): \(preference)")
+        } catch {
+            print("Failed to save notification preference: \(error.localizedDescription)")
+        }
+    }
+    
+    private func removeLegacyPreferenceDotFields(keys: [String]) async throws {
+        guard let userId else { return }
+        var deletes: [String: Any] = [:]
+        keys.forEach { key in
+            deletes["preferences.\(key)"] = FieldValue.delete()
+        }
+        if !deletes.isEmpty {
+            try await db.collection("users").document(userId).setData(deletes, merge: true)
         }
     }
     

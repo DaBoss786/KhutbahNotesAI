@@ -12,48 +12,70 @@ struct OnboardingFlowView: View {
     @Binding var hasCompletedOnboarding: Bool
     @State private var step: Step = .welcome
     
-    private enum Step {
+    private enum Step: CaseIterable {
         case welcome
         case rememberEveryKhutbah
         case integrity
         case howItWorks
         case jumuahReminder
+        case notificationsPrePrompt
         case nextPlaceholder
+        
+        var index: Int {
+            switch self {
+            case .welcome: return 1
+            case .rememberEveryKhutbah: return 2
+            case .integrity: return 3
+            case .howItWorks: return 4
+            case .jumuahReminder: return 5
+            case .notificationsPrePrompt: return 6
+            case .nextPlaceholder: return 7
+            }
+        }
     }
+    
+    private var totalSteps: Int { Step.allCases.count - 1 } // exclude placeholder
     
     var body: some View {
         ZStack {
             switch step {
             case .welcome:
-                OnboardingWelcomeView {
+                OnboardingWelcomeView(progress: progress(for: .welcome)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .rememberEveryKhutbah
                     }
                 }
                 .transition(.opacity)
             case .rememberEveryKhutbah:
-                OnboardingRememberView {
+                OnboardingRememberView(progress: progress(for: .rememberEveryKhutbah)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .integrity
                     }
                 }
                 .transition(.opacity)
             case .integrity:
-                OnboardingIntegrityView {
+                OnboardingIntegrityView(progress: progress(for: .integrity)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .howItWorks
                     }
                 }
                 .transition(.opacity)
             case .howItWorks:
-                OnboardingHowItWorksView {
+                OnboardingHowItWorksView(progress: progress(for: .howItWorks)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .jumuahReminder
                     }
                 }
                 .transition(.opacity)
             case .jumuahReminder:
-                OnboardingJumuahReminderView {
+                OnboardingJumuahReminderView(progress: progress(for: .jumuahReminder)) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        step = .notificationsPrePrompt
+                    }
+                }
+                .transition(.opacity)
+            case .notificationsPrePrompt:
+                OnboardingNotificationsPrePromptView(progress: progress(for: .notificationsPrePrompt)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .nextPlaceholder
                     }
@@ -69,9 +91,15 @@ struct OnboardingFlowView: View {
             }
         }
     }
+    
+    private func progress(for step: Step) -> OnboardingProgress {
+        let currentIndex = step.index
+        return OnboardingProgress(current: currentIndex, total: totalSteps)
+    }
 }
 
 struct OnboardingRememberView: View {
+    let progress: OnboardingProgress
     var onGetStarted: () -> Void
     
     var body: some View {
@@ -80,6 +108,10 @@ struct OnboardingRememberView: View {
                 .ignoresSafeArea()
             
             VStack {
+                progressIndicator(progress, background: BrandPalette.cream, foreground: BrandPalette.deepGreen.opacity(0.8))
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                
                 Spacer()
                 
                 VStack(spacing: 22) {
@@ -120,6 +152,7 @@ struct OnboardingRememberView: View {
 }
 
 struct OnboardingWelcomeView: View {
+    let progress: OnboardingProgress
     var onGetStarted: () -> Void
     
     var body: some View {
@@ -128,6 +161,10 @@ struct OnboardingWelcomeView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 28) {
+                progressIndicator(progress, background: .clear, foreground: BrandPalette.cream.opacity(0.75))
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                
                 Spacer(minLength: 10)
                 
                 Text("بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ")
@@ -174,6 +211,7 @@ struct OnboardingWelcomeView: View {
 }
 
 struct OnboardingIntegrityView: View {
+    let progress: OnboardingProgress
     var onContinue: () -> Void
     private let contentWidth: CGFloat = 320
     
@@ -183,6 +221,10 @@ struct OnboardingIntegrityView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
+                progressIndicator(progress, background: .clear, foreground: BrandPalette.cream.opacity(0.75))
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                
                 Spacer()
                 
                 VStack(alignment: .center, spacing: 18) {
@@ -250,6 +292,7 @@ struct OnboardingIntegrityView: View {
 }
 
 struct OnboardingHowItWorksView: View {
+    let progress: OnboardingProgress
     var onContinue: () -> Void
     private let contentWidth: CGFloat = 340
     
@@ -259,6 +302,10 @@ struct OnboardingHowItWorksView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
+                progressIndicator(progress, background: BrandPalette.cream, foreground: BrandPalette.deepGreen.opacity(0.75))
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                
                 Spacer()
                 
                 VStack(spacing: 22) {
@@ -331,9 +378,15 @@ struct HowItWorksRow: View {
             }
         }
     }
+    
+    @ViewBuilder
+    private func progressIndicator(_ progress: OnboardingProgress, background: Color, foreground: Color) -> some View {
+        OnboardingProgressView(progress: progress, foreground: foreground, background: background)
+    }
 }
 
 struct OnboardingJumuahReminderView: View {
+    let progress: OnboardingProgress
     var onContinue: () -> Void
     
     @EnvironmentObject private var store: LectureStore
@@ -356,6 +409,10 @@ struct OnboardingJumuahReminderView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
+                progressIndicator(progress, background: .clear, foreground: BrandPalette.cream.opacity(0.75))
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                
                 Spacer()
                 
                 VStack(spacing: 20) {
@@ -439,6 +496,92 @@ struct TimeChipStyle: ButtonStyle {
     }
 }
 
+struct OnboardingNotificationsPrePromptView: View {
+    let progress: OnboardingProgress
+    var onContinue: () -> Void
+    
+    @EnvironmentObject private var store: LectureStore
+    @AppStorage("notificationPrefChoice") private var storedNotificationChoice: String?
+    
+    private let contentWidth: CGFloat = 340
+    
+    var body: some View {
+        ZStack {
+            BrandPalette.cream
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                progressIndicator(progress, background: BrandPalette.cream, foreground: BrandPalette.deepGreen.opacity(0.75))
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                
+                Spacer()
+                
+                VStack(spacing: 20) {
+                    Text("Stay Connected Weekly")
+                        .font(.system(size: 28, weight: .bold, design: .serif))
+                        .foregroundColor(BrandPalette.deepGreen)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: contentWidth)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        reminderBullet("Reminder before khutbah")
+                        reminderBullet("Alert when summary is ready")
+                        reminderBullet("Midweek reflection reminders")
+                    }
+                    .frame(maxWidth: contentWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .padding(.horizontal, 28)
+                
+                Spacer()
+                
+                VStack(spacing: 14) {
+                    Button(action: { handleSelection("allow") }) {
+                        Text("Yes, send me reminders")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SolidGreenButtonStyle())
+                    
+                    Button(action: { handleSelection("not_now") }) {
+                        Text("Not now")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(BrandPalette.deepGreen)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                }
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
+            }
+        }
+    }
+    
+    private func reminderBullet(_ text: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(BrandPalette.deepGreen)
+                .opacity(0.9)
+            Text(text)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundColor(BrandPalette.deepGreen.opacity(0.95))
+        }
+    }
+    
+    private func handleSelection(_ choice: String) {
+        storedNotificationChoice = choice
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        Task {
+            await store.saveNotificationPreference(choice)
+            await MainActor.run {
+                onContinue()
+            }
+        }
+    }
+}
+
 struct OnboardingPlaceholderNextView: View {
     var onContinue: () -> Void
     
@@ -448,6 +591,10 @@ struct OnboardingPlaceholderNextView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 16) {
+                progressIndicator(OnboardingProgress(current: 6, total: 6), background: .clear, foreground: BrandPalette.cream.opacity(0.75))
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+                
                 Spacer()
                 
                 Text("Onboarding, continued")
@@ -516,5 +663,5 @@ struct SolidGreenButtonStyle: ButtonStyle {
 }
 
 #Preview {
-    OnboardingWelcomeView { }
+    OnboardingWelcomeView(progress: OnboardingProgress(current: 1, total: 6)) { }
 }
