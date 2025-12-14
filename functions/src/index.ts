@@ -204,7 +204,7 @@ export const onAudioUpload = onObjectFinalized(
       const transcription =
         await openai.audio.transcriptions.create({
           file: fs.createReadStream(tempFilePath),
-          model: "whisper-1",
+          model: "gpt-4o-mini-transcribe",
         });
 
       const rawText = (transcription as unknown as {text?: string})
