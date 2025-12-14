@@ -9,10 +9,12 @@ import FirebaseStorage
 final class LectureStore: ObservableObject {
     @Published var lectures: [Lecture] = []
     @Published var folders: [Folder] = []
+    @Published var userUsage: UserUsage?
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
     private var listener: ListenerRegistration?
     private var folderListener: ListenerRegistration?
+    private var userListener: ListenerRegistration?
     private(set) var userId: String?
     private var durationFetches: Set<String> = []
     
@@ -32,8 +34,10 @@ final class LectureStore: ObservableObject {
                 title: "Tafseer of Surah Al-Kahf",
                 date: today,
                 durationMinutes: 45,
+                chargedMinutes: 45,
                 isFavorite: true,
                 status: .ready,
+                quotaReason: nil,
                 transcript: nil,
                 summary: nil,
                 audioPath: nil,
@@ -45,8 +49,10 @@ final class LectureStore: ObservableObject {
                 title: "Understanding Taqwa",
                 date: calendar.date(byAdding: .day, value: -1, to: today) ?? today,
                 durationMinutes: 32,
+                chargedMinutes: 32,
                 isFavorite: false,
                 status: .processing,
+                quotaReason: nil,
                 transcript: nil,
                 summary: nil,
                 audioPath: nil,
@@ -58,8 +64,10 @@ final class LectureStore: ObservableObject {
                 title: "Mercy and Patience",
                 date: calendar.date(byAdding: .day, value: -6, to: today) ?? today,
                 durationMinutes: nil,
+                chargedMinutes: nil,
                 isFavorite: false,
                 status: .failed,
+                quotaReason: nil,
                 transcript: nil,
                 summary: nil,
                 audioPath: nil,
@@ -134,6 +142,7 @@ final class LectureStore: ObservableObject {
         // Stop any previous listener
         listener?.remove()
         folderListener?.remove()
+        userListener?.remove()
         
         // Listen to this user's lectures collection
         listener = db.collection("users")
@@ -164,11 +173,13 @@ final class LectureStore: ObservableObject {
                     
                     let date = timestamp.dateValue()
                     let durationMinutes = data["durationMinutes"] as? Int
+                    let chargedMinutes = data["chargedMinutes"] as? Int
                     let isFavorite = data["isFavorite"] as? Bool ?? false
                     let transcript = data["transcript"] as? String
                     let audioPath = data["audioPath"] as? String
                     let folderId = data["folderId"] as? String
                     let folderName = data["folderName"] as? String
+                    let quotaReason = data["quotaReason"] as? String
                     
                     var summary: LectureSummary? = nil
                     if let summaryMap = data["summary"] as? [String: Any] {
@@ -189,7 +200,10 @@ final class LectureStore: ObservableObject {
                     switch statusString {
                     case "recording": status = .recording
                     case "processing": status = .processing
+                    case "summarizing": status = .summarizing
+                    case "transcribed": status = .transcribed
                     case "ready": status = .ready
+                    case "blocked_quota": status = .blockedQuota
                     case "failed": status = .failed
                     default: status = .processing
                     }
@@ -199,8 +213,10 @@ final class LectureStore: ObservableObject {
                         title: title,
                         date: date,
                         durationMinutes: durationMinutes,
+                        chargedMinutes: chargedMinutes,
                         isFavorite: isFavorite,
                         status: status,
+                        quotaReason: quotaReason,
                         transcript: transcript,
                         summary: summary,
                         audioPath: audioPath,
@@ -210,6 +226,33 @@ final class LectureStore: ObservableObject {
                 }
                 
                 self.fillMissingDurationsIfNeeded(for: self.lectures)
+            }
+        
+        userListener = db.collection("users")
+            .document(userId)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                if let error {
+                    print("Error listening to user doc: \(error)")
+                    return
+                }
+                guard let data = snapshot?.data() else { return }
+                
+                let plan = data["plan"] as? String ?? "free"
+                let monthlyMinutesUsed = data["monthlyMinutesUsed"] as? Int ?? 0
+                let monthlyKey = data["monthlyKey"] as? String
+                let freeLifetimeMinutesUsed = data["freeLifetimeMinutesUsed"] as? Int ?? 0
+                let periodStart = (data["periodStart"] as? Timestamp)?.dateValue()
+                let renewsAt = (data["renewsAt"] as? Timestamp)?.dateValue()
+                
+                self.userUsage = UserUsage(
+                    plan: plan,
+                    monthlyMinutesUsed: monthlyMinutesUsed,
+                    monthlyKey: monthlyKey,
+                    freeLifetimeMinutesUsed: freeLifetimeMinutesUsed,
+                    periodStart: periodStart,
+                    renewsAt: renewsAt
+                )
             }
         
         // Listen to this user's folders collection
@@ -263,8 +306,10 @@ final class LectureStore: ObservableObject {
             title: title,
             date: now,
             durationMinutes: durationMinutes,
+            chargedMinutes: nil,
             isFavorite: false,
             status: .processing,
+            quotaReason: nil,
             transcript: nil,
             summary: nil,
             audioPath: audioPath,
@@ -488,5 +533,22 @@ private extension LectureStore {
             .collection("lectures")
             .document(lecture.id)
             .setData(["durationMinutes": minutes], merge: true)
+    }
+}
+
+struct UserUsage {
+    let plan: String
+    let monthlyMinutesUsed: Int
+    let monthlyKey: String?
+    let freeLifetimeMinutesUsed: Int
+    let periodStart: Date?
+    let renewsAt: Date?
+    
+    var minutesRemaining: Int {
+        if plan == "premium" {
+            return max(0, 500 - monthlyMinutesUsed)
+        } else {
+            return max(0, 60 - freeLifetimeMinutesUsed)
+        }
     }
 }

@@ -26,6 +26,9 @@ struct RecordLectureView: View {
                 Spacer(minLength: 12)
                 
                 VStack(spacing: 18) {
+                    usageCard
+                    blockedBanner
+                    
                     if recordingManager.isRecording {
                         recordingBadge
                     }
@@ -37,7 +40,7 @@ struct RecordLectureView: View {
                         waveformView
                         controlRow
                     } else {
-                        helperText
+                        tapHint
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -192,6 +195,114 @@ struct RecordLectureView: View {
         blinkDot = false
     }
     
+    private var tapHint: some View {
+        Text("Tap here to record")
+            .font(.footnote)
+            .foregroundColor(.secondary)
+            .padding(.top, 4)
+    }
+    
+    private var usageCard: some View {
+        let remaining = store.userUsage?.minutesRemaining
+        let plan = store.userUsage?.plan ?? "free"
+        let used: Int
+        let cap: Int
+        if plan == "premium" {
+            cap = 500
+            used = (store.userUsage?.monthlyMinutesUsed ?? 0)
+        } else {
+            cap = 60
+            used = (store.userUsage?.freeLifetimeMinutesUsed ?? 0)
+        }
+        let percent = cap > 0 ? min(1.0, Double(used) / Double(cap)) : 0
+        
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Plan • \(plan.capitalized)")
+                        .font(.subheadline.weight(.semibold))
+                    if let remaining {
+                        Text("\(used) / \(cap) minutes used • \(remaining) remaining")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Fetching usage…")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+            }
+            
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(.systemGray6))
+                        .frame(height: 8)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(plan == "premium" ? Color.green.opacity(0.8) : Color.orange.opacity(0.8))
+                        .frame(width: width * percent, height: 8)
+                }
+            }
+            .frame(height: 8)
+            
+            if plan == "free" {
+                Text("Upgrade for 500 minutes/month.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("70-minute max per khutbah. Resets each billing month.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.9))
+                .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+        )
+        .padding(.horizontal, 24)
+    }
+    
+    private var blockedLecture: Lecture? {
+        store.lectures.first { $0.status == .blockedQuota }
+    }
+    
+    private var blockedBanner: some View {
+        guard let lecture = blockedLecture else { return AnyView(EmptyView()) }
+        let message: String
+        switch lecture.quotaReason {
+        case "per_file_cap":
+            message = "Blocked: exceeds 70-minute per khutbah limit."
+        case "free_lifetime_exceeded":
+            message = "Blocked: free plan reached 60-minute total."
+        case "premium_monthly_exceeded":
+            message = "Blocked: premium monthly 500-minute limit reached."
+        default:
+            message = "Recording blocked due to quota."
+        }
+        
+        return AnyView(
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Quota limit hit")
+                        .font(.subheadline.weight(.semibold))
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding()
+            .background(Color.orange.opacity(0.12))
+            .cornerRadius(12)
+            .padding(.horizontal, 24)
+        )
+    }
 }
 
 private extension RecordLectureView {

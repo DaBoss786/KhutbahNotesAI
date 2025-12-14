@@ -10,8 +10,11 @@ import Foundation
 enum LectureStatus: String, Codable, Hashable {
     case recording
     case processing
+    case summarizing
+    case transcribed
     case ready
     case failed
+    case blockedQuota
 }
 
 struct Lecture: Identifiable, Hashable, Codable {
@@ -19,8 +22,10 @@ struct Lecture: Identifiable, Hashable, Codable {
     var title: String
     var date: Date
     var durationMinutes: Int?
+    var chargedMinutes: Int?
     var isFavorite: Bool
     var status: LectureStatus
+    var quotaReason: String?
     var transcript: String?
     var summary: LectureSummary?
     var audioPath: String?
@@ -34,8 +39,10 @@ extension Lecture {
         title: "Tafseer of Surah Al-Kahf",
         date: Date(),
         durationMinutes: 45,
+        chargedMinutes: 45,
         isFavorite: true,
         status: .ready,
+        quotaReason: nil,
         transcript: "Sample transcript...",
         summary: LectureSummary(
             mainTheme: "Patience during hardship",
