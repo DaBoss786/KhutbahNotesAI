@@ -497,22 +497,21 @@ private extension LectureStore {
                 
                 asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
                     guard let self else { return }
-                    
                     var loadError: NSError?
                     let status = asset.statusOfValue(forKey: "duration", error: &loadError)
-                    guard status == .loaded else {
-                        Task { @MainActor in
-                            self.durationFetches.remove(lecture.id)
-                            if let loadError {
-                                print("Failed to load duration for \(lecture.id): \(loadError)")
-                            }
-                        }
-                        return
-                    }
+                    let capturedError = loadError
                     
-                    let minutes = Self.durationMinutes(fromSeconds: CMTimeGetSeconds(asset.duration))
                     Task { @MainActor in
                         self.durationFetches.remove(lecture.id)
+                        
+                        guard status == .loaded else {
+                            if let capturedError {
+                                print("Failed to load duration for \(lecture.id): \(capturedError)")
+                            }
+                            return
+                        }
+                        
+                        let minutes = Self.durationMinutes(fromSeconds: CMTimeGetSeconds(asset.duration))
                         guard let minutes else { return }
                         self.persistDuration(minutes, for: lecture)
                     }

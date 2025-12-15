@@ -1120,10 +1120,12 @@ final class LectureAudioPlayerViewModel: ObservableObject {
             object: item,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.isPlaying = false
-            self.statusText = ""
-            self.player?.seek(to: .zero)
+            Task { @MainActor in
+                guard let self else { return }
+                self.isPlaying = false
+                self.statusText = ""
+                self.player?.seek(to: .zero)
+            }
         }
     }
     
@@ -1139,14 +1141,16 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         guard let player else { return }
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self else { return }
-            let currentSeconds = CMTimeGetSeconds(time)
-            self.currentTime = currentSeconds
-            if let durationTime = player.currentItem?.duration, durationTime.isNumeric {
-                self.duration = CMTimeGetSeconds(durationTime)
-            }
-            if !self.isScrubbing {
-                self.updateSlider(to: currentSeconds)
+            Task { @MainActor in
+                guard let self else { return }
+                let currentSeconds = CMTimeGetSeconds(time)
+                self.currentTime = currentSeconds
+                if let durationTime = player.currentItem?.duration, durationTime.isNumeric {
+                    self.duration = CMTimeGetSeconds(durationTime)
+                }
+                if !self.isScrubbing {
+                    self.updateSlider(to: currentSeconds)
+                }
             }
         }
     }

@@ -127,29 +127,39 @@ struct OnboardingPaywallView: View {
     }
     
     private func loadOffering() async {
-        isLoading = true
-        loadError = nil
-        retryCount = 0
+        await MainActor.run {
+            isLoading = true
+            loadError = nil
+            retryCount = 0
+        }
         
-        do {
-            let offerings = try await Purchases.shared.offerings()
-            await MainActor.run {
-                self.offering = offerings.current
-                self.isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                retryCount += 1
-                if retryCount < maxRetries {
-                    Task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        await loadOffering()
-                    }
-                } else {
-                    self.loadError = error
+        for attempt in 1...maxRetries {
+            do {
+                let offerings = try await Purchases.shared.offerings()
+                await MainActor.run {
+                    self.offering = offerings.current
                     self.isLoading = false
+                    self.retryCount = attempt - 1
                 }
+                return
+            } catch {
+                let delaySeconds = UInt64(attempt) // simple backoff: 1s, 2s, 3s...
+                await MainActor.run {
+                    self.retryCount = attempt
+                }
+                
+                if attempt == maxRetries {
+                    await MainActor.run {
+                        self.loadError = error
+                        self.isLoading = false
+                    }
+                    return
+                }
+                
+                try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
             }
         }
+        
+        await MainActor.run { self.isLoading = false }
     }
 }
