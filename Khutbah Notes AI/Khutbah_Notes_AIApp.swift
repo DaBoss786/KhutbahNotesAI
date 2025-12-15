@@ -8,6 +8,7 @@
 import SwiftUI
 import FirebaseCore
 import FirebaseAuth
+import RevenueCat
 
 @main
 struct Khutbah_Notes_AIApp: App {
@@ -17,6 +18,11 @@ struct Khutbah_Notes_AIApp: App {
     
     init() {
         FirebaseApp.configure()
+        
+        // Configure RevenueCat
+        Purchases.logLevel = .debug
+        Purchases.configure(withAPIKey: "appl_idynIRrxuwivElFlKBywbHYCVzs")
+        
         let lectureStore = LectureStore(seedMockData: true)
         _store = StateObject(wrappedValue: lectureStore)
         signInAnonymouslyIfNeeded(using: lectureStore)
@@ -45,6 +51,7 @@ struct Khutbah_Notes_AIApp: App {
     private func signInAnonymouslyIfNeeded(using store: LectureStore) {
         if let user = Auth.auth().currentUser {
             print("Firebase already signed in with uid: \(user.uid)")
+            syncRevenueCatUser(with: user.uid)
             store.start(for: user.uid)
             return
         }
@@ -62,7 +69,18 @@ struct Khutbah_Notes_AIApp: App {
             
             print("Signed in anonymously with uid: \(user.uid)")
             DispatchQueue.main.async {
+                self.syncRevenueCatUser(with: user.uid)
                 self.store.start(for: user.uid)
+            }
+        }
+    }
+    
+    private func syncRevenueCatUser(with userId: String) {
+        Purchases.shared.logIn(userId) { _, _, error in
+            if let error {
+                print("RevenueCat logIn failed: \(error.localizedDescription)")
+            } else {
+                print("RevenueCat synced with user: \(userId)")
             }
         }
     }

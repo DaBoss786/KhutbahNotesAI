@@ -19,7 +19,7 @@ struct OnboardingFlowView: View {
         case howItWorks
         case jumuahReminder
         case notificationsPrePrompt
-        case nextPlaceholder
+        case paywall
         
         var index: Int {
             switch self {
@@ -29,7 +29,7 @@ struct OnboardingFlowView: View {
             case .howItWorks: return 4
             case .jumuahReminder: return 5
             case .notificationsPrePrompt: return 6
-            case .nextPlaceholder: return 7
+            case .paywall: return 7
             }
         }
     }
@@ -77,17 +77,17 @@ struct OnboardingFlowView: View {
             case .notificationsPrePrompt:
                 OnboardingNotificationsPrePromptView(progress: progress(for: .notificationsPrePrompt)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        step = .nextPlaceholder
+                        step = .paywall
                     }
                 }
                 .transition(.opacity)
-            case .nextPlaceholder:
-                OnboardingPlaceholderNextView {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        hasCompletedOnboarding = true
-                    }
-                }
-                .transition(.opacity)
+case .paywall:
+    OnboardingPaywallView {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            hasCompletedOnboarding = true
+        }
+    }
+    .transition(.opacity)
             }
         }
     }
