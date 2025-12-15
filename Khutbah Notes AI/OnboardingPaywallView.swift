@@ -28,14 +28,19 @@ struct OnboardingPaywallView: View {
                 errorView
             } else if let offering = offering {
                 PaywallView(offering: offering)
-                    .onPurchaseCompleted { _ in
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        onComplete()
-                    }
-                    .onRestoreCompleted { _ in
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        onComplete()
-                    }
+    .onRequestedDismissal {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        onComplete()   // <-- this takes the user to the dashboard in your app
+    }
+    .onPurchaseCompleted { _ in
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onComplete()
+    }
+    .onRestoreCompleted { _ in
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onComplete()
+    }
+
             } else {
                 fallbackView
             }
