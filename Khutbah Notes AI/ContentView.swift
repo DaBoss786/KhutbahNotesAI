@@ -119,6 +119,7 @@ struct NotesView: View {
     @State private var showAddToFolderSheet = false
     @State private var addToFolderTarget: Folder?
     @State private var addToFolderSelections: Set<String> = []
+    @State private var showPaywall = false
     
     private let segments = ["All Notes", "Folders"]
     
@@ -161,6 +162,11 @@ struct NotesView: View {
         }) {
             addToFolderSheet
         }
+        .sheet(isPresented: $showPaywall) {
+            OnboardingPaywallView {
+                showPaywall = false
+            }
+        }
         .alert("Delete lecture?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {
                 if let lecture = pendingDeleteLecture {
@@ -181,7 +187,11 @@ struct NotesView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 header
-                PromoBannerView()
+                if (store.userUsage?.plan ?? "free") != "premium" {
+                    PromoBannerView {
+                        showPaywall = true
+                    }
+                }
                 segmentPicker
                 if selectedSegment == 0 {
                     lectureList
@@ -586,6 +596,8 @@ struct NotesView: View {
 }
 
 struct PromoBannerView: View {
+    var onTap: () -> Void = {}
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Upgrade to Pro")
@@ -597,7 +609,7 @@ struct PromoBannerView: View {
                 .foregroundColor(.white.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
             
-            Button(action: {}) {
+            Button(action: onTap) {
                 Text("View Plans")
                     .fontWeight(.semibold)
                     .padding(.horizontal, 18)
