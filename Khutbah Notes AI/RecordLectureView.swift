@@ -252,7 +252,7 @@ struct RecordLectureView: View {
                     .font(.footnote)
                     .foregroundColor(.secondary)
             } else {
-                Text("70-minute max per khutbah. Resets each billing month.")
+                Text("70-minute max per audio recording.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }

@@ -1,7 +1,9 @@
 import {onObjectFinalized} from "firebase-functions/v2/storage";
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
+import {onRequest} from "firebase-functions/v2/https";
 import {logger} from "firebase-functions";
 import {defineSecret} from "firebase-functions/params";
+import type {Request, Response} from "express";
 import * as admin from "firebase-admin";
 import OpenAI from "openai";
 import * as fs from "fs";
@@ -15,8 +17,10 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const openaiKey = defineSecret("OPENAI_API_KEY");
+const rcWebhookSecret = defineSecret("RC_WEBHOOK_SECRET");
 
 const storageBucketName = "khutbah-notes-ai.firebasestorage.app";
+const REVENUECAT_ENTITLEMENT_ID = "Khutbah Notes Pro";
 
 const SUMMARY_SYSTEM_PROMPT = [
   "You are a careful summarization engine for Islamic khutbah (sermon)",
@@ -1455,3 +1459,401 @@ function normalizeSummary(raw: SummaryShape): SummaryShape {
 //   }
 //   return null;
 // }
+
+// RevenueCat webhook to set premium plan server-side
+type RevenueCatEvent = Record<string, unknown>;
+type EntitlementInfo = {
+  identifier: string | null;
+  startsAt: Date | null;
+  expiresAt: Date | null;
+  periodType: string | null;
+  eventType: string | null;
+  updatedAt: Date | null;
+};
+
+export const revenueCatWebhook = onRequest(
+  {
+    region: "us-central1",
+    secrets: [rcWebhookSecret],
+    timeoutSeconds: 15,
+  },
+  async (req: Request, res: Response) => {
+    if (req.method !== "POST") {
+      res.status(405).send("Method Not Allowed");
+      return;
+    }
+
+    const authHeader = req.header("authorization") ?? "";
+    const expected = `Bearer ${rcWebhookSecret.value()}`;
+    if (authHeader !== expected) {
+      logger.warn("RevenueCat webhook unauthorized", {
+        hasAuthHeader: Boolean(authHeader),
+      });
+      res.status(401).send("Unauthorized");
+      return;
+    }
+
+    const rawBody = req.body as unknown;
+    const eventPayload =
+      isPlainRecord((rawBody as {event?: unknown}).event) ?
+        ((rawBody as {event: RevenueCatEvent}).event) :
+        isPlainRecord(rawBody) ?
+          (rawBody as RevenueCatEvent) :
+          null;
+
+    if (!eventPayload) {
+      res.status(400).send("Invalid webhook payload");
+      return;
+    }
+
+    const {uid, usedAlias} = extractAppUserId(eventPayload);
+    if (!uid) {
+      res.status(400).send("Missing app_user_id");
+      return;
+    }
+
+    const entitlement = extractEntitlementInfo(eventPayload);
+    if (!entitlement || entitlement.identifier !== REVENUECAT_ENTITLEMENT_ID) {
+      res.status(204).send("Ignored entitlement");
+      return;
+    }
+
+    const now = new Date();
+    const active = isEntitlementActive(
+      entitlement.eventType,
+      entitlement.expiresAt,
+      now
+    );
+
+    const periodStart = active ?
+      entitlement.startsAt ?? now :
+      now;
+    const renewsAt = active ?
+      entitlement.expiresAt ?? addOneMonth(periodStart) :
+      addOneMonth(periodStart);
+    const monthlyKey = getMonthlyKey(periodStart);
+
+    const metadata = buildRevenueCatMetadata(
+      eventPayload,
+      entitlement,
+      now
+    );
+
+    try {
+      await db.runTransaction(async (tx) => {
+        const userRef = db.collection("users").doc(uid);
+        const updates: Record<string, unknown> = {
+          plan: active ? "premium" : "free",
+          monthlyKey,
+          monthlyMinutesUsed: 0,
+          periodStart: admin.firestore.Timestamp.fromDate(periodStart),
+          renewsAt: admin.firestore.Timestamp.fromDate(renewsAt),
+          ...metadata,
+        };
+
+        tx.set(userRef, updates, {merge: true});
+      });
+
+      logger.info("RevenueCat webhook processed", {
+        uid,
+        entitlement: entitlement.identifier,
+        eventType: entitlement.eventType ?? null,
+        active,
+        usedAlias,
+      });
+      res.status(200).send("ok");
+    } catch (err: unknown) {
+      logger.error("RevenueCat webhook failed", {
+        error: safeJson(err),
+        uid,
+      });
+      res.status(500).send("Internal error");
+    }
+  }
+);
+
+/**
+ * Extract Firebase UID from RevenueCat payload, falling back to aliases.
+ *
+ * @param {RevenueCatEvent} event RevenueCat webhook event payload.
+ * @return {{uid: (string|null), usedAlias: boolean}} UID and alias usage.
+ */
+function extractAppUserId(
+  event: RevenueCatEvent
+): {uid: string | null; usedAlias: boolean} {
+  const direct = getStringField(event, ["app_user_id", "appUserId"]);
+  if (direct) {
+    return {uid: direct, usedAlias: false};
+  }
+
+  const aliases = event.aliases;
+  if (Array.isArray(aliases)) {
+    for (const alias of aliases) {
+      if (typeof alias === "string" && alias.trim()) {
+        return {uid: alias.trim(), usedAlias: true};
+      }
+    }
+  }
+
+  return {uid: null, usedAlias: false};
+}
+
+/**
+ * Parse entitlement details from the RC event.
+ *
+ * @param {RevenueCatEvent} event RevenueCat webhook event payload.
+ * @return {EntitlementInfo|null} Parsed entitlement info or null.
+ */
+function extractEntitlementInfo(
+  event: RevenueCatEvent
+): EntitlementInfo | null {
+  const entitlementObj = pickEntitlementObject(event);
+  const source = entitlementObj ?? event;
+
+  let identifier = getStringField(source, [
+    "entitlement_identifier",
+    "entitlement_id",
+    "identifier",
+    "product_identifier",
+    "productId",
+  ]);
+
+  if (!identifier) {
+    const entitlementIds = event.entitlement_ids;
+    if (Array.isArray(entitlementIds)) {
+      for (const id of entitlementIds) {
+        if (typeof id === "string" && id.trim()) {
+          identifier = id.trim();
+          break;
+        }
+      }
+    }
+  }
+
+  if (!identifier) {
+    return null;
+  }
+
+  const startsAt = parseMillisToDate(
+    getNumberField(source, [
+      "entitlement_started_at_ms",
+      "purchased_at_ms",
+      "purchase_date_ms",
+      "period_started_at_ms",
+    ])
+  );
+
+  const expiresAt = parseMillisToDate(
+    getNumberField(source, [
+      "entitlement_expires_at_ms",
+      "expires_at_ms",
+      "expiration_at_ms",
+      "expiration_date_ms",
+      "period_ends_at_ms",
+    ])
+  );
+
+  const periodType = getStringField(source, [
+    "entitlement_period_type",
+    "period_type",
+  ]);
+
+  const eventType = getStringField(event, ["type", "event_type"]);
+
+  const updatedAt =
+    parseMillisToDate(
+      getNumberField(source, [
+        "processed_at_ms",
+        "updated_at_ms",
+        "event_timestamp_ms",
+      ])
+    ) ?? parseMillisToDate(
+      getNumberField(event, [
+        "event_timestamp_ms",
+        "occurred_at_ms",
+        "sent_at_ms",
+        "timestamp_ms",
+      ])
+    );
+
+  return {
+    identifier,
+    startsAt,
+    expiresAt,
+    periodType,
+    eventType,
+    updatedAt,
+  };
+}
+
+/**
+ * Locate the entitlement object inside the RC payload.
+ *
+ * @param {RevenueCatEvent} event RevenueCat webhook event payload.
+ * @return {RevenueCatEvent|null} Entitlement record or null.
+ */
+function pickEntitlementObject(event: RevenueCatEvent): RevenueCatEvent | null {
+  const entitlement = event.entitlement;
+  if (isPlainRecord(entitlement)) {
+    return entitlement;
+  }
+
+  const entitlements = event.entitlements;
+  if (isPlainRecord(entitlements)) {
+    const candidate = (entitlements as Record<string, unknown>)[
+      REVENUECAT_ENTITLEMENT_ID
+    ];
+    if (isPlainRecord(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the first non-empty string field from a set of keys.
+ *
+ * @param {RevenueCatEvent} source Source object.
+ * @param {string[]} keys Candidate keys.
+ * @return {string|null} Trimmed string value or null.
+ */
+function getStringField(
+  source: RevenueCatEvent,
+  keys: string[]
+): string | null {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Get the first finite number field (accepts numeric strings) from keys.
+ *
+ * @param {RevenueCatEvent|null} source Source object.
+ * @param {string[]} keys Candidate keys.
+ * @return {number|null} Parsed number or null.
+ */
+function getNumberField(
+  source: RevenueCatEvent | null,
+  keys: string[]
+): number | null {
+  if (!source) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Convert epoch millis to Date, returning null on invalid input.
+ *
+ * @param {number|null} value Milliseconds since epoch.
+ * @return {Date|null} Date or null.
+ */
+function parseMillisToDate(value: number | null): Date | null {
+  if (value === null) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+/**
+ * Determine if the entitlement is currently active.
+ *
+ * @param {string|null} eventType RevenueCat event type.
+ * @param {Date|null} expiresAt Expiration date.
+ * @param {Date} now Current time.
+ * @return {boolean} True if active.
+ */
+function isEntitlementActive(
+  eventType: string | null,
+  expiresAt: Date | null,
+  now: Date
+): boolean {
+  if (eventType && eventType.toUpperCase() === "EXPIRATION") {
+    return false;
+  }
+
+  if (expiresAt) {
+    return expiresAt.getTime() > now.getTime();
+  }
+
+  return true;
+}
+
+/**
+ * Build metadata fields to persist from the RC event.
+ *
+ * @param {RevenueCatEvent} event RevenueCat payload.
+ * @param {EntitlementInfo} entitlement Parsed entitlement info.
+ * @param {Date} now Current time fallback.
+ * @return {Record<string, unknown>} Metadata to merge.
+ */
+function buildRevenueCatMetadata(
+  event: RevenueCatEvent,
+  entitlement: EntitlementInfo,
+  now: Date
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {};
+
+  if (entitlement.identifier) {
+    metadata.rcEntitlement = entitlement.identifier;
+  }
+  if (entitlement.periodType) {
+    metadata.rcPeriodType = entitlement.periodType;
+  }
+
+  const environment = getStringField(event, [
+    "environment",
+    "app_environment",
+  ]);
+  if (environment) {
+    metadata.rcEnvironment = environment;
+  }
+
+  const originalAppUserId = getStringField(event, [
+    "original_app_user_id",
+    "originalAppUserId",
+  ]);
+  if (originalAppUserId) {
+    metadata.rcOriginalAppUserId = originalAppUserId;
+  }
+
+  const updatedAt = entitlement.updatedAt ?? now;
+  metadata.rcUpdatedAt = admin.firestore.Timestamp.fromDate(updatedAt);
+
+  return metadata;
+}
+
+/**
+ * Check for a plain object (non-array).
+ *
+ * @param {unknown} value Value to test.
+ * @return {boolean} True if plain record.
+ */
+function isPlainRecord(value: unknown): value is RevenueCatEvent {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+  );
+}
