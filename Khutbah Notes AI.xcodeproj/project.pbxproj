@@ -9,17 +9,64 @@
 /* Begin PBXBuildFile section */
 		D402B96C2EEFC8FC0039F8DA /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = D402B96B2EEFC8FC0039F8DA /* RevenueCat */; };
 		D402B96E2EEFC8FC0039F8DA /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = D402B96D2EEFC8FC0039F8DA /* RevenueCatUI */; };
+		D402B97D2EF265330039F8DA /* OneSignalNotificationServiceExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D402B9762EF265330039F8DA /* OneSignalNotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D402B9862EF267310039F8DA /* OneSignalExtension in Frameworks */ = {isa = PBXBuildFile; productRef = D402B9852EF267310039F8DA /* OneSignalExtension */; };
+		D402B9882EF267310039F8DA /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = D402B9872EF267310039F8DA /* OneSignalFramework */; };
+		D402B98A2EF267310039F8DA /* OneSignalInAppMessages in Frameworks */ = {isa = PBXBuildFile; productRef = D402B9892EF267310039F8DA /* OneSignalInAppMessages */; };
 		D4A39EA72EE3EBED007FF4D8 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA62EE3EBED007FF4D8 /* FirebaseAnalytics */; };
 		D4A39EA92EE3EBED007FF4D8 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA82EE3EBED007FF4D8 /* FirebaseAuth */; };
 		D4A39EAB2EE3EBED007FF4D8 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EAA2EE3EBED007FF4D8 /* FirebaseFirestore */; };
 		D4A39EAD2EE3EBED007FF4D8 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EAC2EE3EBED007FF4D8 /* FirebaseStorage */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		D402B97B2EF265330039F8DA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4A39E852EE29C04007FF4D8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D402B9752EF265330039F8DA;
+			remoteInfo = OneSignalNotificationServiceExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D402B9822EF265330039F8DA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D402B97D2EF265330039F8DA /* OneSignalNotificationServiceExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		D402B9762EF265330039F8DA /* OneSignalNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneSignalNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Khutbah Notes AI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D402B97E2EF265330039F8DA /* Exceptions for "OneSignalNotificationServiceExtension" folder in "OneSignalNotificationServiceExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D402B9752EF265330039F8DA /* OneSignalNotificationServiceExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		D402B9772EF265330039F8DA /* OneSignalNotificationServiceExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D402B97E2EF265330039F8DA /* Exceptions for "OneSignalNotificationServiceExtension" folder in "OneSignalNotificationServiceExtension" target */,
+			);
+			path = OneSignalNotificationServiceExtension;
+			sourceTree = "<group>";
+		};
 		D4A39E8F2EE29C04007FF4D8 /* Khutbah Notes AI */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Khutbah Notes AI";
@@ -28,15 +75,25 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		D402B9732EF265330039F8DA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D402B9862EF267310039F8DA /* OneSignalExtension in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D4A39E8A2EE29C04007FF4D8 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				D4A39EA72EE3EBED007FF4D8 /* FirebaseAnalytics in Frameworks */,
 				D4A39EAD2EE3EBED007FF4D8 /* FirebaseStorage in Frameworks */,
+				D402B9882EF267310039F8DA /* OneSignalFramework in Frameworks */,
 				D402B96E2EEFC8FC0039F8DA /* RevenueCatUI in Frameworks */,
 				D402B96C2EEFC8FC0039F8DA /* RevenueCat in Frameworks */,
 				D4A39EA92EE3EBED007FF4D8 /* FirebaseAuth in Frameworks */,
+				D402B98A2EF267310039F8DA /* OneSignalInAppMessages in Frameworks */,
 				D4A39EAB2EE3EBED007FF4D8 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -48,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				D4A39E8F2EE29C04007FF4D8 /* Khutbah Notes AI */,
+				D402B9772EF265330039F8DA /* OneSignalNotificationServiceExtension */,
 				D4A39E8E2EE29C04007FF4D8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -56,6 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */,
+				D402B9762EF265330039F8DA /* OneSignalNotificationServiceExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,6 +122,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		D402B9752EF265330039F8DA /* OneSignalNotificationServiceExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D402B97F2EF265330039F8DA /* Build configuration list for PBXNativeTarget "OneSignalNotificationServiceExtension" */;
+			buildPhases = (
+				D402B9722EF265330039F8DA /* Sources */,
+				D402B9732EF265330039F8DA /* Frameworks */,
+				D402B9742EF265330039F8DA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D402B9772EF265330039F8DA /* OneSignalNotificationServiceExtension */,
+			);
+			name = OneSignalNotificationServiceExtension;
+			packageProductDependencies = (
+				D402B9852EF267310039F8DA /* OneSignalExtension */,
+			);
+			productName = OneSignalNotificationServiceExtension;
+			productReference = D402B9762EF265330039F8DA /* OneSignalNotificationServiceExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		D4A39E8C2EE29C04007FF4D8 /* Khutbah Notes AI */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = D4A39E982EE29C06007FF4D8 /* Build configuration list for PBXNativeTarget "Khutbah Notes AI" */;
@@ -70,10 +152,12 @@
 				D4A39E892EE29C04007FF4D8 /* Sources */,
 				D4A39E8A2EE29C04007FF4D8 /* Frameworks */,
 				D4A39E8B2EE29C04007FF4D8 /* Resources */,
+				D402B9822EF265330039F8DA /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D402B97C2EF265330039F8DA /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D4A39E8F2EE29C04007FF4D8 /* Khutbah Notes AI */,
@@ -86,6 +170,8 @@
 				D4A39EAC2EE3EBED007FF4D8 /* FirebaseStorage */,
 				D402B96B2EEFC8FC0039F8DA /* RevenueCat */,
 				D402B96D2EEFC8FC0039F8DA /* RevenueCatUI */,
+				D402B9872EF267310039F8DA /* OneSignalFramework */,
+				D402B9892EF267310039F8DA /* OneSignalInAppMessages */,
 			);
 			productName = "Khutbah Notes AI";
 			productReference = D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */;
@@ -101,6 +187,9 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					D402B9752EF265330039F8DA = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
 					D4A39E8C2EE29C04007FF4D8 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
@@ -118,6 +207,7 @@
 			packageReferences = (
 				D4A39EA52EE3EBED007FF4D8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				D402B96A2EEFC8FC0039F8DA /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
+				D402B9842EF267310039F8DA /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D4A39E8E2EE29C04007FF4D8 /* Products */;
@@ -125,11 +215,19 @@
 			projectRoot = "";
 			targets = (
 				D4A39E8C2EE29C04007FF4D8 /* Khutbah Notes AI */,
+				D402B9752EF265330039F8DA /* OneSignalNotificationServiceExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		D402B9742EF265330039F8DA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D4A39E8B2EE29C04007FF4D8 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -140,6 +238,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		D402B9722EF265330039F8DA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D4A39E892EE29C04007FF4D8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -149,7 +254,78 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		D402B97C2EF265330039F8DA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D402B9752EF265330039F8DA /* OneSignalNotificationServiceExtension */;
+			targetProxy = D402B97B2EF265330039F8DA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		D402B9802EF265330039F8DA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OneSignalNotificationServiceExtension/OneSignalNotificationServiceExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5JSRN468B7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OneSignalNotificationServiceExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OneSignalNotificationServiceExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AI.OneSignalNotificationServiceExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D402B9812EF265330039F8DA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OneSignalNotificationServiceExtension/OneSignalNotificationServiceExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5JSRN468B7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OneSignalNotificationServiceExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OneSignalNotificationServiceExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AI.OneSignalNotificationServiceExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		D4A39E962EE29C06007FF4D8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -271,6 +447,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Khutbah Notes AI/Khutbah Notes AI.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5JSRN468B7;
@@ -279,6 +456,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Khutbah-Notes-AI-Info.plist";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Khutbah Notes AI needs access to your microphone to record khutbahs.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -317,6 +495,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Khutbah Notes AI/Khutbah Notes AI.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5JSRN468B7;
@@ -325,6 +504,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Khutbah-Notes-AI-Info.plist";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Khutbah Notes AI needs access to your microphone to record khutbahs.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -361,6 +541,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		D402B97F2EF265330039F8DA /* Build configuration list for PBXNativeTarget "OneSignalNotificationServiceExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D402B9802EF265330039F8DA /* Debug */,
+				D402B9812EF265330039F8DA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		D4A39E882EE29C04007FF4D8 /* Build configuration list for PBXProject "Khutbah Notes AI" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -390,6 +579,14 @@
 				minimumVersion = 5.50.1;
 			};
 		};
+		D402B9842EF267310039F8DA /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/OneSignal/OneSignal-iOS-SDK";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.2.15;
+			};
+		};
 		D4A39EA52EE3EBED007FF4D8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -410,6 +607,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D402B96A2EEFC8FC0039F8DA /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
 			productName = RevenueCatUI;
+		};
+		D402B9852EF267310039F8DA /* OneSignalExtension */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D402B9842EF267310039F8DA /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */;
+			productName = OneSignalExtension;
+		};
+		D402B9872EF267310039F8DA /* OneSignalFramework */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D402B9842EF267310039F8DA /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */;
+			productName = OneSignalFramework;
+		};
+		D402B9892EF267310039F8DA /* OneSignalInAppMessages */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D402B9842EF267310039F8DA /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */;
+			productName = OneSignalInAppMessages;
 		};
 		D4A39EA62EE3EBED007FF4D8 /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;
