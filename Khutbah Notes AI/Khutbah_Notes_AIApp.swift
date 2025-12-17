@@ -109,7 +109,7 @@ struct Khutbah_Notes_AIApp: App {
     }
 }
 
-private func persistOneSignalIdentifiers(subscriptionId: String?, onesignalId: String?) {
+func persistOneSignalIdentifiers(subscriptionId: String?, onesignalId: String?) {
     var oneSignalData: [String: Any] = [:]
     
     if let onesignalId, !onesignalId.isEmpty {
@@ -142,16 +142,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         OneSignal.Debug.setLogLevel(.LL_VERBOSE) // Remove or lower log level in production
         OneSignal.initialize(oneSignalAppId, withLaunchOptions: launchOptions)
-        OneSignal.Notifications.requestPermission({ accepted in
-            print("User accepted notifications: \(accepted)")
-            if let userId = Auth.auth().currentUser?.uid {
-                OneSignal.login(userId)
-                persistOneSignalIdentifiers(
-                    subscriptionId: OneSignal.User.pushSubscription.id,
-                    onesignalId: OneSignal.User.onesignalId
-                )
-            }
-        }, fallbackToSettings: false)
         return true
     }
 }

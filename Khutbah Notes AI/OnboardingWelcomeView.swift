@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import OneSignalFramework
 
 struct OnboardingFlowView: View {
     @Binding var hasCompletedOnboarding: Bool
@@ -502,6 +503,7 @@ struct OnboardingNotificationsPrePromptView: View {
     
     @EnvironmentObject private var store: LectureStore
     @AppStorage("notificationPrefChoice") private var storedNotificationChoice: String?
+    @State private var isRequestingPermission = false
     
     private let contentWidth: CGFloat = 340
     
@@ -537,19 +539,21 @@ struct OnboardingNotificationsPrePromptView: View {
                 Spacer()
                 
                 VStack(spacing: 14) {
-                    Button(action: { handleSelection("allow") }) {
+                    Button(action: handleAllowTapped) {
                         Text("Yes, send me reminders")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SolidGreenButtonStyle())
+                    .disabled(isRequestingPermission)
                     
-                    Button(action: { handleSelection("not_now") }) {
+                    Button(action: handleNotNowTapped) {
                         Text("Not now")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundColor(BrandPalette.deepGreen)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                     }
+                    .disabled(isRequestingPermission)
                 }
                 .padding(.horizontal, 28)
                 .padding(.bottom, 28)
@@ -569,12 +573,40 @@ struct OnboardingNotificationsPrePromptView: View {
         }
     }
     
-    private func handleSelection(_ choice: String) {
-        storedNotificationChoice = choice
+    private func handleAllowTapped() {
+        guard !isRequestingPermission else { return }
+        isRequestingPermission = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
+        OneSignal.Notifications.requestPermission({ accepted in
+            Task {
+                let preference = accepted ? "push" : "no"
+                storedNotificationChoice = preference
+                
+                if accepted {
+                    persistOneSignalIdentifiers(
+                        subscriptionId: OneSignal.User.pushSubscription.id,
+                        onesignalId: OneSignal.User.onesignalId
+                    )
+                }
+                
+                await store.saveNotificationPreference(preference)
+                await MainActor.run {
+                    isRequestingPermission = false
+                    onContinue()
+                }
+            }
+        }, fallbackToSettings: false)
+    }
+    
+    private func handleNotNowTapped() {
+        guard !isRequestingPermission else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        let preference = "provisional"
+        storedNotificationChoice = preference
+        
         Task {
-            await store.saveNotificationPreference(choice)
+            await store.saveNotificationPreference(preference)
             await MainActor.run {
                 onContinue()
             }
