@@ -582,12 +582,8 @@ struct OnboardingNotificationsPrePromptView: View {
             Task {
                 let preference = accepted ? "push" : "no"
                 storedNotificationChoice = preference
-                
                 if accepted {
-                    persistOneSignalIdentifiers(
-                        subscriptionId: OneSignal.User.pushSubscription.id,
-                        onesignalId: OneSignal.User.onesignalId
-                    )
+                    OneSignalIntegration.linkCurrentUser()
                 }
                 
                 await store.saveNotificationPreference(preference)

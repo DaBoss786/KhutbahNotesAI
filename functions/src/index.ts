@@ -1,6 +1,7 @@
 import {onObjectFinalized} from "firebase-functions/v2/storage";
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import {onRequest} from "firebase-functions/v2/https";
+import {onSchedule} from "firebase-functions/v2/scheduler";
 import {logger} from "firebase-functions";
 import {defineSecret} from "firebase-functions/params";
 import type {Request, Response} from "express";
@@ -12,12 +13,14 @@ import * as path from "path";
 import {spawn} from "child_process";
 import ffmpegPath from "ffmpeg-static";
 import {parseFile} from "music-metadata";
+import {DateTime} from "luxon";
 
 admin.initializeApp();
 const db = admin.firestore();
 
 const openaiKey = defineSecret("OPENAI_API_KEY");
 const rcWebhookSecret = defineSecret("RC_WEBHOOK_SECRET");
+const onesignalApiKey = defineSecret("ONESIGNAL_API_KEY");
 
 const storageBucketName = "khutbah-notes-ai.firebasestorage.app";
 const REVENUECAT_ENTITLEMENT_ID = "Khutbah Notes Pro";
@@ -1857,3 +1860,740 @@ function isPlainRecord(value: unknown): value is RevenueCatEvent {
       !Array.isArray(value)
   );
 }
+
+// Your OneSignal App ID
+const ONESIGNAL_APP_ID = "290aa0ce-8c6c-4e7d-84c1-914fbdac66f1";
+const adminToken = defineSecret("ADMIN_TOKEN");
+const FIRESTORE_BATCH_SIZE = 500;
+
+// ============== TYPES ==============
+
+interface UserPreferences {
+  jumuahStartTime?: string;
+  jumuahTimezone?: string;
+  notificationPreference?: "push" | "provisional" | "no";
+}
+
+interface UserDoc {
+  preferences?: UserPreferences;
+  oneSignal?: {
+    externalId?: string;
+    oneSignalId?: string;
+    pushSubscriptionId?: string;
+  };
+}
+
+interface ScheduleGroup {
+  userIds: string[];
+  time: string;
+  timezone: string;
+  sendAfterUtc: string;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  hours?: number;
+  minutes?: number;
+  error?: string;
+}
+
+interface SendResult {
+  success: boolean;
+  id?: string;
+  error?: string;
+  invalidAliases?: string[];
+}
+
+// ============== VALIDATION ==============
+
+/**
+ * Validate and parse time string.
+ * Accepts: "13:15", "1:15", "1:15 PM", "13:15:00"
+ * Returns validation result with parsed hours/minutes or error.
+ *
+ * @param {string} timeStr Time string from user preferences.
+ * @return {ValidationResult} Parsed hours/minutes or error details.
+ */
+function validateAndParseTime(timeStr: string): ValidationResult {
+  if (!timeStr || typeof timeStr !== "string") {
+    return {
+      valid: false,
+      error: "Time is empty or not a string",
+    };
+  }
+
+  const trimmed = timeStr.trim();
+
+  const match12 = trimmed.match(
+    /^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i
+  );
+  if (match12) {
+    let hours = parseInt(match12[1], 10);
+    const minutes = parseInt(match12[2], 10);
+    const isPM = match12[3].toUpperCase() === "PM";
+
+    if (hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
+      return {
+        valid: false,
+        error: `Invalid 12-hour time: ${timeStr}`,
+      };
+    }
+
+    if (isPM && hours !== 12) hours += 12;
+    if (!isPM && hours === 12) hours = 0;
+
+    return {
+      valid: true,
+      hours,
+      minutes,
+    };
+  }
+
+  const match24 = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (match24) {
+    const hours = parseInt(match24[1], 10);
+    const minutes = parseInt(match24[2], 10);
+
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      return {
+        valid: false,
+        error: `Invalid 24-hour time: ${timeStr}`,
+      };
+    }
+
+    return {
+      valid: true,
+      hours,
+      minutes,
+    };
+  }
+
+  return {
+    valid: false,
+    error: `Unrecognized time format: ${timeStr}`,
+  };
+}
+
+/**
+ * Validate timezone string using Luxon.
+ *
+ * @param {string} tz IANA timezone string.
+ * @return {boolean} True if valid timezone.
+ */
+function isValidTimezone(tz: string): boolean {
+  if (!tz || typeof tz !== "string") return false;
+  const dt = DateTime.now().setZone(tz);
+  return dt.isValid;
+}
+
+// ============== DATE/TIME CALCULATIONS ==============
+
+/**
+ * Get the next Friday, including today if it's Friday and before cutoff.
+ *
+ * @param {DateTime} fromDate Starting date.
+ * @param {number} includeTodayBeforeHour Hour cutoff when day is Friday.
+ * @return {DateTime} The next Friday in the given zone.
+ */
+function getNextFriday(
+  fromDate: DateTime,
+  includeTodayBeforeHour = 10
+): DateTime {
+  const dayOfWeek = fromDate.weekday;
+
+  if (dayOfWeek === 5) {
+    if (fromDate.hour < includeTodayBeforeHour) {
+      return fromDate.startOf("day");
+    }
+    return fromDate.plus({days: 7}).startOf("day");
+  }
+
+  const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+  return fromDate.plus({days: daysUntilFriday || 7}).startOf("day");
+}
+
+/**
+ * Calculate the exact UTC timestamp for sending the reminder.
+ * Uses Luxon for robust timezone and DST handling.
+ *
+ * @param {string} jumuahTime Local Jumu'ah start time.
+ * @param {string} timezone IANA timezone.
+ * @param {number} minutesBefore Minutes before Jumu'ah to send.
+ * @param {DateTime=} referenceDate Optional reference UTC time.
+ * @return {string|null} ISO string for send_after or null on error.
+ */
+function calculateSendTime(
+  jumuahTime: string,
+  timezone: string,
+  minutesBefore = 3,
+  referenceDate?: DateTime
+): string | null {
+  if (!isValidTimezone(timezone)) {
+    logger.error(`Invalid timezone: ${timezone}`);
+    return null;
+  }
+
+  const parsed = validateAndParseTime(jumuahTime);
+  if (
+    !parsed.valid ||
+    parsed.hours === undefined ||
+    parsed.minutes === undefined
+  ) {
+    logger.error(`Invalid time format: ${jumuahTime} - ${parsed.error}`);
+    return null;
+  }
+
+  const now = referenceDate || DateTime.utc();
+  const nowInTz = now.setZone(timezone);
+  const friday = getNextFriday(nowInTz);
+
+  const jumuahDateTime = friday.set({
+    hour: parsed.hours,
+    minute: parsed.minutes,
+    second: 0,
+    millisecond: 0,
+  });
+
+  const reminderTime = jumuahDateTime.minus({minutes: minutesBefore});
+  return reminderTime.toUTC().toISO();
+}
+
+/**
+ * Create a unique key for grouping users.
+ *
+ * @param {string} time Local Jumu'ah time.
+ * @param {string} timezone User timezone.
+ * @return {string} Unique grouping key.
+ */
+function getGroupKey(time: string, timezone: string): string {
+  return `${time}|${timezone}`;
+}
+
+// ============== ONESIGNAL API ==============
+
+/**
+ * Send scheduled notification via OneSignal.
+ *
+ * @param {string[]} userIds OneSignal external IDs.
+ * @param {string} sendAfterUtc ISO send_after in UTC.
+ * @param {string} apiKey OneSignal REST API key.
+ * @return {Promise<SendResult>} OneSignal response outcome.
+ */
+async function sendJumuahNotification(
+  userIds: string[],
+  sendAfterUtc: string,
+  apiKey: string
+): Promise<SendResult> {
+  const payload = {
+    app_id: ONESIGNAL_APP_ID,
+    include_aliases: {
+      external_id: userIds,
+    },
+    target_channel: "push",
+    headings: {
+      en: "Jumu'ah Reminder 🕌",
+    },
+    contents: {
+      en: "Headed to Jumu'ah? Use Khutbah Notes to capture today's khutbah!",
+    },
+    send_after: sendAfterUtc,
+    collapse_id: `jumuah-${sendAfterUtc.substring(0, 16)}`,
+    ttl: 7200,
+    ios_interruption_level: "time_sensitive",
+  };
+
+  try {
+    const res = await fetch("https://api.onesignal.com/notifications?c=push", {
+      method: "POST",
+      headers: {
+        "Authorization": `Key ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      logger.error("OneSignal API error:", data);
+      return {success: false, error: JSON.stringify(data)};
+    }
+
+    const invalidAliases = data.errors?.invalid_aliases?.external_id;
+    if (invalidAliases?.length) {
+      logger.warn(`${invalidAliases.length} users not found in OneSignal`);
+    }
+
+    return {
+      success: true,
+      id: data.id,
+      invalidAliases,
+    };
+  } catch (error) {
+    return {success: false, error: String(error)};
+  }
+}
+
+// ============== SCHEDULED FUNCTIONS ==============
+
+/**
+ * Core scheduling runner used by both cron jobs.
+ *
+ * @param {string} runLabel Label for logging (e.g., "Thursday run").
+ * @param {DateTime} now Current UTC time reference.
+ * @return {Promise<void>} Resolves when scheduling completes.
+ */
+async function runJumuahReminderScheduling(
+  runLabel: string,
+  now: DateTime
+): Promise<void> {
+  const dayName = now.weekdayLong;
+  logger.info(
+    `Starting Jumu'ah reminder scheduling (${runLabel}, ${dayName} run)...`
+  );
+
+  const apiKey = onesignalApiKey.value();
+  if (!apiKey) {
+    logger.error("ONESIGNAL_API_KEY not configured");
+    return;
+  }
+
+  const todayKey = now.toISODate();
+  const existingRun = await db
+    .collection("notificationLogs")
+    .where("type", "==", "jumuah_reminder")
+    .where("runDate", "==", todayKey)
+    .where("success", "==", true)
+    .limit(1)
+    .get();
+
+  if (!existingRun.empty) {
+    logger.info(`Already ran successfully today (${todayKey}), skipping`);
+    return;
+  }
+
+  try {
+    const groups: Map<string, ScheduleGroup> = new Map();
+    let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+    let totalProcessed = 0;
+    let skippedNoPrefs = 0;
+    let skippedNotEnabled = 0;
+    let skippedInvalidTime = 0;
+    let skippedInvalidTz = 0;
+
+    let hasMore = true;
+    while (hasMore) {
+      let query = db
+        .collection("users")
+        .orderBy("__name__")
+        .limit(FIRESTORE_BATCH_SIZE);
+
+      if (lastDoc) {
+        query = query.startAfter(lastDoc);
+      }
+
+      const snapshot = await query.get();
+
+      if (snapshot.empty) {
+        hasMore = false;
+        break;
+      }
+
+      lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+      for (const doc of snapshot.docs) {
+        totalProcessed++;
+        const data = doc.data() as UserDoc;
+        const prefs = data.preferences;
+
+        if (!prefs) {
+          skippedNoPrefs++;
+          continue;
+        }
+
+        const notifPref = prefs.notificationPreference;
+        if (notifPref !== "push" && notifPref !== "provisional") {
+          skippedNotEnabled++;
+          continue;
+        }
+
+        const jumuahTime = prefs.jumuahStartTime;
+        const timezone = prefs.jumuahTimezone;
+
+        if (!jumuahTime) {
+          skippedInvalidTime++;
+          continue;
+        }
+
+        if (!timezone || !isValidTimezone(timezone)) {
+          skippedInvalidTz++;
+          continue;
+        }
+
+        const sendAfterUtc = calculateSendTime(jumuahTime, timezone, 3, now);
+        if (!sendAfterUtc) {
+          skippedInvalidTime++;
+          continue;
+        }
+
+        if (DateTime.fromISO(sendAfterUtc) < now) {
+          logger.debug("Skipping past send time", {
+            userId: doc.id,
+            sendAfterUtc,
+          });
+          continue;
+        }
+
+        const groupKey = getGroupKey(jumuahTime, timezone);
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, {
+            userIds: [],
+            time: jumuahTime,
+            timezone,
+            sendAfterUtc,
+          });
+        }
+        const targetGroup = groups.get(groupKey);
+        if (targetGroup) {
+          targetGroup.userIds.push(doc.id);
+        }
+      }
+
+      if (totalProcessed > 100000) {
+        logger.warn("Reached 100k user limit, stopping pagination");
+        break;
+      }
+    }
+
+    logger.info("Processed users for reminders", {
+      totalProcessed,
+      groupCount: groups.size,
+    });
+    logger.info("Skipped users", {
+      noPrefs: skippedNoPrefs,
+      notEnabled: skippedNotEnabled,
+      invalidTime: skippedInvalidTime,
+      invalidTz: skippedInvalidTz,
+    });
+
+    if (groups.size === 0) {
+      logger.info("No users to notify");
+      await logRun(now, true, 0, 0, totalProcessed, {
+        skipped: {
+          noPrefs: skippedNoPrefs,
+          notEnabled: skippedNotEnabled,
+          invalidTime: skippedInvalidTime,
+          invalidTz: skippedInvalidTz,
+        },
+      });
+      return;
+    }
+
+    let successfulBatches = 0;
+    let failedBatches = 0;
+    let totalUsersTargeted = 0;
+    let totalInvalidAliases = 0;
+
+    for (const [, group] of groups) {
+      for (let i = 0; i < group.userIds.length; i += 2000) {
+        const batch = group.userIds.slice(i, i + 2000);
+
+        const result = await sendJumuahNotification(
+          batch,
+          group.sendAfterUtc,
+          apiKey
+        );
+
+        if (result.success) {
+          successfulBatches++;
+          totalUsersTargeted += batch.length;
+          if (result.invalidAliases) {
+            totalInvalidAliases += result.invalidAliases.length;
+          }
+          logger.info("Scheduled batch", {
+            count: batch.length,
+            time: group.time,
+            timezone: group.timezone,
+            sendAfterUtc: group.sendAfterUtc,
+          });
+        } else {
+          failedBatches++;
+          logger.error("Failed batch", {
+            time: group.time,
+            timezone: group.timezone,
+            error: result.error,
+          });
+        }
+
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
+    const success = failedBatches === 0;
+    await logRun(
+      now,
+      success,
+      successfulBatches,
+      totalUsersTargeted,
+      totalProcessed,
+      {
+        failedBatches,
+        invalidAliases: totalInvalidAliases,
+        skipped: {
+          noPrefs: skippedNoPrefs,
+          notEnabled: skippedNotEnabled,
+          invalidTime: skippedInvalidTime,
+          invalidTz: skippedInvalidTz,
+        },
+      }
+    );
+
+    logger.info("Done scheduling", {
+      successfulBatches,
+      totalUsersTargeted,
+      totalInvalidAliases,
+    });
+  } catch (error) {
+    logger.error("Error scheduling Jumu'ah reminders:", error);
+    await logRun(now, false, 0, 0, 0, {error: String(error)});
+    throw error;
+  }
+}
+
+export const scheduleJumuahReminders = onSchedule(
+  {
+    schedule: "0 20 * * 4",
+    timeZone: "UTC",
+    secrets: [onesignalApiKey],
+    timeoutSeconds: 540,
+    retryCount: 2,
+    memory: "512MiB",
+  },
+  async () => {
+    await runJumuahReminderScheduling("Thursday 20:00 UTC", DateTime.utc());
+  }
+);
+
+export const scheduleJumuahRemindersCatchup = onSchedule(
+  {
+    schedule: "0 6 * * 5",
+    timeZone: "UTC",
+    secrets: [onesignalApiKey],
+    timeoutSeconds: 540,
+    retryCount: 2,
+    memory: "512MiB",
+  },
+  async () => {
+    await runJumuahReminderScheduling(
+      "Friday 06:00 UTC catch-up",
+      DateTime.utc()
+    );
+  }
+);
+
+/**
+ * Log the run result to Firestore.
+ *
+ * @param {DateTime} runTime Time of the run.
+ * @param {boolean} success Whether the run fully succeeded.
+ * @param {number} batches Number of batches sent.
+ * @param {number} users Number of users targeted.
+ * @param {number} totalProcessed Total users processed.
+ * @param {Record<string, unknown>=} extra Optional extra metadata.
+ * @return {Promise<void>} Resolves when log is written.
+ */
+async function logRun(
+  runTime: DateTime,
+  success: boolean,
+  batches: number,
+  users: number,
+  totalProcessed: number,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await db.collection("notificationLogs").add({
+      type: "jumuah_reminder",
+      runDate: runTime.toISODate(),
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      success,
+      batchesSent: batches,
+      usersTargeted: users,
+      usersProcessed: totalProcessed,
+      ...extra,
+    });
+  } catch (e) {
+    logger.error("Failed to log run:", e);
+  }
+}
+
+// ============== ADMIN-ONLY ENDPOINTS ==============
+
+/**
+ * Test endpoint - protected with admin token.
+ */
+export const testJumuahReminder = onRequest(
+  {
+    secrets: [onesignalApiKey, adminToken],
+    timeoutSeconds: 60,
+  },
+  async (req, res) => {
+    const providedToken = req.headers["x-admin-token"] as string | undefined;
+    const expectedToken = adminToken.value();
+
+    if (!expectedToken) {
+      if (process.env.FUNCTIONS_EMULATOR !== "true") {
+        res.status(403).json({error: "Endpoint disabled in production"});
+        return;
+      }
+    } else if (providedToken !== expectedToken) {
+      res.status(403).json({error: "Invalid admin token"});
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).send("POST only");
+      return;
+    }
+
+    const {userId} = req.body || {};
+    if (!userId || typeof userId !== "string") {
+      res.status(400).json({error: "Missing or invalid userId"});
+      return;
+    }
+
+    const userDoc = await db.collection("users").doc(userId).get();
+    if (!userDoc.exists) {
+      res.status(404).json({error: "User not found"});
+      return;
+    }
+
+    const apiKey = onesignalApiKey.value();
+
+    try {
+      const response = await fetch("https://api.onesignal.com/notifications?c=push", {
+        method: "POST",
+        headers: {
+          "Authorization": `Key ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          app_id: ONESIGNAL_APP_ID,
+          include_aliases: {external_id: [userId]},
+          target_channel: "push",
+          headings: {en: "🧪 Test: Jumu'ah Reminder"},
+          contents: {en: "Test notification - Try Khutbah Notes today."},
+        }),
+      });
+
+      const data = await response.json();
+      res
+        .status(response.ok ? 200 : 400)
+        .json({success: response.ok, ...data});
+    } catch (error) {
+      res.status(500).json({error: String(error)});
+    }
+  }
+);
+
+/**
+ * Preview endpoint - protected with admin token.
+ * Shows what would be scheduled without sending.
+ */
+export const previewJumuahReminders = onRequest(
+  {
+    secrets: [adminToken],
+    timeoutSeconds: 60,
+  },
+  async (req, res) => {
+    const providedToken = req.headers["x-admin-token"] as string | undefined;
+    const expectedToken = adminToken.value();
+
+    if (!expectedToken) {
+      if (process.env.FUNCTIONS_EMULATOR !== "true") {
+        res.status(403).json({error: "Endpoint disabled in production"});
+        return;
+      }
+    } else if (providedToken !== expectedToken) {
+      res.status(403).json({error: "Invalid admin token"});
+      return;
+    }
+
+    try {
+      const now = DateTime.utc();
+      const groups: Map<string, ScheduleGroup> = new Map();
+      let skipped = 0;
+
+      const snapshot = await db.collection("users").limit(1000).get();
+
+      for (const doc of snapshot.docs) {
+        const data = doc.data() as UserDoc;
+        const prefs = data.preferences;
+
+        if (!prefs) continue;
+        const notifPref = prefs.notificationPreference;
+        if (!["push", "provisional"].includes(notifPref ?? "")) {
+          skipped++;
+          continue;
+        }
+        if (!prefs.jumuahStartTime || !prefs.jumuahTimezone) {
+          skipped++;
+          continue;
+        }
+        if (!isValidTimezone(prefs.jumuahTimezone)) {
+          skipped++;
+          continue;
+        }
+
+        const sendAfterUtc = calculateSendTime(
+          prefs.jumuahStartTime,
+          prefs.jumuahTimezone,
+          3,
+          now
+        );
+        if (!sendAfterUtc) {
+          skipped++;
+          continue;
+        }
+
+        const groupKey = getGroupKey(
+          prefs.jumuahStartTime,
+          prefs.jumuahTimezone
+        );
+
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, {
+            userIds: [],
+            time: prefs.jumuahStartTime,
+            timezone: prefs.jumuahTimezone,
+            sendAfterUtc,
+          });
+        }
+
+        const previewGroup = groups.get(groupKey);
+        if (previewGroup) {
+          previewGroup.userIds.push(doc.id);
+        }
+      }
+
+      const preview = Array.from(groups.values()).map((g) => ({
+        jumuahTime: g.time,
+        timezone: g.timezone,
+        reminderSendsAtUtc: g.sendAfterUtc,
+        userCount: g.userIds.length,
+      }));
+
+      res.json({
+        nextFriday: getNextFriday(now).toISODate(),
+        currentTimeUtc: now.toISO(),
+        totalGroups: groups.size,
+        totalUsers: preview.reduce((sum, g) => sum + g.userCount, 0),
+        skippedUsers: skipped,
+        note:
+          snapshot.size === 1000 ? "Limited to first 1000 users" : undefined,
+        groups: preview,
+      });
+    } catch (error) {
+      res.status(500).json({error: String(error)});
+    }
+  }
+);
