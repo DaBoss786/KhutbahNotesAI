@@ -1951,7 +1951,7 @@ function validateAndParseTime(timeStr: string): ValidationResult {
 
   const match24 = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
   if (match24) {
-    const hours = parseInt(match24[1], 10);
+    let hours = parseInt(match24[1], 10);
     const minutes = parseInt(match24[2], 10);
 
     if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
@@ -1959,6 +1959,12 @@ function validateAndParseTime(timeStr: string): ValidationResult {
         valid: false,
         error: `Invalid 24-hour time: ${timeStr}`,
       };
+    }
+
+    // Assume PM for ambiguous times (e.g., "1:00" → 13:00) since Jumu'ah
+    // selections are midday slots.
+    if (hours >= 1 && hours <= 11) {
+      hours += 12;
     }
 
     return {
