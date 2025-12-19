@@ -1363,6 +1363,10 @@ struct SummaryView<Actions: View>: View {
         isRTL ? rtlFont(size: 17, weight: .semibold) : .system(size: 17, weight: .semibold)
     }
     
+    private var textAlignment: TextAlignment { isRTL ? .trailing : .leading }
+    private var sectionAlignment: HorizontalAlignment { isRTL ? .trailing : .leading }
+    private var frameAlignment: Alignment { isRTL ? .trailing : .leading }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 10) {
@@ -1385,6 +1389,8 @@ struct SummaryView<Actions: View>: View {
                     Text("AI summary will appear here once processed.")
                         .font(Theme.bodyFont)
                         .foregroundColor(Theme.mutedText)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if isTranslationLoading {
                     HStack(spacing: 10) {
@@ -1394,19 +1400,23 @@ struct SummaryView<Actions: View>: View {
                             .font(Theme.bodyFont)
                             .foregroundColor(Theme.mutedText)
                     }
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
                 } else if let translationError, !translationError.isEmpty {
                     Text("Translation unavailable right now. Please try again later.")
                         .font(Theme.bodyFont)
                         .foregroundColor(Theme.mutedText)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text("Translation will appear here once ready.")
                         .font(Theme.bodyFont)
                         .foregroundColor(Theme.mutedText)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .environment(\.layoutDirection, isRTL ? .rightToLeft : .leftToRight)
         }
     }
     
@@ -1454,35 +1464,62 @@ struct SummaryView<Actions: View>: View {
     
     @ViewBuilder
     private func summarySection(title: String, content: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: sectionAlignment, spacing: 6) {
             Text(title)
                 .font(summaryHeadingFont)
                 .foregroundColor(.black)
+                .multilineTextAlignment(textAlignment)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
             
             if content.isEmpty {
                 Text("None mentioned")
                     .font(summaryBodyFont)
                     .foregroundColor(Theme.mutedText)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
             } else if content.count == 1 {
                 Text(content[0])
                     .font(summaryBodyFont)
                     .foregroundColor(Theme.mutedText)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: sectionAlignment, spacing: 4) {
                     ForEach(content, id: \.self) { item in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("•")
-                                .font(summaryBodyFont)
-                                .foregroundColor(Theme.mutedText)
-                            Text(item)
-                                .font(summaryBodyFont)
-                                .foregroundColor(Theme.mutedText)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                        bulletRow(for: item)
                     }
                 }
             }
+        }
+    }
+    
+    @ViewBuilder
+    private func bulletRow(for item: String) -> some View {
+        if isRTL {
+            HStack(alignment: .top, spacing: 8) {
+                Text(item)
+                    .font(summaryBodyFont)
+                    .foregroundColor(Theme.mutedText)
+                    .multilineTextAlignment(textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("•")
+                    .font(summaryBodyFont)
+                    .foregroundColor(Theme.mutedText)
+            }
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+        } else {
+            HStack(alignment: .top, spacing: 8) {
+                Text("•")
+                    .font(summaryBodyFont)
+                    .foregroundColor(Theme.mutedText)
+                Text(item)
+                    .font(summaryBodyFont)
+                    .foregroundColor(Theme.mutedText)
+                    .multilineTextAlignment(textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
         }
     }
 }
