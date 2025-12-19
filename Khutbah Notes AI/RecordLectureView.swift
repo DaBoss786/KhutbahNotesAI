@@ -205,15 +205,9 @@ struct RecordLectureView: View {
     private var usageCard: some View {
         let remaining = store.userUsage?.minutesRemaining
         let plan = store.userUsage?.plan ?? "free"
-        let used: Int
-        let cap: Int
-        if plan == "premium" {
-            cap = 500
-            used = (store.userUsage?.monthlyMinutesUsed ?? 0)
-        } else {
-            cap = 60
-            used = (store.userUsage?.freeLifetimeMinutesUsed ?? 0)
-        }
+        let isFree = plan == "free"
+        let used = isFree ? (store.userUsage?.freeLifetimeMinutesUsed ?? 0) : 0
+        let cap = isFree ? 60 : 0
         let percent = cap > 0 ? min(1.0, Double(used) / Double(cap)) : 0
         
         return VStack(alignment: .leading, spacing: 8) {
@@ -221,12 +215,18 @@ struct RecordLectureView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Plan • \(plan.capitalized)")
                         .font(.subheadline.weight(.semibold))
-                    if let remaining {
-                        Text("\(used) / \(cap) minutes used • \(remaining) remaining")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
+                    if isFree {
+                        if let remaining {
+                            Text("\(used) / \(cap) minutes used • \(remaining) remaining")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Fetching usage…")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
                     } else {
-                        Text("Fetching usage…")
+                        Text("70-minute max per audio recording.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
@@ -234,25 +234,23 @@ struct RecordLectureView: View {
                 Spacer()
             }
             
-            GeometryReader { geometry in
-                let width = geometry.size.width
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(.systemGray6))
-                        .frame(height: 8)
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(plan == "premium" ? Color.green.opacity(0.8) : Color.orange.opacity(0.8))
-                        .frame(width: width * percent, height: 8)
+            if isFree {
+                GeometryReader { geometry in
+                    let width = geometry.size.width
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(.systemGray6))
+                            .frame(height: 8)
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.orange.opacity(0.8))
+                            .frame(width: width * percent, height: 8)
+                    }
                 }
+                .frame(height: 8)
             }
-            .frame(height: 8)
             
-            if plan == "free" {
-                Text("Upgrade for 500 minutes/month.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            } else {
-                Text("70-minute max per audio recording.")
+            if isFree {
+                Text("Upgrade for additional recording time.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
