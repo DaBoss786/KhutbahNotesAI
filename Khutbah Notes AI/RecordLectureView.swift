@@ -12,6 +12,25 @@ struct RecordLectureView: View {
     @State private var animatePulse = false
     @State private var blinkDot = false
     @State private var showDiscardAlert = false
+    @State private var didShowLimitWarning = false
+    @State private var didAutoStopForLimit = false
+    @State private var limitReachedMessage: String? = nil
+    
+    private enum RecordingLimitKind {
+        case freeLifetime
+        case premiumMonthly
+        case perRecording
+    }
+    
+    private struct RecordingLimit {
+        let minutes: Int
+        let kind: RecordingLimitKind
+    }
+    
+    private let warningThresholdSeconds: TimeInterval = 180
+    private let freeLifetimeCapMinutes = 60
+    private let premiumMonthlyCapMinutes = 500
+    private let perRecordingCapMinutes = 70
     
     var body: some View {
         ZStack {
@@ -31,6 +50,7 @@ struct RecordLectureView: View {
                     
                     if recordingManager.isRecording {
                         recordingBadge
+                        limitWarningView
                     }
                     
                     recordButtonStack
@@ -66,7 +86,11 @@ struct RecordLectureView: View {
                 startPulse()
             } else {
                 stopPulse()
+                resetLimitState()
             }
+        }
+        .onChange(of: recordingManager.elapsedTime) { _ in
+            handleLimitTick()
         }
         .alert("Discard recording?", isPresented: $showDiscardAlert) {
             Button("Delete", role: .destructive) {
@@ -88,9 +112,15 @@ struct RecordLectureView: View {
                 .padding(.horizontal, 4)
                 .padding(.vertical, 4)
             
-            Text("Save to start transcription.")
-                .font(.footnote)
-                .foregroundColor(.secondary)
+            if let limitReachedMessage {
+                Text(limitReachedMessage)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Save to start transcription.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
             
             VStack(spacing: 12) {
                 Button(action: saveRecordingTapped) {
@@ -99,11 +129,13 @@ struct RecordLectureView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 
-                Button(action: resumeRecordingTapped) {
-                    Text("Resume Recording")
-                        .frame(maxWidth: .infinity)
+                if limitReachedMessage == nil {
+                    Button(action: resumeRecordingTapped) {
+                        Text("Resume Recording")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
                 
                 Button(role: .destructive, action: { showDiscardAlert = true }) {
                     Text("Discard")
@@ -119,6 +151,15 @@ struct RecordLectureView: View {
     }
     
     private func startRecordingTapped() {
+        guard let limit = activeRecordingLimit else {
+            onShowToast?("Fetching usage... Try again in a moment.")
+            return
+        }
+        if limit.minutes <= 0 {
+            onShowToast?(limitReachedStartMessage(for: limit.kind))
+            return
+        }
+        resetLimitState()
         do {
             try recordingManager.startRecording()
             titleText = defaultTitle()
@@ -178,6 +219,99 @@ struct RecordLectureView: View {
         formatter.timeStyle = .none
         return "Khutbah - \(formatter.string(from: Date()))"
     }
+
+    private var activeRecordingLimit: RecordingLimit? {
+        guard let usage = store.userUsage else { return nil }
+        let plan = usage.plan == "premium" ? "premium" : "free"
+        let planRemaining = max(0, usage.minutesRemaining)
+        if plan == "free" {
+            return RecordingLimit(minutes: planRemaining, kind: .freeLifetime)
+        }
+
+        if planRemaining <= perRecordingCapMinutes {
+            return RecordingLimit(minutes: planRemaining, kind: .premiumMonthly)
+        }
+        return RecordingLimit(minutes: perRecordingCapMinutes, kind: .perRecording)
+    }
+
+    private func remainingSeconds(for limit: RecordingLimit) -> TimeInterval {
+        max(0, (TimeInterval(limit.minutes) * 60) - recordingManager.elapsedTime)
+    }
+
+    private func limitLabel(for kind: RecordingLimitKind) -> String {
+        switch kind {
+        case .freeLifetime:
+            return "free plan limit"
+        case .premiumMonthly:
+            return "monthly limit"
+        case .perRecording:
+            return "per recording limit"
+        }
+    }
+    
+    private func limitLabelDisplay(for kind: RecordingLimitKind) -> String {
+        switch kind {
+        case .freeLifetime:
+            return "Free plan limit"
+        case .premiumMonthly:
+            return "Monthly limit"
+        case .perRecording:
+            return "Per recording limit"
+        }
+    }
+
+    private func limitReachedStartMessage(for kind: RecordingLimitKind) -> String {
+        switch kind {
+        case .freeLifetime:
+            return "You have reached the \(freeLifetimeCapMinutes)-minute free plan limit."
+        case .premiumMonthly:
+            return "You have reached your \(premiumMonthlyCapMinutes)-minute monthly limit."
+        case .perRecording:
+            return "This recording has reached the \(perRecordingCapMinutes)-minute limit."
+        }
+    }
+
+    private func limitReachedSheetMessage(for kind: RecordingLimitKind) -> String {
+        switch kind {
+        case .freeLifetime:
+            return "Free plan limit reached. Save to process this recording."
+        case .premiumMonthly:
+            return "Monthly limit reached. Save to process this recording."
+        case .perRecording:
+            return "Per recording limit reached. Save to process this recording."
+        }
+    }
+
+    private func formattedRemaining(_ seconds: TimeInterval) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.zeroFormattingBehavior = [.pad]
+        formatter.allowedUnits = [.minute, .second]
+        return formatter.string(from: seconds) ?? "00:00"
+    }
+
+    private func handleLimitTick() {
+        guard recordingManager.isRecording else { return }
+        guard let limit = activeRecordingLimit else { return }
+
+        let remaining = remainingSeconds(for: limit)
+        if remaining <= warningThresholdSeconds, remaining > 0, !didShowLimitWarning {
+            didShowLimitWarning = true
+            onShowToast?("\(formattedRemaining(remaining)) remaining before you hit your \(limitLabel(for: limit.kind)).")
+        }
+
+        if remaining <= 0, !didAutoStopForLimit {
+            didAutoStopForLimit = true
+            limitReachedMessage = limitReachedSheetMessage(for: limit.kind)
+            finishRecordingTapped()
+            onShowToast?("Recording stopped at your \(limitLabel(for: limit.kind)).")
+        }
+    }
+
+    private func resetLimitState() {
+        didShowLimitWarning = false
+        didAutoStopForLimit = false
+        limitReachedMessage = nil
+    }
     
     private func startPulse() {
         animatePulse = false
@@ -207,7 +341,7 @@ struct RecordLectureView: View {
         let plan = store.userUsage?.plan ?? "free"
         let isFree = plan == "free"
         let used = isFree ? (store.userUsage?.freeLifetimeMinutesUsed ?? 0) : 0
-        let cap = isFree ? 60 : 0
+        let cap = isFree ? freeLifetimeCapMinutes : 0
         let percent = cap > 0 ? min(1.0, Double(used) / Double(cap)) : 0
         
         return VStack(alignment: .leading, spacing: 8) {
@@ -226,7 +360,7 @@ struct RecordLectureView: View {
                                 .foregroundColor(.secondary)
                         }
                     } else {
-                        Text("70-minute max per audio recording.")
+                        Text("\(perRecordingCapMinutes)-minute max per audio recording.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
@@ -273,11 +407,11 @@ struct RecordLectureView: View {
         let message: String
         switch lecture.quotaReason {
         case "per_file_cap":
-            message = "Blocked: exceeds 70-minute per khutbah limit."
+            message = "Blocked: exceeds \(perRecordingCapMinutes)-minute per khutbah limit."
         case "free_lifetime_exceeded":
-            message = "Blocked: free plan reached 60-minute total."
+            message = "Blocked: free plan reached \(freeLifetimeCapMinutes)-minute total."
         case "premium_monthly_exceeded":
-            message = "Blocked: premium monthly 500-minute limit reached."
+            message = "Blocked: premium monthly \(premiumMonthlyCapMinutes)-minute limit reached."
         default:
             message = "Recording blocked due to quota."
         }
@@ -378,6 +512,27 @@ private extension RecordLectureView {
         }
     }
     
+    @ViewBuilder
+    var limitWarningView: some View {
+        if recordingManager.isRecording, let limit = activeRecordingLimit {
+            let remaining = remainingSeconds(for: limit)
+            if remaining <= warningThresholdSeconds, remaining > 0 {
+                HStack(spacing: 10) {
+                    Image(systemName: "clock.fill")
+                        .foregroundColor(.orange)
+                    Text("\(formattedRemaining(remaining)) remaining • \(limitLabelDisplay(for: limit.kind))")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(.orange)
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.orange.opacity(0.12))
+                .cornerRadius(12)
+            }
+        }
+    }
+    
     var timerView: some View {
         Text(formattedElapsed)
             .font(.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit())
@@ -405,6 +560,8 @@ private extension RecordLectureView {
                     }
                 }
                 .buttonStyle(.plain)
+                .disabled(limitReachedMessage != nil)
+                .opacity(limitReachedMessage == nil ? 1 : 0.4)
                 
                 Button(action: finishRecordingTapped) {
                     Text("Stop Recording")
