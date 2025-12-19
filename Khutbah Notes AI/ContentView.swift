@@ -921,6 +921,16 @@ struct LectureAudioPlayerView: View {
             )
             .tint(Theme.primaryGreen)
             .disabled(!secondaryControlsEnabled)
+
+            HStack {
+                Text(viewModel.elapsedTimeLabel)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(Theme.mutedText)
+                Spacer()
+                Text(viewModel.totalTimeLabel)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(Theme.mutedText)
+            }
             
             if viewModel.isLoading {
                 ProgressView()
@@ -999,6 +1009,14 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     
     var rateLabel: String {
         String(format: "%.2gx", playbackRate)
+    }
+
+    var elapsedTimeLabel: String {
+        formatTime(currentTime)
+    }
+
+    var totalTimeLabel: String {
+        duration > 0 ? formatTime(duration) : "--:--"
     }
     
     var canAdjustRate: Bool { canPlay }
@@ -1193,6 +1211,18 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         let target = CMTime(seconds: targetSeconds, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
         updateSlider(to: targetSeconds)
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "00:00" }
+        let totalSeconds = Int(seconds.rounded(.down))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        }
+        return String(format: "%02d:%02d", minutes, secs)
     }
 }
 
