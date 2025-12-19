@@ -38,6 +38,9 @@ struct Theme {
 struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var toastMessage: String? = nil
+    @State private var toastActionTitle: String? = nil
+    @State private var toastAction: (() -> Void)? = nil
+    @State private var showPaywall = false
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -49,16 +52,26 @@ struct MainTabView: View {
                     }
                     .tag(0)
                 
-                RecordLectureView(selectedTab: $selectedTab) { message in
-                    withAnimation {
-                        toastMessage = message
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                RecordLectureView(
+                    selectedTab: $selectedTab,
+                    onShowToast: { message, actionTitle, action in
                         withAnimation {
-                            toastMessage = nil
+                            toastMessage = message
+                            toastActionTitle = actionTitle
+                            toastAction = action
                         }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                            withAnimation {
+                                toastMessage = nil
+                                toastActionTitle = nil
+                                toastAction = nil
+                            }
+                        }
+                    },
+                    onShowPaywall: {
+                        showPaywall = true
                     }
-                }
+                )
                 .tabItem {
                     Label("Record", systemImage: "plus")
                         .opacity(0) // Hidden; replaced by floating button
@@ -73,6 +86,11 @@ struct MainTabView: View {
                     .tag(2)
             }
             .tint(Theme.primaryGreen)
+            .sheet(isPresented: $showPaywall) {
+                OnboardingPaywallView {
+                    showPaywall = false
+                }
+            }
             
             Button(action: { selectedTab = 1 }) {
                 ZStack {
@@ -92,9 +110,15 @@ struct MainTabView: View {
             .offset(y: -10)
             
             if let message = toastMessage {
-                ToastView(message: message, onDismiss: {
-                    withAnimation { toastMessage = nil }
-                })
+                let actionTitle = toastActionTitle ?? "OK"
+                ToastView(message: message, actionTitle: actionTitle) {
+                    toastAction?()
+                    withAnimation {
+                        toastMessage = nil
+                        toastActionTitle = nil
+                        toastAction = nil
+                    }
+                }
                 .padding(.bottom, 90)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }

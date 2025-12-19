@@ -3,7 +3,8 @@ import AVFoundation
 
 struct RecordLectureView: View {
     @Binding var selectedTab: Int
-    var onShowToast: ((String) -> Void)? = nil
+    var onShowToast: ((String, String?, (() -> Void)?) -> Void)? = nil
+    var onShowPaywall: (() -> Void)? = nil
     
     @EnvironmentObject var store: LectureStore
     @StateObject private var recordingManager = RecordingManager()
@@ -152,11 +153,19 @@ struct RecordLectureView: View {
     
     private func startRecordingTapped() {
         guard let limit = activeRecordingLimit else {
-            onShowToast?("Fetching usage... Try again in a moment.")
+            onShowToast?("Fetching usage... Try again in a moment.", nil, nil)
             return
         }
         if limit.minutes <= 0 {
-            onShowToast?(limitReachedStartMessage(for: limit.kind))
+            if limit.kind == .freeLifetime {
+                onShowToast?(
+                    limitReachedStartMessage(for: limit.kind),
+                    "Upgrade Now",
+                    { onShowPaywall?() }
+                )
+            } else {
+                onShowToast?(limitReachedStartMessage(for: limit.kind), nil, nil)
+            }
             return
         }
         resetLimitState()
@@ -187,7 +196,11 @@ struct RecordLectureView: View {
         
         showTitleSheet = false
         titleText = ""
-        onShowToast?("Audio saved. Transcription and summary will be available in a few minutes.")
+        onShowToast?(
+            "Audio saved. Transcription and summary will be available in a few minutes.",
+            nil,
+            nil
+        )
         selectedTab = 0
     }
     
@@ -263,7 +276,7 @@ struct RecordLectureView: View {
     private func limitReachedStartMessage(for kind: RecordingLimitKind) -> String {
         switch kind {
         case .freeLifetime:
-            return "You have reached the \(freeLifetimeCapMinutes)-minute free plan limit."
+            return "You have reached the \(freeLifetimeCapMinutes)-minute free plan limit. Upgrade to keep recording."
         case .premiumMonthly:
             return "You have reached your \(premiumMonthlyCapMinutes)-minute monthly limit."
         case .perRecording:
@@ -296,14 +309,22 @@ struct RecordLectureView: View {
         let remaining = remainingSeconds(for: limit)
         if remaining <= warningThresholdSeconds, remaining > 0, !didShowLimitWarning {
             didShowLimitWarning = true
-            onShowToast?("\(formattedRemaining(remaining)) remaining before you hit your \(limitLabel(for: limit.kind)).")
+            onShowToast?(
+                "\(formattedRemaining(remaining)) remaining before you hit your \(limitLabel(for: limit.kind)).",
+                nil,
+                nil
+            )
         }
 
         if remaining <= 0, !didAutoStopForLimit {
             didAutoStopForLimit = true
             limitReachedMessage = limitReachedSheetMessage(for: limit.kind)
             finishRecordingTapped()
-            onShowToast?("Recording stopped at your \(limitLabel(for: limit.kind)).")
+            onShowToast?(
+                "Recording stopped at your \(limitLabel(for: limit.kind)).",
+                nil,
+                nil
+            )
         }
     }
 
@@ -387,6 +408,9 @@ struct RecordLectureView: View {
                 Text("Upgrade for additional recording time.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
+                Text("Tap to upgrade")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.85))
             }
         }
         .padding()
@@ -396,6 +420,12 @@ struct RecordLectureView: View {
                 .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
         )
         .padding(.horizontal, 24)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isFree {
+                onShowPaywall?()
+            }
+        }
     }
     
     private var blockedLecture: Lecture? {
@@ -611,7 +641,8 @@ struct RecordingWaveformView: View {
 
 struct ToastView: View {
     let message: String
-    var onDismiss: (() -> Void)?
+    let actionTitle: String
+    var onAction: (() -> Void)?
     
     var body: some View {
         VStack(spacing: 10) {
@@ -620,18 +651,16 @@ struct ToastView: View {
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
             
-            if let onDismiss {
-                Button(action: onDismiss) {
-                    Text("OK")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(Theme.primaryGreen)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.white)
-                        .cornerRadius(10)
-                }
-                .buttonStyle(.plain)
+            Button(action: { onAction?() }) {
+                Text(actionTitle)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(Theme.primaryGreen)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.white)
+                    .cornerRadius(10)
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
