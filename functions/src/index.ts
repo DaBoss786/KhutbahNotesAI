@@ -87,12 +87,47 @@ const SUMMARY_SYSTEM_PROMPT = [
   "  text. The entire response must be a single JSON object and nothing else.",
 ].join("\n");
 
+const SUMMARY_TRANSLATION_SYSTEM_PROMPT = [
+  "You are a careful translation engine for Islamic khutbah summaries.",
+  "",
+  "Translate the provided summary JSON into the target language.",
+  "Preserve the meaning and factual content exactly.",
+  "Do NOT add, remove, or infer information.",
+  "Keep the JSON structure and keys unchanged.",
+  "Translate each list item and keep the same ordering.",
+  "If the input contains \"Not mentioned\" or \"No action mentioned\",",
+  "translate those phrases into the target language.",
+  "If a quote is already written in Arabic script, keep it verbatim.",
+  "",
+  "Output format:",
+  "- Return a single JSON object with exactly these keys:",
+  "{",
+  "  \"mainTheme\": string,",
+  "  \"keyPoints\": string[],",
+  "  \"explicitAyatOrHadith\": string[],",
+  "  \"weeklyActions\": string[]",
+  "}",
+  "- Do NOT include any extra keys, comments, or text outside the JSON.",
+].join("\n");
+
 const MAX_SUMMARY_OUTPUT_TOKENS = 3000;
 const CHUNK_CHAR_TARGET = 4000;
 const CHUNK_CHAR_OVERLAP = 300;
 const CHUNK_OUTPUT_TOKENS = 2000;
 const SUMMARY_MODEL = "gpt-5-mini";
+const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = 2000;
 const TRANSCRIBE_CHUNK_SECONDS = 1200; // keep under model ~1400s limit
+
+const SUMMARY_TRANSLATION_LANGUAGES: Record<string, string> = {
+  ar: "Arabic",
+  ur: "Urdu",
+  fr: "French",
+  tr: "Turkish",
+  id: "Indonesian",
+  ms: "Malay",
+  es: "Spanish",
+  bn: "Bengali",
+};
 
 const COMPACT_RETRY_INSTRUCTIONS = [
   "Your previous attempt exceeded the output token limit.",
@@ -846,6 +881,136 @@ export const summarizeKhutbah = onDocumentWritten(
   }
 );
 
+export const translateSummary = onDocumentWritten(
+  {
+    document: "users/{userId}/lectures/{lectureId}",
+    region: "us-central1",
+    secrets: [openaiKey],
+    timeoutSeconds: 300,
+    memory: "512MiB",
+  },
+  async (event) => {
+    const afterSnap = event.data?.after;
+    if (!afterSnap?.exists) {
+      return;
+    }
+
+    const lecture = afterSnap.data();
+    if (!lecture?.summary) {
+      return;
+    }
+
+    const requestedLanguages = extractTranslationCodes(
+      lecture.summaryTranslationRequests
+    ).filter((code) => isSupportedTranslationLanguage(code));
+
+    const pendingLanguages = requestedLanguages.filter((code) =>
+      !hasTranslationEntry(lecture.summaryTranslations, code) &&
+      !hasTranslationFlag(lecture.summaryTranslationInProgress, code)
+    );
+
+    if (pendingLanguages.length === 0) {
+      return;
+    }
+
+    const languageCode = pendingLanguages[0];
+    const languageName = SUMMARY_TRANSLATION_LANGUAGES[languageCode];
+    const docRef = afterSnap.ref;
+    if (!languageName) {
+      await docRef.update({
+        [`summaryTranslationRequests.${languageCode}`]:
+          admin.firestore.FieldValue.delete(),
+        [`summaryTranslationErrors.${languageCode}`]:
+          "Unsupported translation language",
+      });
+      return;
+    }
+
+    const lockAcquired = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      const current = snap.data();
+      if (!snap.exists || !current?.summary) {
+        return false;
+      }
+
+      if (
+        !hasTranslationFlag(current.summaryTranslationRequests, languageCode)
+      ) {
+        return false;
+      }
+
+      if (hasTranslationEntry(current.summaryTranslations, languageCode)) {
+        return false;
+      }
+
+      if (
+        hasTranslationFlag(current.summaryTranslationInProgress, languageCode)
+      ) {
+        return false;
+      }
+
+      tx.update(docRef, {
+        [`summaryTranslationInProgress.${languageCode}`]: true,
+      });
+
+      return true;
+    });
+
+    if (!lockAcquired) {
+      return;
+    }
+
+    try {
+      const sourceSummary = coerceSummaryForTranslation(lecture.summary);
+      if (!sourceSummary) {
+        throw new Error("Summary schema invalid for translation");
+      }
+
+      const openai = new OpenAI({
+        apiKey: openaiKey.value(),
+      });
+
+      const translated = await translateSummaryContent(
+        openai,
+        sourceSummary,
+        languageName
+      );
+
+      const safeTranslation = enforceTranslatedSummaryLimits(translated);
+
+      await docRef.update({
+        [`summaryTranslations.${languageCode}`]: {
+          mainTheme: safeTranslation.mainTheme,
+          keyPoints: safeTranslation.keyPoints,
+          explicitAyatOrHadith: safeTranslation.explicitAyatOrHadith,
+          weeklyActions: safeTranslation.weeklyActions,
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          model: SUMMARY_MODEL,
+        },
+        [`summaryTranslationInProgress.${languageCode}`]:
+          admin.firestore.FieldValue.delete(),
+        [`summaryTranslationRequests.${languageCode}`]:
+          admin.firestore.FieldValue.delete(),
+        [`summaryTranslationErrors.${languageCode}`]:
+          admin.firestore.FieldValue.delete(),
+      });
+    } catch (err: unknown) {
+      console.error("Error in translateSummary:", err);
+
+      const message =
+        err instanceof Error ? err.message : "Translation failed";
+
+      await docRef.update({
+        [`summaryTranslationInProgress.${languageCode}`]:
+          admin.firestore.FieldValue.delete(),
+        [`summaryTranslationRequests.${languageCode}`]:
+          admin.firestore.FieldValue.delete(),
+        [`summaryTranslationErrors.${languageCode}`]: message,
+      });
+    }
+  }
+);
+
 type ResponseMessage = {role: "system" | "user"; content: string};
 
 /**
@@ -1080,6 +1245,178 @@ async function runJsonSummaryRequest(
 }
 
 /**
+ * Validate if a language code is supported for summary translation.
+ *
+ * @param {string} code Language code to validate.
+ * @return {boolean} True when supported.
+ */
+function isSupportedTranslationLanguage(
+  code: string
+): code is keyof typeof SUMMARY_TRANSLATION_LANGUAGES {
+  return Object.prototype.hasOwnProperty.call(
+    SUMMARY_TRANSLATION_LANGUAGES,
+    code
+  );
+}
+
+/**
+ * Extract requested translation codes from a request payload.
+ *
+ * @param {unknown} raw Raw request payload from Firestore.
+ * @return {string[]} List of requested language codes.
+ */
+function extractTranslationCodes(raw: unknown): string[] {
+  if (!raw) {
+    return [];
+  }
+  if (typeof raw === "string") {
+    return [raw];
+  }
+  if (Array.isArray(raw)) {
+    return raw.filter((item) => typeof item === "string") as string[];
+  }
+  if (typeof raw === "object") {
+    return Object.keys(raw as Record<string, unknown>);
+  }
+  return [];
+}
+
+/**
+ * Check if a translation request or in-progress flag is set for a language.
+ *
+ * @param {unknown} raw Raw request payload.
+ * @param {string} code Language code to check.
+ * @return {boolean} True when the request or flag is present.
+ */
+function hasTranslationFlag(raw: unknown, code: string): boolean {
+  if (!raw) {
+    return false;
+  }
+  if (typeof raw === "string") {
+    return raw === code;
+  }
+  if (Array.isArray(raw)) {
+    return raw.includes(code);
+  }
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    return obj[code] === true;
+  }
+  return false;
+}
+
+/**
+ * Check if a translation already exists for a language.
+ *
+ * @param {unknown} raw Raw translation map.
+ * @param {string} code Language code to check.
+ * @return {boolean} True when translation exists.
+ */
+function hasTranslationEntry(raw: unknown, code: string): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return false;
+  }
+  const obj = raw as Record<string, unknown>;
+  return Boolean(obj[code]);
+}
+
+/**
+ * Validate and coerce summary payload into a translation-ready shape.
+ *
+ * @param {unknown} summary Raw summary payload from Firestore.
+ * @return {Object|null} Normalized summary or null if invalid.
+ */
+function coerceSummaryForTranslation(summary: unknown): {
+  mainTheme: string;
+  keyPoints: string[];
+  explicitAyatOrHadith: string[];
+  weeklyActions: string[];
+} | null {
+  if (!summary || typeof summary !== "object") {
+    return null;
+  }
+
+  const obj = summary as {
+    mainTheme?: unknown;
+    keyPoints?: unknown;
+    explicitAyatOrHadith?: unknown;
+    weeklyActions?: unknown;
+  };
+
+  if (typeof obj.mainTheme !== "string") {
+    return null;
+  }
+
+  if (!Array.isArray(obj.keyPoints) ||
+    !obj.keyPoints.every((item) => typeof item === "string")) {
+    return null;
+  }
+
+  if (!Array.isArray(obj.explicitAyatOrHadith) ||
+    !obj.explicitAyatOrHadith.every((item) => typeof item === "string")) {
+    return null;
+  }
+
+  if (!Array.isArray(obj.weeklyActions) ||
+    !obj.weeklyActions.every((item) => typeof item === "string")) {
+    return null;
+  }
+
+  return {
+    mainTheme: obj.mainTheme,
+    keyPoints: obj.keyPoints,
+    explicitAyatOrHadith: obj.explicitAyatOrHadith,
+    weeklyActions: obj.weeklyActions,
+  };
+}
+
+/**
+ * Translate a structured summary into the requested language.
+ *
+ * @param {OpenAI} openai OpenAI client instance.
+ * @param {Object} summary Structured summary to translate.
+ * @param {string} languageName Human-readable language name.
+ * @return {Promise<SummaryShape>} Raw translated summary JSON.
+ */
+async function translateSummaryContent(
+  openai: OpenAI,
+  summary: {
+    mainTheme: string;
+    keyPoints: string[];
+    explicitAyatOrHadith: string[];
+    weeklyActions: string[];
+  },
+  languageName: string
+): Promise<SummaryShape> {
+  const translationInstructions = [
+    `Translate the khutbah summary into ${languageName}.`,
+    "Keep the meaning, tone, and religious content unchanged.",
+    "Do not add, remove, or infer any information.",
+    "Return only valid JSON with the required keys.",
+  ].join("\n");
+
+  const text = await runJsonSummaryRequest(
+    openai,
+    [
+      {role: "system", content: SUMMARY_TRANSLATION_SYSTEM_PROMPT},
+      {role: "user", content: translationInstructions},
+      {role: "user", content: JSON.stringify(summary)},
+    ],
+    SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS,
+    `Translation (${languageName})`
+  );
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("Translation: Model did not return valid JSON");
+  }
+
+  return parsed as SummaryShape;
+}
+
+/**
  * Detect whether an error came from a max_output_tokens cutoff.
  *
  * @param {unknown} err Error to inspect.
@@ -1183,6 +1520,61 @@ function enforceSummaryLimits(summaryObj: SummaryShape): {
     explicitAyatOrHadith: dedupedQuotes,
     weeklyActions:
       dedupedWeekly.length > 0 ? dedupedWeekly : ["No action mentioned"],
+  };
+}
+
+/**
+ * Enforce limits and validate the translated summary shape.
+ *
+ * @param {SummaryShape} summaryObj Translated summary object to enforce.
+ * @return {{
+ *   mainTheme: string,
+ *   keyPoints: string[],
+ *   explicitAyatOrHadith: string[],
+ *   weeklyActions: string[]
+ * }} Summary with enforced limits.
+ */
+function enforceTranslatedSummaryLimits(summaryObj: SummaryShape): {
+  mainTheme: string;
+  keyPoints: string[];
+  explicitAyatOrHadith: string[];
+  weeklyActions: string[];
+} {
+  const mainTheme = summaryObj.mainTheme;
+  const keyPoints = summaryObj.keyPoints;
+  const explicitAyatOrHadith = summaryObj.explicitAyatOrHadith;
+  const weeklyActions = summaryObj.weeklyActions;
+
+  const isValid =
+    typeof mainTheme === "string" &&
+    Array.isArray(keyPoints) &&
+    keyPoints.every((i) => typeof i === "string") &&
+    Array.isArray(explicitAyatOrHadith) &&
+    explicitAyatOrHadith.every((i) => typeof i === "string") &&
+    Array.isArray(weeklyActions) &&
+    weeklyActions.every((i) => typeof i === "string");
+
+  if (!isValid) {
+    logger.error("Invalid translated summary schema", {
+      summary: safeJson(summaryObj),
+    });
+    throw new Error("Invalid translated summary schema");
+  }
+
+  const dedupedKeyPoints = dedupeStrings(keyPoints).slice(0, 7);
+  const dedupedWeekly = dedupeStrings(weeklyActions).slice(0, 3);
+  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith).slice(0, 2);
+
+  const trimmedTheme = truncateWords(mainTheme, 400).trim();
+  if (!trimmedTheme) {
+    throw new Error("Translated summary missing mainTheme");
+  }
+
+  return {
+    mainTheme: trimmedTheme,
+    keyPoints: dedupedKeyPoints,
+    explicitAyatOrHadith: dedupedQuotes,
+    weeklyActions: dedupedWeekly,
   };
 }
 

@@ -708,22 +708,28 @@ struct LectureCardView: View {
 }
 
 struct LectureDetailView: View {
+    @EnvironmentObject var store: LectureStore
     let lecture: Lecture
     @State private var selectedTab = 0
+    @State private var selectedSummaryLanguage: SummaryTranslationLanguage = .english
     @State private var shareItems: [Any]? = nil
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
     
     private let tabs = ["Summary", "Transcript"]
     
+    private var displayLecture: Lecture {
+        store.lectures.first(where: { $0.id == lecture.id }) ?? lecture
+    }
+    
     private var dateText: String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
-        return formatter.string(from: lecture.date)
+        return formatter.string(from: displayLecture.date)
     }
     
     private var durationText: String {
-        if let minutes = lecture.durationMinutes {
+        if let minutes = displayLecture.durationMinutes {
             return "\(minutes) mins"
         }
         return "Duration pending"
@@ -733,19 +739,19 @@ struct LectureDetailView: View {
         ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(lecture.title)
+                    Text(displayLecture.title)
                         .font(Theme.largeTitleFont)
                         .foregroundColor(.black)
                     
                     HStack(spacing: 8) {
                         Label(dateText, systemImage: "calendar")
                         Label(durationText, systemImage: "clock")
-                        Label(lecture.status.rawValue.capitalized, systemImage: "bolt.horizontal.circle")
+                        Label(displayLecture.status.rawValue.capitalized, systemImage: "bolt.horizontal.circle")
                     }
                     .font(Theme.bodyFont)
                     .foregroundColor(Theme.mutedText)
 
-                    LectureAudioPlayerView(audioPath: lecture.audioPath)
+                    LectureAudioPlayerView(audioPath: displayLecture.audioPath)
                     
                     Divider()
                     
@@ -757,18 +763,36 @@ struct LectureDetailView: View {
                     .pickerStyle(.segmented)
                     
                     if selectedTab == 0 {
-                        SummaryView(summary: lecture.summary) {
+                        SummaryView(
+                            summary: selectedSummary,
+                            isBaseSummaryReady: displayLecture.summary != nil,
+                            isTranslationLoading: isTranslationLoading,
+                            translationError: translationError,
+                            selectedLanguage: $selectedSummaryLanguage
+                        ) {
                             ExportIconButtons(
                                 onCopy: {
-                                    guard let text = exportableSummaryText() else { return }
+                                    guard let text = exportableSummaryText(
+                                        for: selectedSummary,
+                                        language: selectedSummaryLanguage
+                                    ) else { return }
                                     copyToClipboard(text)
                                 },
                                 onShare: {
-                                    guard let text = exportableSummaryText() else { return }
+                                    guard let text = exportableSummaryText(
+                                        for: selectedSummary,
+                                        language: selectedSummaryLanguage
+                                    ) else { return }
                                     presentShareSheet(with: text)
                                 },
-                                isDisabled: lecture.summary == nil
+                                isDisabled: selectedSummary == nil
                             )
+                        }
+                        .onAppear {
+                            requestTranslationIfNeeded(for: selectedSummaryLanguage)
+                        }
+                        .onChange(of: selectedSummaryLanguage) { newLanguage in
+                            requestTranslationIfNeeded(for: newLanguage)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
@@ -778,20 +802,22 @@ struct LectureDetailView: View {
                                 Spacer()
                                 ExportIconButtons(
                                     onCopy: {
-                                        guard let text = exportableTranscriptText() else { return }
-                                        copyToClipboard(text)
-                                    },
-                                    onShare: {
-                                        guard let text = exportableTranscriptText() else { return }
-                                        presentShareSheet(with: text)
-                                    },
-                                    isDisabled: (lecture.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                )
-                            }
-                            Text(lecture.transcript ?? "Transcript will appear here once ready.")
-                                .font(Theme.bodyFont)
-                                .foregroundColor(Theme.mutedText)
-                                .fixedSize(horizontal: false, vertical: true)
+                                    guard let text = exportableTranscriptText() else { return }
+                                    copyToClipboard(text)
+                                },
+                                onShare: {
+                                    guard let text = exportableTranscriptText() else { return }
+                                    presentShareSheet(with: text)
+                                },
+                                isDisabled: (displayLecture.transcript ?? "")
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .isEmpty
+                            )
+                        }
+                        Text(displayLecture.transcript ?? "Transcript will appear here once ready.")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -816,12 +842,65 @@ struct LectureDetailView: View {
     
     private var brandFooter: String { "\n\n— Created with Khutbah Notes" }
     
-    private func exportableSummaryText() -> String? {
-        guard let summary = lecture.summary else { return nil }
+    private var selectedSummary: LectureSummary? {
+        summary(for: selectedSummaryLanguage, in: displayLecture)
+    }
+    
+    private var isTranslationLoading: Bool {
+        guard selectedSummaryLanguage != .english else { return false }
+        let code = selectedSummaryLanguage.rawValue
+        return displayLecture.summaryTranslationRequests.contains(code) ||
+            displayLecture.summaryTranslationInProgress.contains(code)
+    }
+    
+    private var translationError: String? {
+        guard selectedSummaryLanguage != .english else { return nil }
+        return displayLecture.summaryTranslationErrors?
+            .first(where: { $0.languageCode == selectedSummaryLanguage.rawValue })?
+            .message
+    }
+    
+    private func summary(
+        for language: SummaryTranslationLanguage,
+        in lecture: Lecture
+    ) -> LectureSummary? {
+        if language == .english {
+            return lecture.summary
+        }
+        return lecture.summaryTranslations?
+            .first(where: { $0.languageCode == language.rawValue })?
+            .summary
+    }
+    
+    private func requestTranslationIfNeeded(for language: SummaryTranslationLanguage) {
+        guard language != .english else { return }
+        guard displayLecture.summary != nil else { return }
+        guard summary(for: language, in: displayLecture) == nil else { return }
+        
+        let code = language.rawValue
+        if displayLecture.summaryTranslationRequests.contains(code) ||
+            displayLecture.summaryTranslationInProgress.contains(code) {
+            return
+        }
+        
+        Task {
+            await store.requestSummaryTranslation(for: displayLecture, language: language)
+        }
+    }
+    
+    private func exportableSummaryText(
+        for summary: LectureSummary?,
+        language: SummaryTranslationLanguage
+    ) -> String? {
+        guard let summary else { return nil }
         
         var lines: [String] = []
-        lines.append(lecture.title)
-        lines.append("Summary • \(dateText)")
+        let summaryLabel = language == .english ?
+            "Summary" :
+            "Summary (\(language.label))"
+        
+        lines.append(displayLecture.title)
+        lines.append("\(summaryLabel) • \(dateText)")
         lines.append("")
         lines.append("Main Theme:")
         lines.append(summary.mainTheme.isEmpty ? "Not mentioned" : summary.mainTheme)
@@ -848,12 +927,12 @@ struct LectureDetailView: View {
     }
     
     private func exportableTranscriptText() -> String? {
-        guard let transcript = lecture.transcript?
+        guard let transcript = displayLecture.transcript?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !transcript.isEmpty else { return nil }
         
         var lines: [String] = []
-        lines.append("\(lecture.title) — Transcript")
+        lines.append("\(displayLecture.title) — Transcript")
         lines.append("Date: \(dateText)")
         lines.append("")
         lines.append(transcript)
@@ -1252,52 +1331,141 @@ final class LectureAudioPlayerViewModel: ObservableObject {
 
 struct SummaryView<Actions: View>: View {
     let summary: LectureSummary?
+    let isBaseSummaryReady: Bool
+    let isTranslationLoading: Bool
+    let translationError: String?
+    @Binding var selectedLanguage: SummaryTranslationLanguage
     let actions: Actions
     
-    init(summary: LectureSummary?, @ViewBuilder actions: () -> Actions = { EmptyView() }) {
+    init(
+        summary: LectureSummary?,
+        isBaseSummaryReady: Bool,
+        isTranslationLoading: Bool,
+        translationError: String?,
+        selectedLanguage: Binding<SummaryTranslationLanguage>,
+        @ViewBuilder actions: () -> Actions = { EmptyView() }
+    ) {
         self.summary = summary
+        self.isBaseSummaryReady = isBaseSummaryReady
+        self.isTranslationLoading = isTranslationLoading
+        self.translationError = translationError
+        self._selectedLanguage = selectedLanguage
         self.actions = actions()
+    }
+    
+    private var isRTL: Bool { selectedLanguage.isRTL }
+    
+    private var summaryBodyFont: Font {
+        isRTL ? rtlFont(size: 15, weight: .regular) : Theme.bodyFont
+    }
+    
+    private var summaryHeadingFont: Font {
+        isRTL ? rtlFont(size: 17, weight: .semibold) : .system(size: 17, weight: .semibold)
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
+            HStack(alignment: .center, spacing: 10) {
                 Text("Summary")
                     .font(Theme.titleFont)
                 Spacer()
+                languageMenu
                 actions
             }
             
-            if let summary {
-                summarySection(title: "Main Theme", content: [summary.mainTheme])
-                summarySection(title: "Key Points", content: summary.keyPoints)
-                summarySection(title: "Explicit Ayat or Hadith",
-                               content: summary.explicitAyatOrHadith)
-                summarySection(title: "Weekly Actions",
-                               content: summary.weeklyActions)
-            } else {
-                Text("AI summary will appear here once processed.")
-                    .font(Theme.bodyFont)
-                    .foregroundColor(Theme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
+            Group {
+                if let summary {
+                    summarySection(title: "Main Theme", content: [summary.mainTheme])
+                    summarySection(title: "Key Points", content: summary.keyPoints)
+                    summarySection(title: "Explicit Ayat or Hadith",
+                                   content: summary.explicitAyatOrHadith)
+                    summarySection(title: "Weekly Actions",
+                                   content: summary.weeklyActions)
+                } else if !isBaseSummaryReady {
+                    Text("AI summary will appear here once processed.")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(Theme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if isTranslationLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Generating translation...")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.mutedText)
+                    }
+                } else if let translationError, !translationError.isEmpty {
+                    Text("Translation unavailable right now. Please try again later.")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(Theme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Translation will appear here once ready.")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(Theme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .environment(\.layoutDirection, isRTL ? .rightToLeft : .leftToRight)
         }
+    }
+    
+    private var languageMenu: some View {
+        Menu {
+            ForEach(SummaryTranslationLanguage.displayOrder) { language in
+                Button(language.label) {
+                    selectedLanguage = language
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "globe")
+                Text(selectedLanguage.label)
+                    .lineLimit(1)
+                if isTranslationLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.7)
+                }
+                Image(systemName: "chevron.down")
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Theme.primaryGreen.opacity(0.18), lineWidth: 1)
+            )
+        }
+        .disabled(!isBaseSummaryReady)
+        .opacity(isBaseSummaryReady ? 1 : 0.5)
+        .buttonStyle(.plain)
+    }
+    
+    private func rtlFont(size: CGFloat, weight: Font.Weight) -> Font {
+        if UIFont(name: "Geeza Pro", size: size) != nil {
+            return .custom("Geeza Pro", size: size)
+        }
+        return .system(size: size, weight: weight)
     }
     
     @ViewBuilder
     private func summarySection(title: String, content: [String]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 17, weight: .semibold))
+                .font(summaryHeadingFont)
                 .foregroundColor(.black)
             
             if content.isEmpty {
                 Text("None mentioned")
-                    .font(Theme.bodyFont)
+                    .font(summaryBodyFont)
                     .foregroundColor(Theme.mutedText)
             } else if content.count == 1 {
                 Text(content[0])
-                    .font(Theme.bodyFont)
+                    .font(summaryBodyFont)
                     .foregroundColor(Theme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -1305,10 +1473,10 @@ struct SummaryView<Actions: View>: View {
                     ForEach(content, id: \.self) { item in
                         HStack(alignment: .top, spacing: 8) {
                             Text("•")
-                                .font(Theme.bodyFont)
+                                .font(summaryBodyFont)
                                 .foregroundColor(Theme.mutedText)
                             Text(item)
-                                .font(Theme.bodyFont)
+                                .font(summaryBodyFont)
                                 .foregroundColor(Theme.mutedText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }

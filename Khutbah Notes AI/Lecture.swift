@@ -28,6 +28,10 @@ struct Lecture: Identifiable, Hashable, Codable {
     var quotaReason: String?
     var transcript: String?
     var summary: LectureSummary?
+    var summaryTranslations: [SummaryTranslation]? = nil
+    var summaryTranslationRequests: [String] = []
+    var summaryTranslationInProgress: [String] = []
+    var summaryTranslationErrors: [SummaryTranslationError]? = nil
     var audioPath: String?
     var folderId: String?
     var folderName: String?
@@ -67,6 +71,67 @@ struct LectureSummary: Identifiable, Hashable, Codable {
     var keyPoints: [String]
     var explicitAyatOrHadith: [String]
     var weeklyActions: [String]
+}
+
+enum SummaryTranslationLanguage: String, CaseIterable, Identifiable, Hashable {
+    case english = "en"
+    case arabic = "ar"
+    case urdu = "ur"
+    case french = "fr"
+    case turkish = "tr"
+    case indonesian = "id"
+    case malay = "ms"
+    case spanish = "es"
+    case bengali = "bn"
+    
+    var id: String { rawValue }
+    
+    var label: String {
+        switch self {
+        case .english: return "English"
+        case .arabic: return "Arabic"
+        case .urdu: return "Urdu"
+        case .french: return "French"
+        case .turkish: return "Turkish"
+        case .indonesian: return "Indonesian"
+        case .malay: return "Malay"
+        case .spanish: return "Spanish"
+        case .bengali: return "Bengali"
+        }
+    }
+    
+    var isRTL: Bool {
+        switch self {
+        case .arabic, .urdu:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    static let displayOrder: [SummaryTranslationLanguage] = [
+        .english,
+        .arabic,
+        .urdu,
+        .french,
+        .turkish,
+        .indonesian,
+        .malay,
+        .spanish,
+        .bengali
+    ]
+}
+
+struct SummaryTranslation: Identifiable, Hashable, Codable {
+    var id: String { languageCode }
+    var languageCode: String
+    var summary: LectureSummary
+}
+
+struct SummaryTranslationError: Identifiable, Hashable, Codable {
+    var id: String { languageCode }
+    var languageCode: String
+    var message: String
 }
 
 struct Folder: Identifiable, Hashable, Codable {

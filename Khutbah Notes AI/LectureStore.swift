@@ -81,6 +81,33 @@ final class LectureStore: ObservableObject {
         guard let index = lectures.firstIndex(where: { $0.id == lecture.id }) else { return }
         lectures[index] = lecture
     }
+
+    func requestSummaryTranslation(
+        for lecture: Lecture,
+        language: SummaryTranslationLanguage
+    ) async {
+        guard let userId else {
+            print("No userId set on LectureStore; cannot request translation.")
+            return
+        }
+        
+        let requestPath = FieldPath(["summaryTranslationRequests", language.rawValue])
+        let errorPath = FieldPath(["summaryTranslationErrors", language.rawValue])
+        let data: [AnyHashable: Any] = [
+            requestPath: true,
+            errorPath: FieldValue.delete(),
+        ]
+        
+        do {
+            try await db.collection("users")
+                .document(userId)
+                .collection("lectures")
+                .document(lecture.id)
+                .updateData(data)
+        } catch {
+            print("Failed to request summary translation: \(error.localizedDescription)")
+        }
+    }
     
     func saveJumuahStartTime(_ time: String, timezoneIdentifier: String) async {
         guard let userId else {
@@ -181,20 +208,18 @@ final class LectureStore: ObservableObject {
                     let folderName = data["folderName"] as? String
                     let quotaReason = data["quotaReason"] as? String
                     
-                    var summary: LectureSummary? = nil
-                    if let summaryMap = data["summary"] as? [String: Any] {
-                        let mainTheme = summaryMap["mainTheme"] as? String ?? "Not mentioned"
-                        let keyPoints = summaryMap["keyPoints"] as? [String] ?? []
-                        let explicitAyatOrHadith = summaryMap["explicitAyatOrHadith"] as? [String] ?? []
-                        let weeklyActions = summaryMap["weeklyActions"] as? [String] ?? []
-                        
-                        summary = LectureSummary(
-                            mainTheme: mainTheme,
-                            keyPoints: keyPoints,
-                            explicitAyatOrHadith: explicitAyatOrHadith,
-                            weeklyActions: weeklyActions
+                    let summary = self.parseSummary(from: data["summary"] as? [String: Any])
+                    let summaryTranslations = self.parseSummaryTranslations(
+                        from: data["summaryTranslations"] as? [String: Any]
+                    )
+                    let translationRequests =
+                        self.translationKeys(from: data["summaryTranslationRequests"])
+                    let translationInProgress =
+                        self.translationKeys(from: data["summaryTranslationInProgress"])
+                    let translationErrors =
+                        self.parseTranslationErrors(
+                            from: data["summaryTranslationErrors"] as? [String: Any]
                         )
-                    }
                     
                     let status: LectureStatus
                     switch statusString {
@@ -219,6 +244,14 @@ final class LectureStore: ObservableObject {
                         quotaReason: quotaReason,
                         transcript: transcript,
                         summary: summary,
+                        summaryTranslations: summaryTranslations.isEmpty ?
+                            nil :
+                            summaryTranslations,
+                        summaryTranslationRequests: translationRequests,
+                        summaryTranslationInProgress: translationInProgress,
+                        summaryTranslationErrors: translationErrors.isEmpty ?
+                            nil :
+                            translationErrors,
                         audioPath: audioPath,
                         folderId: folderId,
                         folderName: folderName
@@ -457,6 +490,70 @@ final class LectureStore: ObservableObject {
 extension LectureStore {
     static func mockStoreWithSampleData() -> LectureStore {
         LectureStore(seedMockData: true)
+    }
+}
+
+private extension LectureStore {
+    func parseSummary(from summaryMap: [String: Any]?) -> LectureSummary? {
+        guard let summaryMap else { return nil }
+        
+        let mainTheme = summaryMap["mainTheme"] as? String ?? "Not mentioned"
+        let keyPoints = summaryMap["keyPoints"] as? [String] ?? []
+        let explicitAyatOrHadith = summaryMap["explicitAyatOrHadith"] as? [String] ?? []
+        let weeklyActions = summaryMap["weeklyActions"] as? [String] ?? []
+        
+        return LectureSummary(
+            mainTheme: mainTheme,
+            keyPoints: keyPoints,
+            explicitAyatOrHadith: explicitAyatOrHadith,
+            weeklyActions: weeklyActions
+        )
+    }
+    
+    func parseSummaryTranslations(from map: [String: Any]?) -> [SummaryTranslation] {
+        guard let map else { return [] }
+        
+        var translations: [SummaryTranslation] = []
+        translations.reserveCapacity(map.count)
+        
+        for (languageCode, value) in map {
+            guard let summaryMap = value as? [String: Any],
+                  let summary = parseSummary(from: summaryMap) else { continue }
+            translations.append(
+                SummaryTranslation(languageCode: languageCode, summary: summary)
+            )
+        }
+        
+        return translations.sorted { $0.languageCode < $1.languageCode }
+    }
+    
+    func parseTranslationErrors(from map: [String: Any]?) -> [SummaryTranslationError] {
+        guard let map else { return [] }
+        
+        var errors: [SummaryTranslationError] = []
+        errors.reserveCapacity(map.count)
+        
+        for (languageCode, value) in map {
+            guard let message = value as? String, !message.isEmpty else { continue }
+            errors.append(
+                SummaryTranslationError(languageCode: languageCode, message: message)
+            )
+        }
+        
+        return errors.sorted { $0.languageCode < $1.languageCode }
+    }
+    
+    func translationKeys(from data: Any?) -> [String] {
+        if let map = data as? [String: Any] {
+            return map.keys.sorted()
+        }
+        if let map = data as? [String: Bool] {
+            return map.keys.sorted()
+        }
+        if let map = data as? [String: String] {
+            return map.keys.sorted()
+        }
+        return []
     }
 }
 
