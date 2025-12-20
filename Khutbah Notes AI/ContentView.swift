@@ -624,17 +624,17 @@ struct PromoBannerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Upgrade to Pro")
+            Text("Upgrade to Premium")
                 .font(.headline)
                 .foregroundColor(.white)
             
-            Text("Unlock unlimited AI summaries and cloud backup for your lectures.")
+            Text("Unlock unlimited audio recordings, transcriptions, summaries and translations.")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
             
             Button(action: onTap) {
-                Text("View Plans")
+                Text("Upgrade Now")
                     .fontWeight(.semibold)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)

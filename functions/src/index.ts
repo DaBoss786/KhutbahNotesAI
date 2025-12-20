@@ -1107,6 +1107,143 @@ export const translateSummary = onDocumentWritten(
   }
 );
 
+export const notifySummaryReady = onDocumentWritten(
+  {
+    document: "users/{userId}/lectures/{lectureId}",
+    region: "us-central1",
+    secrets: [onesignalApiKey],
+    timeoutSeconds: 60,
+    memory: "256MiB",
+  },
+  async (event) => {
+    const afterSnap = event.data?.after;
+    if (!afterSnap?.exists) {
+      return;
+    }
+
+    const beforeStatus = event.data?.before?.data()?.status;
+    const afterData = afterSnap.data();
+    if (!afterData) {
+      return;
+    }
+    const afterStatus = afterData.status;
+
+    if (afterStatus !== "ready" || beforeStatus === "ready") {
+      return;
+    }
+
+    if (!afterData.summary) {
+      logger.warn("Summary ready without summary content", {
+        userId: event.params.userId,
+        lectureId: event.params.lectureId,
+      });
+      return;
+    }
+
+    if (afterData.summaryNotificationSentAt) {
+      return;
+    }
+
+    const {userId, lectureId} = event.params;
+    const docRef = afterSnap.ref;
+
+    const lockAcquired = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      const current = snap.data();
+      if (!snap.exists) {
+        return false;
+      }
+      if (current?.status !== "ready") {
+        return false;
+      }
+      if (current?.summaryNotificationSentAt) {
+        return false;
+      }
+      if (current?.summaryNotificationInProgress === true) {
+        return false;
+      }
+
+      tx.update(docRef, {
+        summaryNotificationInProgress: true,
+        summaryNotificationLastAttemptAt:
+          admin.firestore.FieldValue.serverTimestamp(),
+        summaryNotificationError: admin.firestore.FieldValue.delete(),
+        summaryNotificationSkippedAt: admin.firestore.FieldValue.delete(),
+        summaryNotificationSkipReason: admin.firestore.FieldValue.delete(),
+      });
+
+      return true;
+    });
+
+    if (!lockAcquired) {
+      return;
+    }
+
+    const userSnap = await db.collection("users").doc(userId).get();
+    if (!userSnap.exists) {
+      await docRef.update({
+        summaryNotificationInProgress: admin.firestore.FieldValue.delete(),
+        summaryNotificationError: "user_missing",
+      });
+      return;
+    }
+
+    const userData = userSnap.data() as UserDoc;
+    const preference = userData.preferences?.notificationPreference;
+    if (preference !== "push" && preference !== "provisional") {
+      await docRef.update({
+        summaryNotificationInProgress: admin.firestore.FieldValue.delete(),
+        summaryNotificationSkippedAt:
+          admin.firestore.FieldValue.serverTimestamp(),
+        summaryNotificationSkipReason: "preference_disabled",
+      });
+      return;
+    }
+
+    const apiKey = onesignalApiKey.value();
+    if (!apiKey) {
+      await docRef.update({
+        summaryNotificationInProgress: admin.firestore.FieldValue.delete(),
+        summaryNotificationError: "missing_onesignal_api_key",
+      });
+      return;
+    }
+
+    const lectureTitle =
+      typeof afterData.title === "string" ? afterData.title.trim() : "";
+
+    const result = await sendSummaryReadyNotification(
+      userId,
+      lectureId,
+      lectureTitle,
+      preference,
+      apiKey
+    );
+
+    if (result.success) {
+      const updates: Record<string, unknown> = {
+        summaryNotificationSentAt:
+          admin.firestore.FieldValue.serverTimestamp(),
+        summaryNotificationPreference: preference,
+        summaryNotificationInProgress: admin.firestore.FieldValue.delete(),
+        summaryNotificationError: admin.firestore.FieldValue.delete(),
+      };
+
+      if (result.id) {
+        updates.summaryNotificationId = result.id;
+      }
+
+      await docRef.update(updates);
+      return;
+    }
+
+    await docRef.update({
+      summaryNotificationInProgress: admin.firestore.FieldValue.delete(),
+      summaryNotificationError: result.error ?? "onesignal_error",
+    });
+  }
+);
+
 type ResponseMessage = {role: "system" | "user"; content: string};
 
 /**
@@ -2616,6 +2753,83 @@ async function sendJumuahNotification(
     const invalidAliases = data.errors?.invalid_aliases?.external_id;
     if (invalidAliases?.length) {
       logger.warn(`${invalidAliases.length} users not found in OneSignal`);
+    }
+
+    return {
+      success: true,
+      id: data.id,
+      invalidAliases,
+    };
+  } catch (error) {
+    return {success: false, error: String(error)};
+  }
+}
+
+/**
+ * Send a summary-ready notification via OneSignal.
+ *
+ * @param {string} userId OneSignal external ID.
+ * @param {string} lectureId Lecture document ID.
+ * @param {string} lectureTitle Lecture title (optional).
+ * @param {"push" | "provisional"} preference Notification preference.
+ * @param {string} apiKey OneSignal REST API key.
+ * @return {Promise<SendResult>} OneSignal response outcome.
+ */
+async function sendSummaryReadyNotification(
+  userId: string,
+  lectureId: string,
+  lectureTitle: string,
+  preference: "push" | "provisional",
+  apiKey: string
+): Promise<SendResult> {
+  const trimmedTitle = lectureTitle.trim();
+  const body = trimmedTitle.length > 0 ?
+    `Your summary for "${trimmedTitle}" is ready.` :
+    "Your khutbah summary is ready.";
+
+  const payload = {
+    app_id: ONESIGNAL_APP_ID,
+    include_aliases: {
+      external_id: [userId],
+    },
+    target_channel: "push",
+    headings: {
+      en: "Summary Ready",
+    },
+    contents: {
+      en: body,
+    },
+    data: {
+      type: "summary_ready",
+      lectureId,
+    },
+    collapse_id: `summary-ready-${lectureId}`,
+    ttl: 86400,
+    ios_interruption_level: preference === "provisional" ? "passive" : "active",
+  };
+
+  try {
+    const res = await fetch("https://api.onesignal.com/notifications?c=push", {
+      method: "POST",
+      headers: {
+        "Authorization": `Key ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      logger.error("OneSignal API error (summary ready):", data);
+      return {success: false, error: JSON.stringify(data)};
+    }
+
+    const invalidAliases = data.errors?.invalid_aliases?.external_id;
+    if (invalidAliases?.length) {
+      logger.warn(
+        `${invalidAliases.length} users not found in OneSignal (summary ready)`
+      );
     }
 
     return {
