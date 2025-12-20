@@ -1586,6 +1586,7 @@ struct ShareSheet: UIViewControllerRepresentable {
 struct SettingsView: View {
     @EnvironmentObject private var store: LectureStore
     @State private var showPaywall = false
+    @State private var showFeedback = false
 
     private var shouldShowUpgrade: Bool {
         (store.userUsage?.plan ?? "free") != "premium"
@@ -1609,6 +1610,14 @@ struct SettingsView: View {
                         Label("Notifications", systemImage: "bell.badge")
                     }
                 }
+
+                Section(header: Text("Support")) {
+                    Button {
+                        showFeedback = true
+                    } label: {
+                        Label("Feedback", systemImage: "envelope")
+                    }
+                }
             }
             .navigationTitle("Settings")
         }
@@ -1616,6 +1625,9 @@ struct SettingsView: View {
             OnboardingPaywallView {
                 showPaywall = false
             }
+        }
+        .sheet(isPresented: $showFeedback) {
+            FeedbackView()
         }
     }
 }

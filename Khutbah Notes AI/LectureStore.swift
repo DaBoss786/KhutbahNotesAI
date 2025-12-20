@@ -151,6 +151,25 @@ final class LectureStore: ObservableObject {
             print("Failed to save notification preference: \(error.localizedDescription)")
         }
     }
+
+    func submitFeedback(email: String, message: String) async throws {
+        guard let userId else {
+            throw FeedbackError.missingUserId
+        }
+
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEmail.isEmpty else {
+            throw FeedbackError.missingEmail
+        }
+        var data: [String: Any] = [
+            "email": trimmedEmail,
+            "message": message,
+            "userId": userId,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+
+        try await db.collection("feedback").addDocument(data: data)
+    }
     
     private func removeLegacyPreferenceDotFields(keys: [String]) async throws {
         guard let userId else { return }
@@ -483,6 +502,20 @@ final class LectureStore: ObservableObject {
                     print("Error deleting audio file: \(error)")
                 }
             }
+        }
+    }
+}
+
+enum FeedbackError: LocalizedError {
+    case missingUserId
+    case missingEmail
+
+    var errorDescription: String? {
+        switch self {
+        case .missingUserId:
+            return "You're not signed in. Please try again in a moment."
+        case .missingEmail:
+            return "Please enter an email address so we can follow up."
         }
     }
 }

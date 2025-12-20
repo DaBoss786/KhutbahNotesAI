@@ -10,5 +10,19 @@ service cloud.firestore {
           "plan", "periodStart", "renewsAt", "monthlyKey", "monthlyMinutesUsed"
         ]));
     }
+
+    match /feedback/{feedbackId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0
+        && request.resource.data.keys().hasOnly([
+          "message", "userId", "createdAt", "email"
+        ]);
+
+      allow read, update, delete: if false;
+    }
   }
 }
