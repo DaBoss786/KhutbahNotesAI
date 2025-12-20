@@ -7,6 +7,47 @@ import FirebaseCore
 import FirebaseFirestore
 import FirebaseStorage
 
+private enum DemoLectureSeed {
+    static let id = "demo-welcome"
+    static let title = "Welcome to Khutbah Notes!"
+    static let audioPath = "demo/Sample Lecture.mp3"
+    static let transcript = """
+    Assalamu alaikum wa rahmatullahi wa barakatuh.
+
+    Think back to the last khutbah or lecture you attended, the words that stirred your heart, reminders that felt deeply relevant in that moment. Yet by the time the week unfolds, many of those reflections begin to fade.
+
+    Khutbah Notes exists for those moments.
+
+    As the khutbah is delivered, the app quietly records the lecture, capturing it word for word. It then organizes the message into clear summaries, key reminders, and actionable takeaways you can return to later or pass on to your friends and family.
+
+    Whether it's a Jumu'ah khutbah, a weekly halaqah, or a special lecture, Khutbah Notes helps highlight what matters most: Qur'anic references, prophetic teachings, and central themes meant to guide daily life.
+
+    Our goal is simple - to help you remember, reflect, and act upon what you hear, long after leaving the masjid.
+
+    Khutbah Notes is not a replacement for the khutbah or the scholar delivering it. It is a quiet companion, helping preserve reminders that were meant to stay with you.
+
+    JazakumAllahu khayran for listening. May Allah allow us to benefit from what we hear, act upon it sincerely, and carry its lessons into our lives.
+    """
+    static let summaryMainTheme = """
+    The lecture centers on the challenge of retaining and applying spiritual reminders after attending khutbahs and Islamic lectures. While these messages often feel powerful and personally relevant in the moment, they are easily forgotten as the distractions and responsibilities of daily life take over. Khutbah Notes is presented as a supportive tool designed to help bridge this gap, preserving important reminders so they can continue to guide reflection and action beyond the masjid.
+    """
+    static let summaryKeyPoints = [
+        "Spiritual reminders delivered during khutbahs and lectures frequently resonate deeply at the time but fade as the week progresses.",
+        "Khutbah Notes is designed to quietly and respectfully record lectures without disrupting the experience.",
+        "The app organizes spoken content into structured summaries, key reminders, and clear takeaways, making it easier to revisit later.",
+        "It helps highlight essential elements of the message, including Qur'anic verses, prophetic teachings, and overarching themes relevant to daily life.",
+        "The app is not meant to replace the khutbah or the scholar, but to serve as a companion that preserves and reinforces the message.",
+        "By making reminders accessible after the lecture, Khutbah Notes encourages ongoing reflection and deeper engagement with Islamic teachings."
+    ]
+    static let summaryWeeklyActions = [
+        "Revisit summarized khutbah notes at least once during the week to refresh key reminders.",
+        "Reflect on how the main themes apply to personal behavior, intentions, and daily decisions.",
+        "Choose one actionable takeaway from the lecture and consciously apply it in the coming days.",
+        "Share a meaningful reminder or insight with family or friends to reinforce learning and encourage discussion.",
+        "Use the preserved notes as a reference for personal reflection, journaling, or preparation for future discussions or halaqahs."
+    ]
+}
+
 @MainActor
 final class LectureStore: ObservableObject {
     @Published var lectures: [Lecture] = []
@@ -432,6 +473,10 @@ final class LectureStore: ObservableObject {
                     return Folder(id: id, name: name, createdAt: createdAt)
                 }
             }
+
+        Task {
+            await seedDemoLectureIfNeeded(for: userId)
+        }
     }
     
     func createLecture(withTitle title: String, recordingURL: URL) {
@@ -573,6 +618,17 @@ final class LectureStore: ObservableObject {
     
     func deleteLecture(_ lecture: Lecture) {
         guard let userId else { return }
+
+        if lecture.id == DemoLectureSeed.id {
+            let data: [String: Any] = ["preferences.demoLectureHidden": true]
+            db.collection("users")
+                .document(userId)
+                .setData(data, merge: true) { error in
+                    if let error = error {
+                        print("Error saving demo lecture preference: \(error)")
+                    }
+                }
+        }
         
         // Optimistically remove locally
         lectures.removeAll { $0.id == lecture.id }
@@ -589,7 +645,7 @@ final class LectureStore: ObservableObject {
         }
         
         // Delete audio blob if present
-        if let audioPath = lecture.audioPath {
+        if let audioPath = lecture.audioPath, !audioPath.hasPrefix("demo/") {
             storage.reference(withPath: audioPath).delete { error in
                 if let error = error {
                     print("Error deleting audio file: \(error)")
@@ -649,6 +705,44 @@ extension LectureStore {
 }
 
 private extension LectureStore {
+    func seedDemoLectureIfNeeded(for userId: String) async {
+        let userRef = db.collection("users").document(userId)
+        do {
+            let userSnapshot = try await userRef.getDocument()
+            if let preferences = userSnapshot.data()?["preferences"] as? [String: Any],
+               preferences["demoLectureHidden"] as? Bool == true {
+                return
+            }
+            
+            let lectureRef = userRef.collection("lectures").document(DemoLectureSeed.id)
+            let lectureSnapshot = try await lectureRef.getDocument()
+            if lectureSnapshot.exists {
+                return
+            }
+            
+            let now = Date()
+            let demoDate = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+            let summary: [String: Any] = [
+                "mainTheme": DemoLectureSeed.summaryMainTheme,
+                "keyPoints": DemoLectureSeed.summaryKeyPoints,
+                "explicitAyatOrHadith": [],
+                "weeklyActions": DemoLectureSeed.summaryWeeklyActions
+            ]
+            let data: [String: Any] = [
+                "title": DemoLectureSeed.title,
+                "date": Timestamp(date: demoDate),
+                "isFavorite": false,
+                "status": "ready",
+                "transcript": DemoLectureSeed.transcript,
+                "summary": summary,
+                "audioPath": DemoLectureSeed.audioPath
+            ]
+            try await lectureRef.setData(data, merge: true)
+        } catch {
+            print("Failed to seed demo lecture: \(error.localizedDescription)")
+        }
+    }
+    
     func parseSummary(from summaryMap: [String: Any]?) -> LectureSummary? {
         guard let summaryMap else { return nil }
         

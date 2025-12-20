@@ -28,7 +28,7 @@ struct Khutbah_Notes_AIApp: App {
         Purchases.logLevel = .debug
         Purchases.configure(withAPIKey: "appl_idynIRrxuwivElFlKBywbHYCVzs")
         
-        let lectureStore = LectureStore(seedMockData: true)
+        let lectureStore = LectureStore()
         _store = StateObject(wrappedValue: lectureStore)
         signInAnonymouslyIfNeeded(using: lectureStore)
     }
