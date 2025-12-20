@@ -16,6 +16,8 @@ final class RecordingManager: NSObject, ObservableObject {
     private var accumulatedTime: TimeInterval = 0
     private var notificationObservers: [NSObjectProtocol] = []
     private var shouldResumeAfterInterruption = false
+    private let liveActivityName = "Khutbah recording"
+    private var liveActivityController: Any?
     
     enum RecordingError: Error {
         case permissionDenied
@@ -91,6 +93,7 @@ final class RecordingManager: NSObject, ObservableObject {
         elapsedTime = 0
         accumulatedTime = 0
         startMeteringTimer()
+        startLiveActivityIfAvailable(isPaused: false)
     }
     
     func stopRecording() -> URL? {
@@ -105,6 +108,7 @@ final class RecordingManager: NSObject, ObservableObject {
         isRecording = false
         isPaused = false
         stopMeteringTimer()
+        endLiveActivityIfAvailable()
         resetTiming()
         let recordedURL = recorder.url
         audioRecorder = nil
@@ -114,7 +118,7 @@ final class RecordingManager: NSObject, ObservableObject {
         } catch {
             print("Failed to deactivate audio session: \(error)")
         }
-        
+
         return recordedURL
     }
 
@@ -127,6 +131,8 @@ final class RecordingManager: NSObject, ObservableObject {
             accumulatedTime += Date().timeIntervalSince(startDate)
         }
         self.startDate = nil
+        elapsedTime = accumulatedTime
+        startLiveActivityIfAvailable(isPaused: true)
     }
 
     func resumeRecording() {
@@ -140,6 +146,7 @@ final class RecordingManager: NSObject, ObservableObject {
         if resumed {
             isPaused = false
             startDate = Date()
+            startLiveActivityIfAvailable(isPaused: false)
         } else {
             print("Failed to resume recording.")
         }
@@ -223,6 +230,7 @@ final class RecordingManager: NSObject, ObservableObject {
         isRecording = false
         isPaused = false
         stopMeteringTimer()
+        endLiveActivityIfAvailable()
         resetTiming()
         do {
             try configureSession()
@@ -272,6 +280,35 @@ final class RecordingManager: NSObject, ObservableObject {
         let normalized = pow(10, clamped / 20)
         level = Double(normalized)
     }
+
+    private var currentElapsed: TimeInterval {
+        if !isPaused, let startDate {
+            return accumulatedTime + Date().timeIntervalSince(startDate)
+        }
+        return accumulatedTime
+    }
+
+    private func startLiveActivityIfAvailable(isPaused: Bool) {
+        guard #available(iOS 16.1, *) else { return }
+        let elapsed = currentElapsed
+        Task { @MainActor in
+            if liveActivityController == nil {
+                liveActivityController = RecordingLiveActivityController(activityName: liveActivityName)
+            }
+            (liveActivityController as? RecordingLiveActivityController)?
+                .startOrUpdate(isPaused: isPaused, elapsed: elapsed)
+        }
+    }
+
+    private func endLiveActivityIfAvailable() {
+        guard #available(iOS 16.1, *) else { return }
+        let elapsed = currentElapsed
+        Task { @MainActor in
+            (liveActivityController as? RecordingLiveActivityController)?
+                .end(finalElapsed: elapsed)
+            liveActivityController = nil
+        }
+    }
 }
 
 extension RecordingManager: AVAudioRecorderDelegate {
@@ -281,6 +318,7 @@ extension RecordingManager: AVAudioRecorderDelegate {
             isRecording = false
             isPaused = false
             stopMeteringTimer()
+            endLiveActivityIfAvailable()
             resetTiming()
         }
         if !flag {
@@ -295,6 +333,7 @@ extension RecordingManager: AVAudioRecorderDelegate {
             isRecording = false
             isPaused = false
             stopMeteringTimer()
+            endLiveActivityIfAvailable()
             resetTiming()
         }
     }

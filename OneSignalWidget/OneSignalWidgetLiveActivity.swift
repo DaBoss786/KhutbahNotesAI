@@ -13,12 +13,12 @@ import OneSignalLiveActivities
 @available(iOS 16.1, *)
 struct OneSignalWidgetAttributes: OneSignalLiveActivityAttributes {
     public struct ContentState: OneSignalLiveActivityContentState {
-        // Dynamic stateful properties about your activity go here!
-        var emoji: String
+        var isPaused: Bool
+        var startedAt: Date
+        var elapsed: TimeInterval
         var onesignal: OneSignalLiveActivityContentStateData?
     }
 
-    // Fixed non-changing properties about your activity go here!
     var name: String
     var onesignal: OneSignalLiveActivityAttributeData
 }
@@ -27,36 +27,89 @@ struct OneSignalWidgetAttributes: OneSignalLiveActivityAttributes {
 struct OneSignalWidgetLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: OneSignalWidgetAttributes.self) { context in
-            // Lock screen/banner UI goes here
-            VStack {
-                Text("Hello \(context.state.emoji)")
-            }
-            .activityBackgroundTint(Color.cyan)
-            .activitySystemActionForegroundColor(Color.black)
+            let isPaused = context.state.isPaused
+            let statusColor = isPaused ? LiveActivityColors.pauseAccent : LiveActivityColors.recordAccent
+            let elapsedText = elapsedString(context.state.elapsed)
+            let displayDate = context.state.startedAt
 
-        } dynamicIsland: { context in
-            DynamicIsland {
-                // Expanded UI goes here.  Compose the expanded UI through
-                // various regions, like leading/trailing/center/bottom
-                DynamicIslandExpandedRegion(.leading) {
-                    Text("Leading")
+            VStack(spacing: 8) {
+                Text("Khutbah Notes")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(LiveActivityColors.mutedGreen)
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+
+                Group {
+                    if isPaused {
+                        Text(elapsedText)
+                    } else {
+                        Text(displayDate, style: .timer)
+                    }
                 }
-                DynamicIslandExpandedRegion(.trailing) {
-                    Text("Trailing")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundColor(LiveActivityColors.deepGreen)
+
+                Text(isPaused ? "Paused" : "Recording")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .textCase(.uppercase)
+                    .tracking(1.2)
+                    .foregroundColor(LiveActivityColors.cream)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(statusColor))
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
+            .activityBackgroundTint(LiveActivityColors.cream)
+            .activitySystemActionForegroundColor(LiveActivityColors.deepGreen)
+        } dynamicIsland: { context in
+            let isPaused = context.state.isPaused
+            let statusColor = isPaused ? LiveActivityColors.pauseAccent : LiveActivityColors.recordAccent
+            let elapsedText = elapsedString(context.state.elapsed)
+            let displayDate = context.state.startedAt
+
+            return DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Group {
+                        if isPaused {
+                            Text(elapsedText)
+                        } else {
+                            Text(displayDate, style: .timer)
+                        }
+                    }
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(LiveActivityColors.deepGreen)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("Bottom \(context.state.emoji)")
-                    // more content
+                    Text("Khutbah Notes")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(LiveActivityColors.mutedGreen)
                 }
             } compactLeading: {
-                Text("L")
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
             } compactTrailing: {
-                Text("T \(context.state.emoji)")
+                Group {
+                    if isPaused {
+                        Text(elapsedString(context.state.elapsed, compact: true))
+                    } else {
+                        Text(displayDate, style: .timer)
+                    }
+                }
+                .monospacedDigit()
             } minimal: {
-                Text(context.state.emoji)
+                Image(systemName: isPaused ? "pause.fill" : "mic.fill")
+                    .foregroundColor(statusColor)
             }
-            .widgetURL(URL(string: "http://www.apple.com"))
-            .keylineTint(Color.red)
+            .keylineTint(statusColor)
         }
     }
 }
@@ -65,7 +118,7 @@ struct OneSignalWidgetLiveActivity: Widget {
 extension OneSignalWidgetAttributes {
     fileprivate static var preview: OneSignalWidgetAttributes {
         OneSignalWidgetAttributes(
-            name: "World",
+            name: "Khutbah recording",
             onesignal: OneSignalLiveActivityAttributeData.create(activityId: "preview")
         )
     }
@@ -73,13 +126,23 @@ extension OneSignalWidgetAttributes {
 
 @available(iOS 16.1, *)
 extension OneSignalWidgetAttributes.ContentState {
-    fileprivate static var smiley: OneSignalWidgetAttributes.ContentState {
-        OneSignalWidgetAttributes.ContentState(emoji: "😀", onesignal: nil)
-     }
-     
-     fileprivate static var starEyes: OneSignalWidgetAttributes.ContentState {
-         OneSignalWidgetAttributes.ContentState(emoji: "🤩", onesignal: nil)
-     }
+    fileprivate static var recording: OneSignalWidgetAttributes.ContentState {
+        OneSignalWidgetAttributes.ContentState(
+            isPaused: false,
+            startedAt: Date().addingTimeInterval(-85),
+            elapsed: 85,
+            onesignal: nil
+        )
+    }
+    
+    fileprivate static var paused: OneSignalWidgetAttributes.ContentState {
+        OneSignalWidgetAttributes.ContentState(
+            isPaused: true,
+            startedAt: Date().addingTimeInterval(-420),
+            elapsed: 420,
+            onesignal: nil
+        )
+    }
 }
 
 #if DEBUG
@@ -87,7 +150,33 @@ extension OneSignalWidgetAttributes.ContentState {
 #Preview("Notification", as: .content, using: OneSignalWidgetAttributes.preview) {
    OneSignalWidgetLiveActivity()
 } contentStates: {
-    OneSignalWidgetAttributes.ContentState.smiley
-    OneSignalWidgetAttributes.ContentState.starEyes
+    OneSignalWidgetAttributes.ContentState.recording
+    OneSignalWidgetAttributes.ContentState.paused
 }
 #endif
+
+@available(iOS 16.1, *)
+private func elapsedString(_ elapsed: TimeInterval, compact: Bool = false) -> String {
+    let totalSeconds = max(0, Int(elapsed.rounded()))
+    let hours = totalSeconds / 3600
+    let minutes = (totalSeconds % 3600) / 60
+    let seconds = totalSeconds % 60
+
+    if compact && hours == 0 {
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    if hours > 0 {
+        return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+    }
+
+    return String(format: "%02d:%02d", minutes, seconds)
+}
+
+private enum LiveActivityColors {
+    static let cream = Color(red: 0.98, green: 0.97, blue: 0.94)
+    static let deepGreen = Color(red: 0.07, green: 0.36, blue: 0.25)
+    static let mutedGreen = Color(red: 0.07, green: 0.36, blue: 0.25).opacity(0.6)
+    static let recordAccent = Color(red: 0.13, green: 0.61, blue: 0.39)
+    static let pauseAccent = Color(red: 0.87, green: 0.55, blue: 0.20)
+}
