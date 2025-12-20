@@ -1584,21 +1584,38 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject private var store: LectureStore
+    @State private var showPaywall = false
+
+    private var shouldShowUpgrade: Bool {
+        (store.userUsage?.plan ?? "free") != "premium"
+    }
+
     var body: some View {
         NavigationView {
             List {
-                Section(header: Text("Account")) {
-                    Label("Profile", systemImage: "person.circle")
-                    Label("Subscription", systemImage: "creditcard")
+                if shouldShowUpgrade {
+                    Section {
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            Label("Upgrade to Premium", systemImage: "sparkles")
+                        }
+                    }
                 }
-                
-                Section(header: Text("App")) {
-                    Label("Notifications", systemImage: "bell.badge")
-                    Label("Storage", systemImage: "externaldrive")
-                    Label("About", systemImage: "info.circle")
+
+                Section(header: Text("Preferences")) {
+                    NavigationLink(destination: NotificationsSettingsView()) {
+                        Label("Notifications", systemImage: "bell.badge")
+                    }
                 }
             }
             .navigationTitle("Settings")
+        }
+        .sheet(isPresented: $showPaywall) {
+            OnboardingPaywallView {
+                showPaywall = false
+            }
         }
     }
 }
