@@ -1,7 +1,9 @@
+import Foundation
 import SwiftUI
 import Combine
 import AVFoundation
 import FirebaseAuth
+import FirebaseCore
 import FirebaseFirestore
 import FirebaseStorage
 
@@ -169,6 +171,97 @@ final class LectureStore: ObservableObject {
         ]
 
         try await db.collection("feedback").addDocument(data: data)
+    }
+
+    func deleteAccount() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw AccountDeletionError.missingUser
+        }
+
+        let token = try await fetchIdToken(for: user)
+        let url = try deleteAccountURL()
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AccountDeletionError.invalidResponse
+        }
+        guard httpResponse.statusCode == 200 else {
+            let message = String(data: data, encoding: .utf8) ?? "Request failed."
+            throw AccountDeletionError.requestFailed(message)
+        }
+
+        resetLocalState()
+        try? Auth.auth().signOut()
+        await startAnonymousSessionIfPossible()
+    }
+
+    private func deleteAccountURL() throws -> URL {
+        guard let projectId = FirebaseApp.app()?.options.projectID else {
+            throw AccountDeletionError.missingProjectId
+        }
+
+        let urlString = "https://us-central1-\(projectId).cloudfunctions.net/deleteAccount"
+        guard let url = URL(string: urlString) else {
+            throw AccountDeletionError.invalidURL
+        }
+        return url
+    }
+
+    private func fetchIdToken(for user: User) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            user.getIDTokenForcingRefresh(true) { token, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let token {
+                    continuation.resume(returning: token)
+                } else {
+                    continuation.resume(throwing: AccountDeletionError.missingAuthToken)
+                }
+            }
+        }
+    }
+
+    private func resetLocalState() {
+        listener?.remove()
+        folderListener?.remove()
+        userListener?.remove()
+        listener = nil
+        folderListener = nil
+        userListener = nil
+        lectures = []
+        folders = []
+        userUsage = nil
+        userId = nil
+        durationFetches.removeAll()
+    }
+
+    private func startAnonymousSessionIfPossible() async {
+        do {
+            let result = try await signInAnonymously()
+            await MainActor.run {
+                self.start(for: result.user.uid)
+            }
+        } catch {
+            print("Failed to start a new session after deletion: \(error.localizedDescription)")
+        }
+    }
+
+    private func signInAnonymously() async throws -> AuthDataResult {
+        try await withCheckedThrowingContinuation { continuation in
+            Auth.auth().signInAnonymously { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let result {
+                    continuation.resume(returning: result)
+                } else {
+                    continuation.resume(throwing: AccountDeletionError.signInFailed)
+                }
+            }
+        }
     }
     
     private func removeLegacyPreferenceDotFields(keys: [String]) async throws {
@@ -516,6 +609,35 @@ enum FeedbackError: LocalizedError {
             return "You're not signed in. Please try again in a moment."
         case .missingEmail:
             return "Please enter an email address so we can follow up."
+        }
+    }
+}
+
+enum AccountDeletionError: LocalizedError {
+    case missingUser
+    case missingAuthToken
+    case missingProjectId
+    case invalidURL
+    case invalidResponse
+    case requestFailed(String)
+    case signInFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .missingUser:
+            return "You're not signed in. Please try again in a moment."
+        case .missingAuthToken:
+            return "We couldn't verify your session. Please try again."
+        case .missingProjectId:
+            return "Missing Firebase project configuration."
+        case .invalidURL:
+            return "Invalid delete endpoint URL."
+        case .invalidResponse:
+            return "Unexpected server response. Please try again."
+        case .requestFailed(let message):
+            return message
+        case .signInFailed:
+            return "We couldn't start a new session. Please restart the app."
         }
     }
 }

@@ -760,6 +760,102 @@ export const onAudioUpload = onObjectFinalized(
   }
 );
 
+/**
+ * Delete a user's account and all associated data.
+ *
+ * @param {Request} req Express request.
+ * @param {Response} res Express response.
+ */
+export const deleteAccount = onRequest(async (req: Request, res: Response) => {
+  if (req.method !== "POST") {
+    res.status(405).send("Method not allowed.");
+    return;
+  }
+
+  const authHeader = req.headers.authorization ?? "";
+  const match = authHeader.match(/^Bearer (.+)$/);
+  if (!match) {
+    res.status(401).send("Missing Authorization header.");
+    return;
+  }
+
+  let uid = "";
+  try {
+    const decoded = await admin.auth().verifyIdToken(match[1]);
+    uid = decoded.uid;
+  } catch (error) {
+    logger.warn("Invalid auth token for deleteAccount.", error);
+    res.status(401).send("Invalid auth token.");
+    return;
+  }
+
+  try {
+    await deleteUserData(uid);
+    await deleteUserFeedback(uid);
+    await deleteUserAudio(uid);
+    await admin.auth().deleteUser(uid);
+    res.status(200).json({ok: true});
+  } catch (error) {
+    logger.error("deleteAccount failed.", error);
+    res.status(500).json({ok: false, error: "delete_failed"});
+  }
+});
+
+/**
+ * Remove the user document tree from Firestore.
+ *
+ * @param {string} uid Firebase Auth user id.
+ * @return {Promise<void>} Resolves when deletion completes.
+ */
+async function deleteUserData(uid: string): Promise<void> {
+  const userRef = db.collection("users").doc(uid);
+  await db.recursiveDelete(userRef);
+}
+
+/**
+ * Delete all feedback documents created by the user.
+ *
+ * @param {string} uid Firebase Auth user id.
+ * @return {Promise<void>} Resolves when deletion completes.
+ */
+async function deleteUserFeedback(uid: string): Promise<void> {
+  const snapshot = await db
+    .collection("feedback")
+    .where("userId", "==", uid)
+    .get();
+  if (snapshot.empty) {
+    return;
+  }
+
+  let batch = db.batch();
+  let batchCount = 0;
+
+  for (const doc of snapshot.docs) {
+    batch.delete(doc.ref);
+    batchCount += 1;
+    if (batchCount >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      batchCount = 0;
+    }
+  }
+
+  if (batchCount > 0) {
+    await batch.commit();
+  }
+}
+
+/**
+ * Delete all audio files stored for the user.
+ *
+ * @param {string} uid Firebase Auth user id.
+ * @return {Promise<void>} Resolves when deletion completes.
+ */
+async function deleteUserAudio(uid: string): Promise<void> {
+  const bucket = admin.storage().bucket(storageBucketName);
+  await bucket.deleteFiles({prefix: `audio/${uid}/`});
+}
+
 export const summarizeKhutbah = onDocumentWritten(
   {
     document: "users/{userId}/lectures/{lectureId}",

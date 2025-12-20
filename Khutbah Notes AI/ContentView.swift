@@ -1636,6 +1636,13 @@ struct SettingsView: View {
                         Label("Privacy Policy", systemImage: "hand.raised")
                     }
                 }
+
+                Section(header: Text("Account")) {
+                    NavigationLink(destination: DeleteAccountView()) {
+                        Label("Delete Account", systemImage: "trash")
+                            .foregroundColor(.red)
+                    }
+                }
             }
             .navigationTitle("Settings")
         }
