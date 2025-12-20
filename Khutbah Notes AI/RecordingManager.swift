@@ -3,36 +3,44 @@ import Combine
 import AVFoundation
 
 /// Handles microphone permissions and audio recording lifecycle.
-final class RecordingManager: ObservableObject {
+final class RecordingManager: NSObject, ObservableObject {
     @Published var isRecording: Bool = false
     @Published var isPaused: Bool = false
     @Published var elapsedTime: TimeInterval = 0
     @Published var level: Double = 0
     
+    private let audioSession = AVAudioSession.sharedInstance()
     private var audioRecorder: AVAudioRecorder?
     private var meterTimer: Timer?
     private var startDate: Date?
     private var accumulatedTime: TimeInterval = 0
+    private var notificationObservers: [NSObjectProtocol] = []
+    private var shouldResumeAfterInterruption = false
     
     enum RecordingError: Error {
         case permissionDenied
         case failedToStart
     }
     
+    override init() {
+        super.init()
+        addAudioSessionObservers()
+    }
+    
+    deinit {
+        notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+    
     func startRecording() throws {
         guard audioRecorder == nil else { return }
         
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-        try session.setActive(true)
-        
-        switch session.recordPermission {
+        switch audioSession.recordPermission {
         case .granted:
             try beginRecording()
         case .denied:
             throw RecordingError.permissionDenied
         case .undetermined:
-            session.requestRecordPermission { [weak self] granted in
+            audioSession.requestRecordPermission { [weak self] granted in
                 guard let self else { return }
                 DispatchQueue.main.async {
                     if granted {
@@ -52,6 +60,8 @@ final class RecordingManager: ObservableObject {
     }
     
     private func beginRecording() throws {
+        try configureSession()
+        
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("m4a")
@@ -64,6 +74,7 @@ final class RecordingManager: ObservableObject {
         ]
         
         audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
+        audioRecorder?.delegate = self
         audioRecorder?.isMeteringEnabled = true
         audioRecorder?.prepareToRecord()
         
@@ -89,6 +100,7 @@ final class RecordingManager: ObservableObject {
             return nil
         }
         
+        shouldResumeAfterInterruption = false
         recorder.stop()
         isRecording = false
         isPaused = false
@@ -98,7 +110,7 @@ final class RecordingManager: ObservableObject {
         audioRecorder = nil
         
         do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
             print("Failed to deactivate audio session: \(error)")
         }
@@ -110,6 +122,7 @@ final class RecordingManager: ObservableObject {
         guard isRecording, !isPaused else { return }
         audioRecorder?.pause()
         isPaused = true
+        shouldResumeAfterInterruption = false
         if let startDate {
             accumulatedTime += Date().timeIntervalSince(startDate)
         }
@@ -118,13 +131,106 @@ final class RecordingManager: ObservableObject {
 
     func resumeRecording() {
         guard isRecording, isPaused else { return }
+        do {
+            try configureSession()
+        } catch {
+            print("Failed to reactivate audio session: \(error)")
+        }
         let resumed = audioRecorder?.record() ?? false
         if resumed {
             isPaused = false
             startDate = Date()
+        } else {
+            print("Failed to resume recording.")
         }
     }
 
+    private func configureSession() throws {
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try audioSession.setActive(true)
+    }
+    
+    private func addAudioSessionObservers() {
+        let center = NotificationCenter.default
+        notificationObservers.append(
+            center.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: audioSession,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleSessionInterruption(notification)
+            }
+        )
+        notificationObservers.append(
+            center.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: audioSession,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleRouteChange(notification)
+            }
+        )
+        notificationObservers.append(
+            center.addObserver(
+                forName: AVAudioSession.mediaServicesWereResetNotification,
+                object: audioSession,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleMediaServicesReset(notification)
+            }
+        )
+    }
+    
+    private func handleSessionInterruption(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+        
+        switch type {
+        case .began:
+            if isRecording, !isPaused {
+                pauseRecording()
+                shouldResumeAfterInterruption = true
+            } else {
+                shouldResumeAfterInterruption = false
+            }
+        case .ended:
+            let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+            if options.contains(.shouldResume), shouldResumeAfterInterruption {
+                resumeRecording()
+            }
+            shouldResumeAfterInterruption = false
+        @unknown default:
+            shouldResumeAfterInterruption = false
+        }
+    }
+    
+    private func handleRouteChange(_ notification: Notification) {
+        guard isRecording, !isPaused else { return }
+        do {
+            try configureSession()
+        } catch {
+            print("Failed to restore audio session after route change: \(error)")
+        }
+    }
+    
+    private func handleMediaServicesReset(_ notification: Notification) {
+        guard isRecording else { return }
+        audioRecorder?.stop()
+        audioRecorder = nil
+        shouldResumeAfterInterruption = false
+        isRecording = false
+        isPaused = false
+        stopMeteringTimer()
+        resetTiming()
+        do {
+            try configureSession()
+        } catch {
+            print("Failed to reconfigure audio session after reset: \(error)")
+        }
+    }
+    
     private func startMeteringTimer() {
         stopMeteringTimer()
         meterTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
@@ -165,5 +271,31 @@ final class RecordingManager: ObservableObject {
         let clamped = max(minDb, power)
         let normalized = pow(10, clamped / 20)
         level = Double(normalized)
+    }
+}
+
+extension RecordingManager: AVAudioRecorderDelegate {
+    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        guard recorder == audioRecorder else { return }
+        if isRecording {
+            isRecording = false
+            isPaused = false
+            stopMeteringTimer()
+            resetTiming()
+        }
+        if !flag {
+            print("Audio recorder finished unsuccessfully.")
+        }
+    }
+    
+    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        guard recorder == audioRecorder else { return }
+        print("Audio recorder encode error: \(error?.localizedDescription ?? "Unknown error")")
+        if isRecording {
+            isRecording = false
+            isPaused = false
+            stopMeteringTimer()
+            resetTiming()
+        }
     }
 }
