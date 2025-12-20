@@ -11,6 +11,8 @@ import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
 import RevenueCat
+import OneSignalFramework
+import OneSignalLiveActivities
 
 @main
 struct Khutbah_Notes_AIApp: App {
@@ -20,7 +22,6 @@ struct Khutbah_Notes_AIApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     
     init() {
-        OneSignalIntegration.configureIfNeeded()
         FirebaseApp.configure()
         
         // Configure RevenueCat
@@ -94,6 +95,10 @@ struct Khutbah_Notes_AIApp: App {
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        OneSignalIntegration.configureIfNeeded()
+        if #available(iOS 16.1, *) {
+            OneSignal.LiveActivities.setup(OneSignalWidgetAttributes.self)
+        }
         return true
     }
 }

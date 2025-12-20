@@ -78,6 +78,13 @@
 			);
 			target = D402B99A2EF67EC20039F8DA /* OneSignalWidgetExtension */;
 		};
+		D402B9B92EF680E10039F8DA /* Exceptions for "OneSignalWidget" folder in "Khutbah Notes AI" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				OneSignalWidgetLiveActivity.swift,
+			);
+			target = D4A39E8C2EE29C04007FF4D8 /* Khutbah Notes AI */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -92,6 +99,7 @@
 		D402B9A12EF67EC20039F8DA /* OneSignalWidget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				D402B9B92EF680E10039F8DA /* Exceptions for "OneSignalWidget" folder in "Khutbah Notes AI" target */,
 				D402B9B22EF67EC30039F8DA /* Exceptions for "OneSignalWidget" folder in "OneSignalWidgetExtension" target */,
 			);
 			path = OneSignalWidget;

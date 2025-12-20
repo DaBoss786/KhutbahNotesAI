@@ -8,17 +8,22 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
+import OneSignalLiveActivities
 
-struct OneSignalWidgetAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
+@available(iOS 16.1, *)
+struct OneSignalWidgetAttributes: OneSignalLiveActivityAttributes {
+    public struct ContentState: OneSignalLiveActivityContentState {
         // Dynamic stateful properties about your activity go here!
         var emoji: String
+        var onesignal: OneSignalLiveActivityContentStateData?
     }
 
     // Fixed non-changing properties about your activity go here!
     var name: String
+    var onesignal: OneSignalLiveActivityAttributeData
 }
 
+@available(iOS 16.1, *)
 struct OneSignalWidgetLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: OneSignalWidgetAttributes.self) { context in
@@ -56,25 +61,33 @@ struct OneSignalWidgetLiveActivity: Widget {
     }
 }
 
+@available(iOS 16.1, *)
 extension OneSignalWidgetAttributes {
     fileprivate static var preview: OneSignalWidgetAttributes {
-        OneSignalWidgetAttributes(name: "World")
+        OneSignalWidgetAttributes(
+            name: "World",
+            onesignal: OneSignalLiveActivityAttributeData.create(activityId: "preview")
+        )
     }
 }
 
+@available(iOS 16.1, *)
 extension OneSignalWidgetAttributes.ContentState {
     fileprivate static var smiley: OneSignalWidgetAttributes.ContentState {
-        OneSignalWidgetAttributes.ContentState(emoji: "😀")
+        OneSignalWidgetAttributes.ContentState(emoji: "😀", onesignal: nil)
      }
      
      fileprivate static var starEyes: OneSignalWidgetAttributes.ContentState {
-         OneSignalWidgetAttributes.ContentState(emoji: "🤩")
+         OneSignalWidgetAttributes.ContentState(emoji: "🤩", onesignal: nil)
      }
 }
 
+#if DEBUG
+@available(iOS 17.0, *)
 #Preview("Notification", as: .content, using: OneSignalWidgetAttributes.preview) {
    OneSignalWidgetLiveActivity()
 } contentStates: {
     OneSignalWidgetAttributes.ContentState.smiley
     OneSignalWidgetAttributes.ContentState.starEyes
 }
+#endif
