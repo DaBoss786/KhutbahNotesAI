@@ -28,16 +28,30 @@ struct OneSignalWidgetLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: OneSignalWidgetAttributes.self) { context in
             let isPaused = context.state.isPaused
-            let statusColor = isPaused ? LiveActivityColors.pauseAccent : LiveActivityColors.recordAccent
+            let statusColor = isPaused ? LiveActivityColors.pauseAccent : LiveActivityColors.brandGreen
             let elapsedText = elapsedString(context.state.elapsed)
             let displayDate = context.state.startedAt
 
-            VStack(spacing: 8) {
-                Text("Khutbah Notes")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(LiveActivityColors.mutedGreen)
-                    .textCase(.uppercase)
-                    .tracking(0.8)
+            VStack(spacing: 14) {
+                HStack {
+                    Text("Khutbah Notes")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(LiveActivityColors.brandGreen)
+                        .textCase(.uppercase)
+                        .tracking(1.0)
+                    Spacer()
+                    Text(isPaused ? "Paused" : "Recording")
+                        .font(.caption2.weight(.semibold))
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                        .foregroundColor(statusColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(isPaused ? LiveActivityColors.pausePill : LiveActivityColors.recordPill)
+                        )
+                }
 
                 Group {
                     if isPaused {
@@ -46,26 +60,19 @@ struct OneSignalWidgetLiveActivity: Widget {
                         Text(displayDate, style: .timer)
                     }
                 }
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .font(.system(size: 36, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundColor(LiveActivityColors.deepGreen)
-
-                Text(isPaused ? "Paused" : "Recording")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .textCase(.uppercase)
-                    .tracking(1.2)
-                    .foregroundColor(LiveActivityColors.cream)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(statusColor))
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .multilineTextAlignment(.center)
-            .activityBackgroundTint(LiveActivityColors.cream)
-            .activitySystemActionForegroundColor(LiveActivityColors.deepGreen)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .activityBackgroundTint(LiveActivityColors.lockScreenBackground)
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             let isPaused = context.state.isPaused
-            let statusColor = isPaused ? LiveActivityColors.pauseAccent : LiveActivityColors.recordAccent
+            let statusColor = isPaused ? LiveActivityColors.pauseAccent : LiveActivityColors.brandGreen
             let elapsedText = elapsedString(context.state.elapsed)
             let displayDate = context.state.startedAt
 
@@ -177,6 +184,9 @@ private enum LiveActivityColors {
     static let cream = Color(red: 0.98, green: 0.97, blue: 0.94)
     static let deepGreen = Color(red: 0.07, green: 0.36, blue: 0.25)
     static let mutedGreen = Color(red: 0.07, green: 0.36, blue: 0.25).opacity(0.6)
-    static let recordAccent = Color(red: 0.13, green: 0.61, blue: 0.39)
+    static let brandGreen = Color(red: 0.13, green: 0.61, blue: 0.39)
     static let pauseAccent = Color(red: 0.87, green: 0.55, blue: 0.20)
+    static let lockScreenBackground = Color(red: 0.98, green: 0.97, blue: 0.94)
+    static let recordPill = Color(red: 0.20, green: 0.31, blue: 0.30)
+    static let pausePill = Color(red: 0.33, green: 0.25, blue: 0.18)
 }
