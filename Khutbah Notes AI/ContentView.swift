@@ -1618,6 +1618,24 @@ struct SettingsView: View {
                         Label("Feedback", systemImage: "envelope")
                     }
                 }
+
+                Section(header: Text("Info")) {
+                    NavigationLink(destination: StaticContentView(title: "FAQ", bodyText: PlaceholderCopy.faq)) {
+                        Label("FAQ", systemImage: "questionmark.circle")
+                    }
+                    NavigationLink(destination: StaticContentView(title: "About", bodyText: PlaceholderCopy.about)) {
+                        Label("About", systemImage: "info.circle")
+                    }
+                }
+
+                Section(header: Text("Legal")) {
+                    NavigationLink(destination: StaticContentView(title: "Terms of Service", bodyText: PlaceholderCopy.terms)) {
+                        Label("Terms of Service", systemImage: "doc.text")
+                    }
+                    NavigationLink(destination: StaticContentView(title: "Privacy Policy", bodyText: PlaceholderCopy.privacy)) {
+                        Label("Privacy Policy", systemImage: "hand.raised")
+                    }
+                }
             }
             .navigationTitle("Settings")
         }
