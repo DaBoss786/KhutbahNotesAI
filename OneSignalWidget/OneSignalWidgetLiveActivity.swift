@@ -33,7 +33,12 @@ struct OneSignalWidgetLiveActivity: Widget {
             let displayDate = context.state.startedAt
 
             VStack(spacing: 14) {
-                HStack {
+                HStack(spacing: 8) {
+                    Image("KhutbahNotesLogoSmall")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 16, height: 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
                     Text("Khutbah Notes")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(LiveActivityColors.brandGreen)
@@ -78,9 +83,18 @@ struct OneSignalWidgetLiveActivity: Widget {
 
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 8, height: 8)
+                    HStack(spacing: 6) {
+                        Image("KhutbahNotesLogoSmall")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 14, height: 14)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                        Text("Khutbah Notes")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(LiveActivityColors.brandGreen)
+                            .textCase(.uppercase)
+                            .tracking(1.0)
+                    }
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Group {
@@ -95,9 +109,17 @@ struct OneSignalWidgetLiveActivity: Widget {
                     .foregroundColor(LiveActivityColors.deepGreen)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("Khutbah Notes")
+                    Text(isPaused ? "Paused" : "Recording")
                         .font(.caption2.weight(.semibold))
-                        .foregroundColor(LiveActivityColors.mutedGreen)
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                        .foregroundColor(statusColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(isPaused ? LiveActivityColors.pausePill : LiveActivityColors.recordPill)
+                        )
                 }
             } compactLeading: {
                 Circle()
