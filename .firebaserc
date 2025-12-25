@@ -1,6 +1,6 @@
 {
   "projects": {
-    "default": "medswipe-648ee",
+    "default": "khutbah-notes-ai",
     "production": "khutbah-notes-ai"
   },
   "targets": {},

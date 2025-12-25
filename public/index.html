@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Khutbah Notes – Remember Every Friday Sermon</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Amiri:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <style>
+        :root {
+            --green-deep: #125C40;
+            --green-primary: #219B63;
+            --green-secondary: #0F7A54;
+            --green-light: #E8F5EE;
+            --green-pale: #F0F7F4;
+            --cream: #FAF8F0;
+            --cream-dark: #F5F3EB;
+            --text-dark: #1A1A1A;
+            --text-muted: #5A5A5A;
+            --text-light: #8A8A8A;
+            --gold: #C9A227;
+            --gold-light: #F5EED6;
+            --btn-gradient-top: #29A166;
+            --btn-gradient-bottom: #1F8559;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--cream);
+            color: var(--text-dark);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Amiri', serif;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: linear-gradient(135deg, rgba(33, 155, 99, 0.97) 0%, rgba(15, 122, 84, 0.97) 100%);
+            backdrop-filter: blur(10px);
+        }
+
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 72px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: white;
+        }
+
+        .logo img {
+            height: 56px;
+            width: auto;
+        }
+
+        .logo-text {
+            font-family: 'Amiri', serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .hero-logo {
+            width: clamp(230px, 28vw, 320px);
+            height: auto;
+            margin: 0 auto 32px;
+            filter: drop-shadow(0 4px 20px rgba(0, 0, 0, 0.1));
+            display: block;
+        }
+
+        .nav-cta {
+            background: white;
+            color: var(--green-deep);
+            padding: 12px 24px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        .nav-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Hero Section - Text Only */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 120px 0 100px;
+            background: linear-gradient(135deg, var(--green-primary) 0%, var(--green-secondary) 100%);
+            position: relative;
+            overflow: hidden;
+            text-align: center;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at center, rgba(18, 135, 92, 0.25) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .hero::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            pointer-events: none;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            max-width: 800px;
+            padding: 0 24px;
+        }
+
+        .hero-logo {
+            animation: fadeInUp 0.8s ease-out 0.2s both;
+        }
+
+        .hero-bismillah {
+            animation: fadeInDown 0.8s ease-out 0.1s both;
+        }
+
+        .hero-ornament {
+            animation: fadeIn 1s ease-out 0.4s both;
+        }
+
+        .hero h1 {
+            animation: fadeInUp 0.8s ease-out 0.5s both;
+        }
+
+        .hero-subtitle {
+            animation: fadeInUp 0.8s ease-out 0.6s both;
+        }
+
+        .hero-ctas {
+            animation: fadeInUp 0.8s ease-out 0.7s both;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .hero-bismillah {
+            font-family: 'Aref Ruqaa', serif;
+            font-size: clamp(1.4rem, 2.8vw, 2.2rem);
+            color: rgba(255, 255, 255, 0.95);
+            margin-bottom: 20px;
+            font-weight: 700;
+            text-shadow: 0 2px 20px rgba(0, 0, 0, 0.15);
+            position: relative;
+            display: block;
+            padding: 0 32px;
+        }
+
+        .hero-bismillah::before,
+        .hero-bismillah::after {
+            content: '✦';
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.5em;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .hero-bismillah::before {
+            left: 0;
+        }
+
+        .hero-bismillah::after {
+            right: 0;
+        }
+
+        .hero-ornament {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 32px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .hero-ornament-line {
+            width: 60px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+        }
+
+        .hero h1 {
+            font-size: clamp(2.3rem, 4.8vw, 4.2rem);
+            color: white;
+            margin-bottom: 24px;
+            line-height: 1.1;
+        }
+
+        .hero-subtitle {
+            font-size: clamp(1.1rem, 2vw, 1.35rem);
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 48px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            line-height: 1.7;
+        }
+
+        .hero-ctas {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: white;
+            color: var(--green-deep);
+            padding: 18px 36px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-primary svg {
+            height: 22px;
+            width: auto;
+        }
+
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: transparent;
+            color: white;
+            padding: 18px 36px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.1rem;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .hero-scroll-hint {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.85rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {
+                transform: translateX(-50%) translateY(0);
+            }
+            40% {
+                transform: translateX(-50%) translateY(-8px);
+            }
+            60% {
+                transform: translateX(-50%) translateY(-4px);
+            }
+        }
+
+        .hero-scroll-hint svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        /* Pain Points Section */
+        .pain-section {
+            padding: 100px 0;
+            background: var(--cream);
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 700px;
+            margin: 0 auto 60px;
+        }
+
+        .section-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--green-primary);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+
+        .section-header h2 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            color: var(--text-dark);
+            margin-bottom: 20px;
+        }
+
+        .section-header p {
+            font-size: 1.15rem;
+            color: var(--text-muted);
+        }
+
+        .pain-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+
+        .pain-card {
+            background: white;
+            padding: 40px 32px;
+            border-radius: 24px;
+            text-align: center;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .pain-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+        }
+
+        .pain-icon {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, #E8F5EE 0%, #D4EDE3 100%);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+
+        .pain-icon svg {
+            width: 36px;
+            height: 36px;
+            color: var(--green-primary);
+        }
+
+        .pain-card h3 {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .pain-card p {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        /* Solution Section */
+        .solution-section {
+            padding: 100px 0;
+            background: var(--cream-dark);
+        }
+
+        .solution-section .section-header {
+            margin-bottom: 60px;
+        }
+
+        .solution-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+
+        .solution-card {
+            background: white;
+            padding: 40px 32px;
+            border-radius: 24px;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .solution-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
+        }
+
+        .solution-step {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(180deg, var(--btn-gradient-top) 0%, var(--btn-gradient-bottom) 100%);
+            color: white;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 1.2rem;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 12px rgba(33, 155, 99, 0.25);
+        }
+
+        .solution-card h3 {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 1.35rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--text-dark);
+        }
+
+        .solution-card p {
+            color: var(--text-muted);
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
+        /* Trust Section */
+        .trust-section {
+            padding: 100px 0;
+            background: linear-gradient(135deg, var(--green-primary) 0%, var(--green-secondary) 100%);
+            color: white;
+            position: relative;
+        }
+
+        .trust-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at center, rgba(18, 135, 92, 0.25) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .trust-content {
+            position: relative;
+            z-index: 1;
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .trust-text h2 {
+            font-size: clamp(2rem, 4vw, 2.75rem);
+            margin-bottom: 24px;
+            color: white;
+        }
+
+        .trust-text h2 span {
+            color: var(--green-light);
+        }
+
+        .trust-text > p {
+            font-size: 1.15rem;
+            color: rgba(255, 255, 255, 0.85);
+            margin-bottom: 40px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .trust-list {
+            list-style: none;
+            display: inline-block;
+            text-align: left;
+            margin-bottom: 48px;
+        }
+
+        .trust-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .trust-check {
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .trust-check svg {
+            width: 14px;
+            height: 14px;
+            color: var(--green-light);
+        }
+
+        .trust-list li span {
+            font-size: 1.05rem;
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        .trust-visual {
+            position: relative;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .trust-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 40px 48px;
+            border-radius: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            text-align: center;
+        }
+
+        .trust-card-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+
+        .trust-card-icon svg {
+            width: 40px;
+            height: 40px;
+            color: white;
+        }
+
+        .trust-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+            color: white;
+        }
+
+        .trust-card p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1rem;
+        }
+
+        /* Translation Section */
+        .translation-section {
+            padding: 100px 0;
+            background: white;
+        }
+
+        .translation-content {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .translation-visual {
+            margin-bottom: 40px;
+        }
+
+        .language-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 16px;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .language-card {
+            background: var(--cream);
+            padding: 24px 16px;
+            border-radius: 16px;
+            text-align: center;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(33, 155, 99, 0.1);
+        }
+
+        .language-card:hover {
+            transform: scale(1.05);
+            background: var(--green-light);
+            border-color: var(--green-primary);
+        }
+
+        .language-card .flag {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .language-card .lang-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-dark);
+        }
+
+        .translation-text {
+            margin-bottom: 40px;
+        }
+
+        .translation-text h2 {
+            font-size: clamp(2rem, 4vw, 2.75rem);
+            margin-bottom: 24px;
+        }
+
+        .translation-text > p {
+            font-size: 1.15rem;
+            color: var(--text-muted);
+            max-width: 550px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .btn-primary-green {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(180deg, var(--btn-gradient-top) 0%, var(--btn-gradient-bottom) 100%);
+            color: white;
+            padding: 16px 32px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.05rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(33, 155, 99, 0.3);
+        }
+
+        .btn-primary-green:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(33, 155, 99, 0.4);
+        }
+
+        /* Pricing Section */
+        .pricing-section {
+            padding: 100px 0;
+            background: linear-gradient(180deg, var(--cream) 0%, var(--green-pale) 100%);
+        }
+
+        .pricing-cards {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 32px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .pricing-card {
+            background: white;
+            padding: 48px 40px;
+            border-radius: 32px;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .pricing-card.featured {
+            border-color: var(--green-primary);
+            transform: scale(1.02);
+        }
+
+        .pricing-card.featured::before {
+            content: 'Best Value';
+            position: absolute;
+            top: -14px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(180deg, var(--btn-gradient-top) 0%, var(--btn-gradient-bottom) 100%);
+            color: white;
+            padding: 6px 20px;
+            border-radius: 100px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .pricing-card:hover {
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+        }
+
+        .pricing-label {
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .pricing-amount {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .pricing-currency {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .pricing-value {
+            font-family: 'Amiri', serif;
+            font-size: 3.5rem;
+            font-weight: 700;
+            color: var(--text-dark);
+            line-height: 1;
+        }
+
+        .pricing-period {
+            font-size: 1rem;
+            color: var(--text-muted);
+        }
+
+        .pricing-note {
+            font-size: 0.9rem;
+            color: var(--text-light);
+            margin-bottom: 32px;
+        }
+
+        .pricing-features {
+            list-style: none;
+            margin-bottom: 32px;
+        }
+
+        .pricing-features li {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            font-size: 0.95rem;
+        }
+
+        .pricing-features li:last-child {
+            border-bottom: none;
+        }
+
+        .pricing-features svg {
+            width: 18px;
+            height: 18px;
+            color: var(--green-primary);
+            flex-shrink: 0;
+        }
+
+        .pricing-card .btn-primary-green,
+        .pricing-card .btn-secondary-outline {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .btn-secondary-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: transparent;
+            color: var(--green-primary);
+            padding: 16px 32px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.05rem;
+            border: 2px solid var(--green-primary);
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary-outline:hover {
+            background: rgba(33, 155, 99, 0.1);
+        }
+
+        .pricing-disclaimer {
+            text-align: center;
+            color: var(--text-light);
+            font-size: 0.9rem;
+            margin-top: 24px;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            padding: 120px 0;
+            background: var(--cream);
+            text-align: center;
+        }
+
+        .cta-section h2 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            margin-bottom: 20px;
+            color: var(--text-dark);
+        }
+
+        .cta-section p {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            margin-bottom: 40px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Footer */
+        footer {
+            padding: 60px 0;
+            background: #0A0A0A;
+            color: white;
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .footer-logo img {
+            height: 50px;
+            width: auto;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 32px;
+        }
+
+        .footer-links a {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.3s ease;
+        }
+
+        .footer-links a:hover {
+            color: white;
+        }
+
+        .footer-copy {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .language-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .pain-grid,
+            .solution-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .pricing-cards {
+                grid-template-columns: 1fr;
+            }
+
+            .pricing-card.featured {
+                transform: none;
+            }
+
+            .language-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .footer-content {
+                flex-direction: column;
+                gap: 32px;
+                text-align: center;
+            }
+
+            .footer-links {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .hero-ctas {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .btn-primary,
+            .btn-secondary {
+                width: 100%;
+                max-width: 300px;
+                justify-content: center;
+            }
+
+            .hero-scroll-hint {
+                display: none;
+            }
+
+            .trust-list {
+                text-align: left;
+                padding: 0 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="container">
+            <a href="#" class="logo">
+                <img src="splash_logo.png" alt="Khutbah Notes">
+            </a>
+            <a href="#download" class="nav-cta">Download App</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section - Text Only -->
+    <section class="hero">
+        <div class="hero-content">
+            <p class="hero-bismillah">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
+            <img src="splash_logo.png" alt="Khutbah Notes" class="hero-logo">
+            <div class="hero-ornament">
+                <span class="hero-ornament-line"></span>
+                <span>❖</span>
+                <span class="hero-ornament-line"></span>
+            </div>
+            <h1>Never Forget Another<br>Khutbah Again</h1>
+            <p class="hero-subtitle">Record khutbahs + Islamic lectures, get smart summaries, and reflect on the message all week long.</p>
+            <div class="hero-ctas">
+                <a href="#download" class="btn-primary">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+                        <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                    </svg>
+                    Download for iOS
+                </a>
+                <a href="#how-it-works" class="btn-secondary">See How It Works</a>
+            </div>
+        </div>
+        <div class="hero-scroll-hint">
+            <span>Learn more</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M19 12l-7 7-7-7"/>
+            </svg>
+        </div>
+    </section>
+
+    <!-- Pain Points Section -->
+    <section class="pain-section">
+        <div class="container">
+            <div class="section-header">
+                <p class="section-label">The Challenge</p>
+                <h2>Sound Familiar?</h2>
+                <p>Every Friday, you leave the masjid inspired. By Monday, the message fades. You're not alone.</p>
+            </div>
+            <div class="pain-grid">
+                <div class="pain-card">
+                    <div class="pain-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                        </svg>
+                    </div>
+                    <h3>Mind Wanders</h3>
+                    <p>It's hard to stay focused for 25+ minutes. You zone out, and by the end, you've missed key points.</p>
+                </div>
+                <div class="pain-card">
+                    <div class="pain-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                            <line x1="9" y1="9" x2="15" y2="9"/>
+                            <line x1="9" y1="13" x2="13" y2="13"/>
+                        </svg>
+                    </div>
+                    <h3>Language Barrier</h3>
+                    <p>The khutbah is in Arabic or another language you don't fully understand. You catch fragments, but not the full message.</p>
+                </div>
+                <div class="pain-card">
+                    <div class="pain-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                        </svg>
+                    </div>
+                    <h3>Forgotten by Sunday</h3>
+                    <p>Even when you're fully present, the insights slip away. By the next week, you can barely recall the topic.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Solution Section -->
+    <section class="solution-section" id="how-it-works">
+        <div class="container">
+            <div class="section-header">
+                <p class="section-label">The Solution</p>
+                <h2>How Khutbah Notes Works</h2>
+                <p>Three simple steps to transform how you engage with Friday sermons.</p>
+            </div>
+            <div class="solution-grid">
+                <div class="solution-card">
+                    <div class="solution-step">1</div>
+                    <h3>Record the Khutbah</h3>
+                    <p>Discreetly capture the audio during Jumu'ah. Just tap record and let your phone do the rest while you focus on being present.</p>
+                </div>
+                <div class="solution-card">
+                    <div class="solution-step">2</div>
+                    <h3>Get Your Summary</h3>
+                    <p>Receive a complete transcription, key takeaways, referenced ayahs, and actionable reminders—all organized beautifully.</p>
+                </div>
+                <div class="solution-card">
+                    <div class="solution-step">3</div>
+                    <h3>Reflect All Week</h3>
+                    <p>Revisit the message throughout the week. Stay connected to the khutbah's wisdom long after Friday ends.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trust Section -->
+    <section class="trust-section">
+        <div class="container">
+            <div class="trust-content">
+                <div class="trust-text">
+                    <h2>Your Khutbah. <span>Nothing Added.</span></h2>
+                    <p>We understand the importance of preserving authentic Islamic knowledge. That's why our smart summaries are designed with one principle: faithfulness to what the khateeb actually said.</p>
+                    <ul class="trust-list">
+                        <li>
+                            <span class="trust-check">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </span>
+                            <span><strong>Uses only YOUR recording</strong> — nothing from external sources</span>
+                        </li>
+                        <li>
+                            <span class="trust-check">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </span>
+                            <span><strong>No invented fatwas or rulings</strong> — we never add religious content</span>
+                        </li>
+                        <li>
+                            <span class="trust-check">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </span>
+                            <span><strong>No fabricated Quran or hadith</strong> — only what the khateeb referenced</span>
+                        </li>
+                        <li>
+                            <span class="trust-check">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </span>
+                            <span><strong>Faithful to the original</strong> — summaries reflect, never embellish</span>
+                        </li>
+                    </ul>
+                </div>
+                <div class="trust-visual">
+                    <div class="trust-card">
+                        <div class="trust-card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                                <polyline points="9 12 11 14 15 10"/>
+                            </svg>
+                        </div>
+                        <h3>Content Integrity Promise</h3>
+                        <p>Smart summaries never introduce Islamic content that was not said by the khateeb. What you read is what was spoken.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Translation Section -->
+    <section class="translation-section">
+        <div class="container">
+            <div class="translation-content">
+                <div class="translation-text">
+                    <h2>Understand Every Khutbah</h2>
+                    <p>Whether your khutbah is in Arabic, Urdu, or another language, get summaries translated into the language you understand best.</p>
+                </div>
+                <div class="translation-visual">
+                    <div class="language-grid">
+                        <div class="language-card">
+                            <div class="flag">🇸🇦</div>
+                            <div class="lang-name">Arabic</div>
+                        </div>
+                        <div class="language-card">
+                            <div class="flag">🇵🇰</div>
+                            <div class="lang-name">Urdu</div>
+                        </div>
+                        <div class="language-card">
+                            <div class="flag">🇫🇷</div>
+                            <div class="lang-name">French</div>
+                        </div>
+                        <div class="language-card">
+                            <div class="flag">🇪🇸</div>
+                            <div class="lang-name">Spanish</div>
+                        </div>
+                        <div class="language-card">
+                            <div class="flag">🇲🇾</div>
+                            <div class="lang-name">Malay</div>
+                        </div>
+                        <div class="language-card">
+                            <div class="flag">🇬🇧</div>
+                            <div class="lang-name">English</div>
+                        </div>
+                    </div>
+                </div>
+                <a href="#download" class="btn-primary-green">Get the App</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="pricing-section" id="download">
+        <div class="container">
+            <div class="section-header">
+                <p class="section-label">Simple Pricing</p>
+                <h2>Choose Your Plan</h2>
+                <p>Start remembering every khutbah. Cancel anytime.</p>
+            </div>
+            <div class="pricing-cards">
+                <div class="pricing-card">
+                    <div class="pricing-label">Monthly</div>
+                    <div class="pricing-amount">
+                        <span class="pricing-currency">$</span>
+                        <span class="pricing-value">5.99</span>
+                        <span class="pricing-period">/month</span>
+                    </div>
+                    <p class="pricing-note">Billed monthly</p>
+                    <ul class="pricing-features">
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Unlimited khutbah recordings
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Smart summaries & takeaways
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Translation to 5+ languages
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Weekly reflection reminders
+                        </li>
+                    </ul>
+                    <a href="#" class="btn-secondary-outline">Get the App</a>
+                </div>
+                <div class="pricing-card featured">
+                    <div class="pricing-label">Annual</div>
+                    <div class="pricing-amount">
+                        <span class="pricing-currency">$</span>
+                        <span class="pricing-value">59.99</span>
+                        <span class="pricing-period">/year</span>
+                    </div>
+                    <p class="pricing-note">Save $12 — that's 2 months free</p>
+                    <ul class="pricing-features">
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Unlimited khutbah recordings
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Smart summaries & takeaways
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Translation to 5+ languages
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Weekly reflection reminders
+                        </li>
+                    </ul>
+                    <a href="#" class="btn-primary-green">Get the App</a>
+                </div>
+            </div>
+            <p class="pricing-disclaimer">Subscription is completed in-app after download</p>
+        </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="cta-section">
+        <div class="container">
+            <h2>This Friday, Remember Everything</h2>
+            <p>Join Muslims around the world who are finally holding onto the wisdom of their weekly khutbahs.</p>
+            <a href="#" class="btn-primary-green">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                </svg>
+                Download Khutbah Notes
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <img src="splash_logo.png" alt="Khutbah Notes">
+                </div>
+                <div class="footer-links">
+                    <a href="#">Privacy Policy</a>
+                    <a href="#">Terms of Service</a>
+                    <a href="mailto:support@khutbah-notes.com">support@khutbah-notes.com</a>
+                </div>
+                <div class="footer-copy">
+                    © 2025 Khutbah Notes. All rights reserved.
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
