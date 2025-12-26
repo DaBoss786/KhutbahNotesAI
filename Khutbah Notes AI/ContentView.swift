@@ -937,6 +937,35 @@ struct LectureCardView: View {
     }
 }
 
+private struct StoredLectureIDSet: RawRepresentable {
+    var rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    init() {
+        rawValue = "[]"
+    }
+
+    init(ids: Set<String>) {
+        if let data = try? JSONEncoder().encode(Array(ids)),
+           let encoded = String(data: data, encoding: .utf8) {
+            rawValue = encoded
+        } else {
+            rawValue = "[]"
+        }
+    }
+
+    var ids: Set<String> {
+        guard let data = rawValue.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return Set(decoded)
+    }
+}
+
 struct LectureDetailView: View {
     @EnvironmentObject var store: LectureStore
     let lecture: Lecture
@@ -947,6 +976,8 @@ struct LectureDetailView: View {
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
     @AppStorage("didRequestDemoReview") private var didRequestDemoReview = false
+    @AppStorage("realSummaryReviewCountedLectureIDs") private var realSummaryReviewCountedLectureIDs = StoredLectureIDSet()
+    @AppStorage("didRequestRealSummaryReview") private var didRequestRealSummaryReview = false
     
     private let tabs = ["Summary", "Transcript"]
     
@@ -1023,9 +1054,23 @@ struct LectureDetailView: View {
                         }
                         .onAppear {
                             requestTranslationIfNeeded(for: selectedSummaryLanguage)
-                            guard displayLecture.isDemo, !didRequestDemoReview else { return }
-                            didRequestDemoReview = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            if displayLecture.isDemo {
+                                guard !didRequestDemoReview else { return }
+                                didRequestDemoReview = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                    requestReview()
+                                }
+                            }
+
+                            guard displayLecture.summary != nil else { return }
+                            guard !displayLecture.isDemo else { return }
+                            var countedIDs = realSummaryReviewCountedLectureIDs.ids
+                            guard !countedIDs.contains(displayLecture.id) else { return }
+                            countedIDs.insert(displayLecture.id)
+                            realSummaryReviewCountedLectureIDs = StoredLectureIDSet(ids: countedIDs)
+                            guard countedIDs.count == 2, !didRequestRealSummaryReview else { return }
+                            didRequestRealSummaryReview = true
+                            DispatchQueue.main.async {
                                 requestReview()
                             }
                         }
