@@ -644,6 +644,11 @@ export const onAudioUpload = onObjectFinalized(
       }
 
       const transcriptText = chunkTranscripts.join("\n\n").trim();
+      const transcriptFormatted = formatTranscriptParagraphs(
+        transcriptText,
+        3,
+        5
+      );
 
       if (!transcriptText) {
         console.warn(
@@ -665,6 +670,7 @@ export const onAudioUpload = onObjectFinalized(
       await lectureRef.set(
         {
           transcript: transcriptText,
+          transcriptFormatted,
           status: "transcribed", // transcript is ready; summary can run next
           processedAt: admin.firestore.FieldValue.serverTimestamp(),
           durationMinutes,
@@ -1702,6 +1708,71 @@ function chunkTranscript(
   }
 
   return chunks;
+}
+
+/**
+ * Format a transcript into readable paragraphs by sentence count.
+ *
+ * @param {string} transcript Full transcript text.
+ * @param {number} minSentences Minimum sentences per paragraph.
+ * @param {number} maxSentences Maximum sentences per paragraph.
+ * @return {string} Paragraph-formatted transcript.
+ */
+function formatTranscriptParagraphs(
+  transcript: string,
+  minSentences: number,
+  maxSentences: number
+): string {
+  const normalized = transcript.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const sentences: string[] = [];
+  let current = "";
+
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    current += ch;
+
+    if (ch === "." || ch === "!" || ch === "?") {
+      const next = normalized[i + 1];
+      if (next === " " || next === undefined) {
+        const trimmed = current.trim();
+        if (trimmed) {
+          sentences.push(trimmed);
+        }
+        current = "";
+      }
+    }
+  }
+
+  const tail = current.trim();
+  if (tail) {
+    sentences.push(tail);
+  }
+
+  if (sentences.length === 0) {
+    return normalized;
+  }
+
+  const paragraphs: string[] = [];
+  let idx = 0;
+
+  while (idx < sentences.length) {
+    const remaining = sentences.length - idx;
+    let take = Math.min(maxSentences, remaining);
+
+    if (remaining > maxSentences && remaining - take < minSentences) {
+      take = Math.max(minSentences, remaining - minSentences);
+    }
+
+    const block = sentences.slice(idx, idx + take).join(" ");
+    paragraphs.push(block);
+    idx += take;
+  }
+
+  return paragraphs.join("\n\n");
 }
 
 /**

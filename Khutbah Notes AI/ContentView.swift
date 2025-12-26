@@ -819,6 +819,12 @@ struct LectureDetailView: View {
                             .foregroundColor(Theme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
                         }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.cardBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
+                        .padding(.vertical, 4)
                     }
                 }
                 .padding()
@@ -1418,6 +1424,16 @@ struct SummaryView<Actions: View>: View {
                 }
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Theme.primaryGreen.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
+        .padding(.vertical, 4)
     }
     
     private var languageMenu: some View {
