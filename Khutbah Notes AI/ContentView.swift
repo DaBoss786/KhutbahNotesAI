@@ -35,6 +35,65 @@ struct Theme {
     static let bodyFont = Font.system(size: 15, weight: .regular, design: .rounded)
 }
 
+enum TextSizeOption: CaseIterable {
+    case small
+    case medium
+    case large
+    case extraLarge
+    
+    var bodySize: CGFloat {
+        switch self {
+        case .small:
+            return 14
+        case .medium:
+            return 15
+        case .large:
+            return 16
+        case .extraLarge:
+            return 18
+        }
+    }
+    
+    var headingSize: CGFloat {
+        switch self {
+        case .small:
+            return 16
+        case .medium:
+            return 17
+        case .large:
+            return 18
+        case .extraLarge:
+            return 20
+        }
+    }
+    
+    var label: String {
+        switch self {
+        case .small:
+            return "Small"
+        case .medium:
+            return "Medium"
+        case .large:
+            return "Large"
+        case .extraLarge:
+            return "Extra Large"
+        }
+    }
+    
+    var next: TextSizeOption {
+        switch self {
+        case .small:
+            return .medium
+        case .medium:
+            return .large
+        case .large:
+            return .extraLarge
+        case .extraLarge:
+            return .small
+        }
+    }
+}
+
 struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var toastMessage: String? = nil
@@ -712,6 +771,7 @@ struct LectureDetailView: View {
     let lecture: Lecture
     @State private var selectedTab = 0
     @State private var selectedSummaryLanguage: SummaryTranslationLanguage = .english
+    @State private var selectedTextSize: TextSizeOption = .medium
     @State private var shareItems: [Any]? = nil
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
@@ -768,7 +828,8 @@ struct LectureDetailView: View {
                             isBaseSummaryReady: displayLecture.summary != nil,
                             isTranslationLoading: isTranslationLoading,
                             translationError: translationError,
-                            selectedLanguage: $selectedSummaryLanguage
+                            selectedLanguage: $selectedSummaryLanguage,
+                            textSize: $selectedTextSize
                         ) {
                             ExportIconButtons(
                                 onCopy: {
@@ -800,6 +861,7 @@ struct LectureDetailView: View {
                                 Text("Transcript")
                                     .font(Theme.titleFont)
                                 Spacer()
+                                TextSizeToggle(selection: $selectedTextSize)
                                 ExportIconButtons(
                                     onCopy: {
                                     guard let text = exportableTranscriptText() else { return }
@@ -815,7 +877,7 @@ struct LectureDetailView: View {
                             )
                         }
                         Text(displayLecture.transcript ?? "Transcript will appear here once ready.")
-                            .font(Theme.bodyFont)
+                            .font(transcriptBodyFont)
                             .foregroundColor(Theme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
                         }
@@ -857,6 +919,10 @@ struct LectureDetailView: View {
         let code = selectedSummaryLanguage.rawValue
         return displayLecture.summaryTranslationRequests.contains(code) ||
             displayLecture.summaryTranslationInProgress.contains(code)
+    }
+
+    private var transcriptBodyFont: Font {
+        .system(size: selectedTextSize.bodySize, weight: .regular, design: .rounded)
     }
     
     private var translationError: String? {
@@ -1341,6 +1407,7 @@ struct SummaryView<Actions: View>: View {
     let isTranslationLoading: Bool
     let translationError: String?
     @Binding var selectedLanguage: SummaryTranslationLanguage
+    @Binding var textSize: TextSizeOption
     let actions: Actions
     
     init(
@@ -1349,6 +1416,7 @@ struct SummaryView<Actions: View>: View {
         isTranslationLoading: Bool,
         translationError: String?,
         selectedLanguage: Binding<SummaryTranslationLanguage>,
+        textSize: Binding<TextSizeOption>,
         @ViewBuilder actions: () -> Actions = { EmptyView() }
     ) {
         self.summary = summary
@@ -1356,17 +1424,24 @@ struct SummaryView<Actions: View>: View {
         self.isTranslationLoading = isTranslationLoading
         self.translationError = translationError
         self._selectedLanguage = selectedLanguage
+        self._textSize = textSize
         self.actions = actions()
     }
     
     private var isRTL: Bool { selectedLanguage.isRTL }
     
     private var summaryBodyFont: Font {
-        isRTL ? rtlFont(size: 15, weight: .regular) : Theme.bodyFont
+        if isRTL {
+            return rtlFont(size: textSize.bodySize, weight: .regular)
+        }
+        return .system(size: textSize.bodySize, weight: .regular, design: .rounded)
     }
     
     private var summaryHeadingFont: Font {
-        isRTL ? rtlFont(size: 17, weight: .semibold) : .system(size: 17, weight: .semibold)
+        if isRTL {
+            return rtlFont(size: textSize.headingSize, weight: .semibold)
+        }
+        return .system(size: textSize.headingSize, weight: .semibold)
     }
     
     private var textAlignment: TextAlignment { isRTL ? .trailing : .leading }
@@ -1379,6 +1454,7 @@ struct SummaryView<Actions: View>: View {
                 Text("Summary")
                     .font(Theme.titleFont)
                 Spacer()
+                TextSizeToggle(selection: $textSize)
                 languageMenu
                 actions
             }
@@ -1393,7 +1469,7 @@ struct SummaryView<Actions: View>: View {
                                    content: summary.weeklyActions)
                 } else if !isBaseSummaryReady {
                     Text("AI summary will appear here once processed.")
-                        .font(Theme.bodyFont)
+                        .font(summaryBodyFont)
                         .foregroundColor(Theme.mutedText)
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1403,20 +1479,20 @@ struct SummaryView<Actions: View>: View {
                         ProgressView()
                             .progressViewStyle(.circular)
                         Text("Generating translation...")
-                            .font(Theme.bodyFont)
+                            .font(summaryBodyFont)
                             .foregroundColor(Theme.mutedText)
                     }
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                 } else if let translationError, !translationError.isEmpty {
                     Text("Translation unavailable right now. Please try again later.")
-                        .font(Theme.bodyFont)
+                        .font(summaryBodyFont)
                         .foregroundColor(Theme.mutedText)
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text("Translation will appear here once ready.")
-                        .font(Theme.bodyFont)
+                        .font(summaryBodyFont)
                         .foregroundColor(Theme.mutedText)
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1537,6 +1613,49 @@ struct SummaryView<Actions: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: frameAlignment)
         }
+    }
+}
+
+struct TextSizeToggle: View {
+    @Binding var selection: TextSizeOption
+    
+    private var indicator: String {
+        switch selection {
+        case .small:
+            return "S"
+        case .medium:
+            return "M"
+        case .large:
+            return "L"
+        case .extraLarge:
+            return "XL"
+        }
+    }
+    
+    var body: some View {
+        Button {
+            selection = selection.next
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "textformat.size")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.black)
+                Text(indicator)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(Theme.mutedText)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Theme.primaryGreen.opacity(0.18), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Text size")
+        .accessibilityValue(selection.label)
     }
 }
 
