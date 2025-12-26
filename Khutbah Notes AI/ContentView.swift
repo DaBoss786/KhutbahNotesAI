@@ -946,6 +946,7 @@ struct LectureDetailView: View {
     @State private var shareItems: [Any]? = nil
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
+    @State private var didRequestDemoReview = false
     
     private let tabs = ["Summary", "Transcript"]
     
@@ -1022,6 +1023,11 @@ struct LectureDetailView: View {
                         }
                         .onAppear {
                             requestTranslationIfNeeded(for: selectedSummaryLanguage)
+                            guard displayLecture.isDemo, !didRequestDemoReview else { return }
+                            didRequestDemoReview = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                requestReview()
+                            }
                         }
                         .onChange(of: selectedSummaryLanguage) { newLanguage in
                             requestTranslationIfNeeded(for: newLanguage)
@@ -1128,6 +1134,20 @@ struct LectureDetailView: View {
         
         Task {
             await store.requestSummaryTranslation(for: displayLecture, language: language)
+        }
+    }
+
+    private func requestReview() {
+        let request = {
+            guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }) else { return }
+            SKStoreReviewController.requestReview(in: scene)
+        }
+        if Thread.isMainThread {
+            request()
+        } else {
+            DispatchQueue.main.async(execute: request)
         }
     }
     

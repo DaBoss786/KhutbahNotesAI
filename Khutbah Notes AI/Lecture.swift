@@ -63,6 +63,10 @@ extension Lecture {
         folderId: nil,
         folderName: nil
     )
+
+    var isDemo: Bool {
+        id == "demo-welcome" || (audioPath?.hasPrefix("demo/") ?? false)
+    }
 }
 
 struct LectureSummary: Identifiable, Hashable, Codable {
