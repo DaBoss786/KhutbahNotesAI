@@ -484,16 +484,10 @@ private extension RecordLectureView {
     }
     
     var recordButtonStack: some View {
-        Group {
-            if recordingManager.isRecording {
-                pulsingRecordButton
-            } else {
-                Button(action: startRecordingTapped) {
-                    pulsingRecordButton
-                }
-                .buttonStyle(.plain)
-            }
+        Button(action: recordingManager.isRecording ? finishRecordingTapped : startRecordingTapped) {
+            pulsingRecordButton
         }
+        .buttonStyle(.plain)
     }
     
     var pulsingRecordButton: some View {
@@ -517,7 +511,7 @@ private extension RecordLectureView {
                         .foregroundColor(.white)
                 )
         }
-        .accessibilityLabel(recordingManager.isRecording ? "Recording" : "Start recording")
+        .accessibilityLabel(recordingManager.isRecording ? "Stop recording" : "Start recording")
     }
     
     var helperText: some View {
