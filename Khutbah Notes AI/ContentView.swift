@@ -10,6 +10,7 @@ import Combine
 import AVFoundation
 import FirebaseStorage
 import UIKit
+import StoreKit
 
 struct ContentView: View {
     var body: some View {
@@ -1922,6 +1923,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Feedback", systemImage: "envelope")
                     }
+                    Button {
+                        requestAppStoreReview()
+                    } label: {
+                        Label("Rate Khutbah Notes", systemImage: "star.fill")
+                    }
                 }
 
                 Section(header: Text("Info")) {
@@ -1958,6 +1964,15 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showFeedback) {
             FeedbackView()
+        }
+    }
+
+    private func requestAppStoreReview() {
+        if let scene = UIApplication.shared.connectedScenes
+            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+            SKStoreReviewController.requestReview(in: scene)
+        } else {
+            SKStoreReviewController.requestReview()
         }
     }
 }
