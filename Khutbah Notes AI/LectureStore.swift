@@ -428,6 +428,7 @@ final class LectureStore: ObservableObject {
                 let monthlyMinutesUsed = data["monthlyMinutesUsed"] as? Int ?? 0
                 let monthlyKey = data["monthlyKey"] as? String
                 let freeLifetimeMinutesUsed = data["freeLifetimeMinutesUsed"] as? Int ?? 0
+                let freeLifetimeMinutesRemaining = data["freeLifetimeMinutesRemaining"] as? Int
                 let periodStart = (data["periodStart"] as? Timestamp)?.dateValue()
                 let renewsAt = (data["renewsAt"] as? Timestamp)?.dateValue()
                 
@@ -436,6 +437,7 @@ final class LectureStore: ObservableObject {
                     monthlyMinutesUsed: monthlyMinutesUsed,
                     monthlyKey: monthlyKey,
                     freeLifetimeMinutesUsed: freeLifetimeMinutesUsed,
+                    freeLifetimeMinutesRemaining: freeLifetimeMinutesRemaining,
                     periodStart: periodStart,
                     renewsAt: renewsAt
                 )
@@ -886,6 +888,7 @@ struct UserUsage {
     let monthlyMinutesUsed: Int
     let monthlyKey: String?
     let freeLifetimeMinutesUsed: Int
+    let freeLifetimeMinutesRemaining: Int?
     let periodStart: Date?
     let renewsAt: Date?
     
