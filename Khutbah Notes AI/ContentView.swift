@@ -946,7 +946,7 @@ struct LectureDetailView: View {
     @State private var shareItems: [Any]? = nil
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
-    @State private var didRequestDemoReview = false
+    @AppStorage("didRequestDemoReview") private var didRequestDemoReview = false
     
     private let tabs = ["Summary", "Transcript"]
     
