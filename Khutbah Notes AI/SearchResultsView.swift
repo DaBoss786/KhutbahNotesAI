@@ -23,7 +23,7 @@ struct SearchResultsView: View {
         let normalizedQuery = normalized(trimmed)
         return store.lectures.filter { lecture in
             guard lecture.status == .ready, let summary = lecture.summary else { return false }
-            let fields = [summary.mainTheme] + summary.keyPoints +
+            let fields = [lecture.title, summary.mainTheme] + summary.keyPoints +
                 summary.explicitAyatOrHadith + summary.weeklyActions
             return fields.contains { normalized($0).contains(normalizedQuery) }
         }
