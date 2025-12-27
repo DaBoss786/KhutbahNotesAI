@@ -105,7 +105,7 @@ struct MainTabView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                NotesView()
+                NotesView(selectedTab: $selectedTab)
                     .tabItem {
                         Image(systemName: "book.closed.fill")
                         Text("Notes")
@@ -188,6 +188,7 @@ struct MainTabView: View {
 
 struct NotesView: View {
     @EnvironmentObject var store: LectureStore
+    @Binding var selectedTab: Int
     @State private var selectedSegment = 0
     @State private var showRenameSheet = false
     @State private var showMoveSheet = false
@@ -495,7 +496,10 @@ struct NotesView: View {
             ForEach(store.lectures) { lecture in
                 ZStack(alignment: .topTrailing) {
                     NavigationLink {
-                        LectureDetailView(lecture: lecture)
+                        LectureDetailView(
+                            lecture: lecture,
+                            selectedRootTab: $selectedTab
+                        )
                     } label: {
                         LectureCardView(lecture: lecture)
                     }
@@ -550,6 +554,7 @@ struct NotesView: View {
                             FolderDetailView(
                                 folder: folder,
                                 lectures: lectures(in: folder),
+                                selectedTab: $selectedTab,
                                 onRename: { lecture in startRename(for: lecture) },
                                 onMove: { lecture in startMove(for: lecture) },
                                 onDelete: { lecture in
@@ -968,8 +973,10 @@ private struct StoredLectureIDSet: RawRepresentable {
 
 struct LectureDetailView: View {
     @EnvironmentObject var store: LectureStore
+    @Environment(\.dismiss) private var dismiss
     let lecture: Lecture
-    @State private var selectedTab = 0
+    @Binding var selectedRootTab: Int
+    @State private var selectedContentTab = 0
     @State private var selectedSummaryLanguage: SummaryTranslationLanguage = .english
     @State private var selectedTextSize: TextSizeOption = .medium
     @State private var shareItems: [Any]? = nil
@@ -980,6 +987,9 @@ struct LectureDetailView: View {
     @AppStorage("didRequestRealSummaryReview") private var didRequestRealSummaryReview = false
     
     private let tabs = ["Summary", "Transcript"]
+    private let failureMessage =
+        "Transcription failed. Try recording in a quieter space or closer to the speaker."
+    private let refundMessage = "Any charged minutes were refunded."
     
     private var displayLecture: Lecture {
         store.lectures.first(where: { $0.id == lecture.id }) ?? lecture
@@ -996,6 +1006,61 @@ struct LectureDetailView: View {
             return "\(minutes) mins"
         }
         return "Duration pending"
+    }
+
+    private var isFailed: Bool {
+        displayLecture.status == .failed
+    }
+
+    private var failedContentCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(Theme.primaryGreen)
+                Text("Transcription Failed")
+                    .font(Theme.titleFont)
+                    .foregroundColor(.black)
+            }
+
+            Text(failureMessage)
+                .font(Theme.bodyFont)
+                .foregroundColor(Theme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let errorMessage = displayLecture.errorMessage,
+               !errorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Reason: \(errorMessage)")
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(refundMessage)
+                .font(Theme.bodyFont)
+                .foregroundColor(Theme.mutedText)
+
+            Button {
+                selectedRootTab = 1
+                dismiss()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "mic.fill")
+                    Text("Re-record")
+                        .fontWeight(.semibold)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(Theme.primaryGreen.opacity(0.12))
+                .foregroundColor(Theme.primaryGreen)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.cardBackground)
+        .cornerRadius(16)
+        .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
     }
     
     var body: some View {
@@ -1018,14 +1083,18 @@ struct LectureDetailView: View {
                     
                     Divider()
                     
-                    Picker("Content", selection: $selectedTab) {
-                        ForEach(0..<tabs.count, id: \.self) { index in
-                            Text(tabs[index]).tag(index)
+                    if !isFailed {
+                        Picker("Content", selection: $selectedContentTab) {
+                            ForEach(0..<tabs.count, id: \.self) { index in
+                                Text(tabs[index]).tag(index)
+                            }
                         }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
-                    
-                    if selectedTab == 0 {
+
+                    if isFailed {
+                        failedContentCard
+                    } else if selectedContentTab == 0 {
                         SummaryView(
                             summary: selectedSummary,
                             isBaseSummaryReady: displayLecture.summary != nil,
@@ -1686,13 +1755,21 @@ struct SummaryView<Actions: View>: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 10) {
-                Text("Summary")
-                    .font(Theme.titleFont)
-                Spacer()
-                TextSizeToggle(selection: $textSize)
-                languageMenu
-                actions
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text("Summary")
+                        .font(Theme.titleFont)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Spacer()
+                    TextSizeToggle(selection: $textSize)
+                    actions
+                }
+
+                HStack(alignment: .center, spacing: 10) {
+                    Spacer()
+                    languageMenu
+                }
             }
             
             Group {
@@ -2043,7 +2120,7 @@ struct SettingsView: View {
 }
 
 #Preview("Notes") {
-    NotesView()
+    NotesView(selectedTab: .constant(0))
         .environmentObject(LectureStore(seedMockData: true))
 }
 

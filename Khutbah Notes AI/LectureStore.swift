@@ -360,6 +360,7 @@ final class LectureStore: ObservableObject {
                     let folderId = data["folderId"] as? String
                     let folderName = data["folderName"] as? String
                     let quotaReason = data["quotaReason"] as? String
+                    let errorMessage = data["errorMessage"] as? String
                     
                     let summary = self.parseSummary(from: data["summary"] as? [String: Any])
                     let summaryTranslations = self.parseSummaryTranslations(
@@ -395,6 +396,7 @@ final class LectureStore: ObservableObject {
                         isFavorite: isFavorite,
                         status: status,
                         quotaReason: quotaReason,
+                        errorMessage: errorMessage,
                         transcript: transcript,
                         summary: summary,
                         summaryTranslations: summaryTranslations.isEmpty ?
@@ -481,7 +483,11 @@ final class LectureStore: ObservableObject {
         }
     }
     
-    func createLecture(withTitle title: String, recordingURL: URL) {
+    func createLecture(
+        withTitle title: String,
+        recordingURL: URL,
+        onError: ((String) -> Void)? = nil
+    ) {
         guard let userId = userId else {
             print("No userId set on LectureStore; cannot create lecture.")
             return
@@ -515,11 +521,17 @@ final class LectureStore: ObservableObject {
         // Storage path: audio/{userId}/{lectureId}.m4a
         let audioRef = storage.reference(withPath: audioPath)
         
-        audioRef.putFile(from: recordingURL, metadata: nil) { [weak self] metadata, error in
+        let uploadMetadata = StorageMetadata()
+        uploadMetadata.contentType = "audio/m4a"
+        
+        audioRef.putFile(from: recordingURL, metadata: uploadMetadata) { [weak self] metadata, error in
             guard let self = self else { return }
             
             if let error = error {
                 print("Error uploading audio: \(error)")
+                DispatchQueue.main.async {
+                    onError?("Upload failed. Please try again.")
+                }
                 // Optionally update status to .failed in Firestore later
                 return
             }
@@ -544,6 +556,9 @@ final class LectureStore: ObservableObject {
                 .setData(docData, merge: true) { error in
                     if let error = error {
                         print("Error saving lecture doc: \(error)")
+                        DispatchQueue.main.async {
+                            onError?("Couldn't save lecture details. Please try again.")
+                        }
                     } else {
                         print("Lecture metadata saved to Firestore for \(lectureId)")
                     }

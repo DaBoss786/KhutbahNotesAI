@@ -192,7 +192,12 @@ struct RecordLectureView: View {
         }
         
         let finalTitle = titleText.isEmpty ? defaultTitle() : titleText
-        store.createLecture(withTitle: finalTitle, recordingURL: url)
+        store.createLecture(
+            withTitle: finalTitle,
+            recordingURL: url
+        ) { message in
+            onShowToast?(message, nil, nil)
+        }
         
         showTitleSheet = false
         titleText = ""

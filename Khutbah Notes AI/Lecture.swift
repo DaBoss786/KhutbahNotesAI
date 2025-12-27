@@ -26,6 +26,7 @@ struct Lecture: Identifiable, Hashable, Codable {
     var isFavorite: Bool
     var status: LectureStatus
     var quotaReason: String?
+    var errorMessage: String? = nil
     var transcript: String?
     var summary: LectureSummary?
     var summaryTranslations: [SummaryTranslation]? = nil

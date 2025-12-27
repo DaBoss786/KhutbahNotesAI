@@ -118,6 +118,23 @@ const CHUNK_OUTPUT_TOKENS = 2000;
 const SUMMARY_MODEL = "gpt-5-mini";
 const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = 2000;
 const TRANSCRIBE_CHUNK_SECONDS = 1200; // keep under model ~1400s limit
+const MIN_WORDS_PER_MINUTE = 50;
+const MIN_CHARS_PER_MINUTE = 200;
+const MIN_AUDIO_SAMPLE_RATE = 16000;
+const MAX_AUDIO_SAMPLE_RATE = 24000;
+const TARGET_AAC_BITRATE_KBPS = 96;
+const TARGET_OPUS_BITRATE_KBPS = 96;
+const TARGET_MP3_BITRATE_KBPS = 96;
+const REPETITION_NGRAM_SIZE = 3;
+const REPETITION_NGRAM_COVERAGE = 0.6;
+const REPETITION_UNIQUE_WORD_RATIO = 0.2;
+const AUDIO_EXTENSIONS = new Set([
+  ".m4a",
+  ".mp3",
+  ".wav",
+  ".aac",
+  ".flac",
+]);
 
 const SUMMARY_TRANSLATION_LANGUAGES: Record<string, string> = {
   ar: "Arabic",
@@ -236,6 +253,166 @@ export async function getAudioDurationMinutes(
 }
 
 /**
+ * Count whitespace-delimited words in text.
+ *
+ * @param {string} text Input text.
+ * @return {number} Word count.
+ */
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return 0;
+  }
+  return trimmed.split(/\s+/).length;
+}
+
+/**
+ * Normalize text for repetition comparison.
+ *
+ * @param {string} text Raw transcript text.
+ * @return {string} Normalized text.
+ */
+function normalizeForComparison(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Compute max coverage of any n-gram in the token list.
+ *
+ * @param {string[]} tokens Tokenized words.
+ * @param {number} n N-gram size.
+ * @return {number} Max n-gram coverage.
+ */
+function maxNgramCoverage(tokens: string[], n: number): number {
+  if (tokens.length < n) {
+    return 0;
+  }
+  const counts = new Map<string, number>();
+  for (let i = 0; i <= tokens.length - n; i++) {
+    const gram = tokens.slice(i, i + n).join(" ");
+    counts.set(gram, (counts.get(gram) ?? 0) + 1);
+  }
+  let maxCount = 0;
+  for (const count of counts.values()) {
+    if (count > maxCount) {
+      maxCount = count;
+    }
+  }
+  const total = tokens.length - n + 1;
+  return total > 0 ? maxCount / total : 0;
+}
+
+/**
+ * Check whether two transcripts are near-identical.
+ *
+ * @param {string} a Transcript text A.
+ * @param {string} b Transcript text B.
+ * @return {boolean} True when nearly identical.
+ */
+function areNearIdentical(a: string, b: string): boolean {
+  if (!a || !b) {
+    return false;
+  }
+  if (a === b) {
+    return true;
+  }
+  const minLength = Math.min(a.length, b.length);
+  const maxLength = Math.max(a.length, b.length);
+  if (maxLength === 0) {
+    return false;
+  }
+  const lengthRatio = minLength / maxLength;
+  if (lengthRatio >= 0.9 && (a.includes(b) || b.includes(a))) {
+    return true;
+  }
+  const aWords = new Set(a.split(" ").filter(Boolean));
+  const bWords = new Set(b.split(" ").filter(Boolean));
+  if (aWords.size === 0 || bWords.size === 0) {
+    return false;
+  }
+  let intersection = 0;
+  for (const word of aWords) {
+    if (bWords.has(word)) {
+      intersection++;
+    }
+  }
+  const union = new Set([...aWords, ...bWords]).size;
+  const similarity = union > 0 ? intersection / union : 0;
+  return similarity >= 0.95;
+}
+
+/**
+ * Detect repetitive transcripts across full text and chunks.
+ *
+ * @param {string} transcriptText Full transcript text.
+ * @param {string[]} chunkTranscripts Per-chunk transcript text.
+ * @return {boolean} True when repetition is detected.
+ */
+function isRepetitiveTranscript(
+  transcriptText: string,
+  chunkTranscripts: string[]
+): boolean {
+  const normalizedTranscript = normalizeForComparison(transcriptText);
+  const tokens = normalizedTranscript.split(" ").filter(Boolean);
+  const uniqueWords = new Set(tokens).size;
+  const uniqueRatio =
+    tokens.length > 0 ? uniqueWords / tokens.length : 1;
+  const ngramCoverage = maxNgramCoverage(tokens, REPETITION_NGRAM_SIZE);
+  const looksRepetitive =
+    tokens.length >= 30 &&
+    (uniqueRatio < REPETITION_UNIQUE_WORD_RATIO ||
+      ngramCoverage >= REPETITION_NGRAM_COVERAGE);
+
+  const normalizedChunks = chunkTranscripts
+    .map(normalizeForComparison)
+    .filter(Boolean);
+  const allChunksNearIdentical =
+    normalizedChunks.length >= 2 &&
+    normalizedChunks.every((chunk) =>
+      areNearIdentical(chunk, normalizedChunks[0])
+    );
+
+  return looksRepetitive || allChunksNearIdentical;
+}
+
+/**
+ * Clamp or default sample rate for encoding.
+ *
+ * @param {number} sampleRate Source sample rate (Hz).
+ * @return {number} Target sample rate (Hz).
+ */
+function clampSampleRate(sampleRate?: number): number {
+  if (!sampleRate || Number.isNaN(sampleRate)) {
+    return MIN_AUDIO_SAMPLE_RATE;
+  }
+  return Math.min(
+    MAX_AUDIO_SAMPLE_RATE,
+    Math.max(MIN_AUDIO_SAMPLE_RATE, Math.round(sampleRate))
+  );
+}
+
+/**
+ * List chunk files created with a prefix and extension.
+ *
+ * @param {string} prefix File name prefix.
+ * @param {string} extension File extension (with dot).
+ * @return {string[]} Absolute paths.
+ */
+function listChunkFiles(prefix: string, extension: string): string[] {
+  return fs
+    .readdirSync(os.tmpdir())
+    .filter(
+      (name) => name.startsWith(prefix) && name.endsWith(extension)
+    )
+    .sort()
+    .map((name) => path.join(os.tmpdir(), name));
+}
+
+/**
  * Run an ffmpeg command and reject on non-zero exit.
  *
  * @param {string} command Binary path.
@@ -281,47 +458,179 @@ async function chunkAudio(
     throw new Error("ffmpeg binary not available");
   }
 
-  const base = path.basename(filePath).replace(path.extname(filePath), "");
-  const prefix = `chunk-${base}-${Date.now()}`;
-  const outputPattern = path.join(os.tmpdir(), `${prefix}-%03d.mp3`);
+  const base = path.basename(filePath, path.extname(filePath));
+  const prefixBase = `chunk-${base}-${Date.now()}`;
+  let format: {
+    codec?: string;
+    container?: string;
+    sampleRate?: number;
+    numberOfChannels?: number;
+    bitrate?: number;
+  } = {};
 
-  const args = [
-    "-y",
-    "-i",
-    filePath,
-    "-vn",
-    "-ac",
-    "1",
-    "-ar",
-    "16000",
-    "-c:a",
-    "libmp3lame",
-    "-b:a",
-    "64k",
-    "-f",
-    "segment",
-    "-segment_time",
-    `${segmentSeconds}`,
-    "-reset_timestamps",
-    "1",
-    outputPattern,
-  ];
-
-  await runCommand(ffmpegPath, args);
-
-  const chunkFiles = fs
-    .readdirSync(os.tmpdir())
-    .filter(
-      (name) => name.startsWith(prefix) && name.endsWith(".mp3")
-    )
-    .sort()
-    .map((name) => path.join(os.tmpdir(), name));
-
-  if (chunkFiles.length === 0) {
-    throw new Error("ffmpeg did not produce any chunks");
+  try {
+    const metadata = await parseFile(filePath);
+    format = metadata.format ?? {};
+  } catch (err: unknown) {
+    logger.warn("Failed to read audio metadata for chunking.", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
-  return chunkFiles;
+  const codec = (format.codec ?? "").toLowerCase();
+  const container = (format.container ?? "").toLowerCase();
+  const sampleRate = format.sampleRate;
+  const channels = format.numberOfChannels;
+  const bitrate = format.bitrate;
+  const isAacContainer =
+    codec.includes("aac") ||
+    container.includes("m4a") ||
+    container.includes("mp4");
+  const sampleRateOk =
+    typeof sampleRate === "number" &&
+    sampleRate >= MIN_AUDIO_SAMPLE_RATE &&
+    sampleRate <= MAX_AUDIO_SAMPLE_RATE;
+  const bitrateOk =
+    typeof bitrate === "number" &&
+    bitrate >= TARGET_AAC_BITRATE_KBPS * 1000;
+  const canStreamCopy =
+    isAacContainer && channels === 1 && sampleRateOk && bitrateOk;
+  const targetSampleRate = clampSampleRate(sampleRate);
+
+  const baseArgs = ["-y", "-i", filePath, "-vn"];
+  const attempts: Array<{
+    tag: string;
+    extension: string;
+    args: string[];
+  }> = [];
+
+  if (canStreamCopy) {
+    attempts.push({
+      tag: "copy",
+      extension: ".m4a",
+      args: [
+        ...baseArgs,
+        "-c:a",
+        "copy",
+        "-f",
+        "segment",
+        "-segment_time",
+        `${segmentSeconds}`,
+        "-reset_timestamps",
+        "1",
+        "-segment_format",
+        "mp4",
+      ],
+    });
+  }
+
+  attempts.push({
+    tag: "aac",
+    extension: ".m4a",
+    args: [
+      ...baseArgs,
+      "-ac",
+      "1",
+      "-ar",
+      `${targetSampleRate}`,
+      "-c:a",
+      "aac",
+      "-b:a",
+      `${TARGET_AAC_BITRATE_KBPS}k`,
+      "-f",
+      "segment",
+      "-segment_time",
+      `${segmentSeconds}`,
+      "-reset_timestamps",
+      "1",
+      "-segment_format",
+      "mp4",
+    ],
+  });
+
+  attempts.push({
+    tag: "opus",
+    extension: ".ogg",
+    args: [
+      ...baseArgs,
+      "-ac",
+      "1",
+      "-ar",
+      `${targetSampleRate}`,
+      "-c:a",
+      "libopus",
+      "-b:a",
+      `${TARGET_OPUS_BITRATE_KBPS}k`,
+      "-f",
+      "segment",
+      "-segment_time",
+      `${segmentSeconds}`,
+      "-reset_timestamps",
+      "1",
+      "-segment_format",
+      "ogg",
+    ],
+  });
+
+  attempts.push({
+    tag: "mp3",
+    extension: ".mp3",
+    args: [
+      ...baseArgs,
+      "-ac",
+      "1",
+      "-ar",
+      `${targetSampleRate}`,
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      `${TARGET_MP3_BITRATE_KBPS}k`,
+      "-f",
+      "segment",
+      "-segment_time",
+      `${segmentSeconds}`,
+      "-reset_timestamps",
+      "1",
+    ],
+  });
+
+  let lastError: Error | null = null;
+  for (const attempt of attempts) {
+    const attemptPrefix = `${prefixBase}-${attempt.tag}`;
+    const outputPattern = path.join(
+      os.tmpdir(),
+      `${attemptPrefix}-%03d${attempt.extension}`
+    );
+    const args = [...attempt.args, outputPattern];
+
+    try {
+      await runCommand(ffmpegPath, args);
+      const chunkFiles = listChunkFiles(
+        attemptPrefix,
+        attempt.extension
+      );
+      if (chunkFiles.length > 0) {
+        return chunkFiles;
+      }
+      lastError = new Error("ffmpeg did not produce any chunks");
+    } catch (err: unknown) {
+      lastError =
+        err instanceof Error ? err : new Error(String(err));
+    }
+
+    for (const chunkFile of listChunkFiles(
+      attemptPrefix,
+      attempt.extension
+    )) {
+      try {
+        fs.unlinkSync(chunkFile);
+      } catch {
+        // Ignore cleanup errors for failed attempts.
+      }
+    }
+  }
+
+  throw lastError ?? new Error("ffmpeg did not produce any chunks");
 }
 
 /**
@@ -477,6 +786,70 @@ export function checkAndDebitQuota(
   return durationMinutes;
 }
 
+/**
+ * Refund previously charged transcription minutes.
+ *
+ * @param {FirebaseFirestore.DocumentReference} userRef User document ref.
+ * @param {number} chargedMinutes Minutes to refund.
+ * @param {Date} now Current time.
+ * @return {Promise<void>} Resolves on completion.
+ */
+async function refundChargedMinutes(
+  userRef: FirebaseFirestore.DocumentReference,
+  chargedMinutes: number,
+  now: Date
+): Promise<void> {
+  if (chargedMinutes <= 0) {
+    return;
+  }
+
+  try {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists) {
+        return;
+      }
+      const data = (snap.data() as UserData) ?? {};
+      const reset = resetMonthlyIfNeeded(tx, userRef, data, now);
+      const plan = data.plan === "premium" ? "premium" : "free";
+
+      const monthlyUsed =
+        typeof reset.monthlyMinutesUsed === "number" ?
+          reset.monthlyMinutesUsed :
+          0;
+
+      const updates: Record<string, unknown> = {
+        monthlyMinutesUsed: Math.max(
+          0,
+          monthlyUsed - chargedMinutes
+        ),
+        monthlyKey: reset.monthlyKey,
+        periodStart: admin.firestore.Timestamp.fromDate(
+          reset.periodStart
+        ),
+        renewsAt: admin.firestore.Timestamp.fromDate(
+          reset.renewsAt
+        ),
+      };
+
+      if (plan === "free") {
+        const lifetimeUsed =
+          typeof data.freeLifetimeMinutesUsed === "number" ?
+            data.freeLifetimeMinutesUsed :
+            0;
+        updates.freeLifetimeMinutesUsed = Math.max(
+          0,
+          lifetimeUsed - chargedMinutes
+        );
+      }
+
+      tx.update(userRef, updates);
+    });
+  } catch (refundErr: unknown) {
+    console.error("Refund failed:", refundErr);
+  }
+}
+
 export const onAudioUpload = onObjectFinalized(
   {
     bucket: storageBucketName,
@@ -499,7 +872,16 @@ export const onAudioUpload = onObjectFinalized(
     }
 
     const contentType = event.data.contentType || "";
-    if (!contentType.startsWith("audio/")) {
+    const extension = path.extname(filePath).toLowerCase();
+    const contentTypeIsAudio = contentType.startsWith("audio/");
+    const contentTypeMissingOrGeneric =
+      contentType === "" || contentType === "application/octet-stream";
+    const extensionIsAudio = AUDIO_EXTENSIONS.has(extension);
+
+    if (
+      !contentTypeIsAudio &&
+      !(contentTypeMissingOrGeneric && extensionIsAudio)
+    ) {
       console.log(
         "Ignoring non-audio file:",
         filePath,
@@ -644,11 +1026,6 @@ export const onAudioUpload = onObjectFinalized(
       }
 
       const transcriptText = chunkTranscripts.join("\n\n").trim();
-      const transcriptFormatted = formatTranscriptParagraphs(
-        transcriptText,
-        3,
-        5
-      );
 
       if (!transcriptText) {
         console.warn(
@@ -663,8 +1040,72 @@ export const onAudioUpload = onObjectFinalized(
           },
           {merge: true}
         );
+        await refundChargedMinutes(userRef, chargedMinutes, now);
         return;
       }
+
+      const safeDurationMinutes = durationMinutes || 1;
+      const wordCount = countWords(transcriptText);
+      const wordsPerMinute = wordCount / safeDurationMinutes;
+      const repetitionFlag = isRepetitiveTranscript(
+        transcriptText,
+        chunkTranscripts
+      );
+      const tooFewWords = wordsPerMinute < MIN_WORDS_PER_MINUTE;
+      const tooShortForDuration =
+        transcriptText.length < MIN_CHARS_PER_MINUTE * safeDurationMinutes;
+
+      logger.info("Transcript quality metrics", {
+        lectureId,
+        durationMinutes,
+        wordCount,
+        wordsPerMinute,
+        repetitionFlag,
+      });
+
+      if (repetitionFlag) {
+        logger.warn("Transcript rejected for repetition.", {
+          lectureId,
+          durationMinutes,
+          wordCount,
+          wordsPerMinute,
+        });
+        await lectureRef.set(
+          {
+            status: "failed",
+            errorMessage: "Transcription appears repetitive/invalid.",
+          },
+          {merge: true}
+        );
+        await refundChargedMinutes(userRef, chargedMinutes, now);
+        return;
+      }
+
+      if (tooFewWords || tooShortForDuration) {
+        logger.warn("Transcript rejected for short length.", {
+          lectureId,
+          durationMinutes,
+          wordCount,
+          wordsPerMinute,
+        });
+        await lectureRef.set(
+          {
+            status: "failed",
+            errorMessage:
+              "Transcription too short for audio duration. " +
+              "Please retry with clearer audio.",
+          },
+          {merge: true}
+        );
+        await refundChargedMinutes(userRef, chargedMinutes, now);
+        return;
+      }
+
+      const transcriptFormatted = formatTranscriptParagraphs(
+        transcriptText,
+        3,
+        5
+      );
 
       console.log("Updating Firestore for lecture:", lectureId);
       await lectureRef.set(
@@ -699,49 +1140,7 @@ export const onAudioUpload = onObjectFinalized(
           err.message :
           "Transcription failed";
 
-      // Refund any debited minutes on failure
-      if (chargedMinutes > 0) {
-        try {
-          await db.runTransaction(async (tx) => {
-            const snap = await tx.get(userRef);
-            if (!snap.exists) {
-              return;
-            }
-            const data = (snap.data() as UserData) ?? {};
-            const reset = resetMonthlyIfNeeded(tx, userRef, data, now);
-            const plan = data.plan === "premium" ? "premium" : "free";
-
-            const monthlyUsed =
-              typeof reset.monthlyMinutesUsed === "number" ?
-                reset.monthlyMinutesUsed :
-                0;
-
-            const updates: Record<string, unknown> = {
-              monthlyMinutesUsed: Math.max(0, monthlyUsed - chargedMinutes),
-              monthlyKey: reset.monthlyKey,
-              periodStart: admin.firestore.Timestamp.fromDate(
-                reset.periodStart
-              ),
-              renewsAt: admin.firestore.Timestamp.fromDate(reset.renewsAt),
-            };
-
-            if (plan === "free") {
-              const lifetimeUsed =
-                typeof data.freeLifetimeMinutesUsed === "number" ?
-                  data.freeLifetimeMinutesUsed :
-                  0;
-              updates.freeLifetimeMinutesUsed = Math.max(
-                0,
-                lifetimeUsed - chargedMinutes
-              );
-            }
-
-            tx.update(userRef, updates);
-          });
-        } catch (refundErr: unknown) {
-          console.error("Refund failed:", refundErr);
-        }
-      }
+      await refundChargedMinutes(userRef, chargedMinutes, now);
 
       await lectureRef.set(
         {

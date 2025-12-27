@@ -3,6 +3,7 @@ import SwiftUI
 struct FolderDetailView: View {
     let folder: Folder
     let lectures: [Lecture]
+    @Binding var selectedTab: Int
     var onRename: (Lecture) -> Void
     var onMove: (Lecture) -> Void
     var onDelete: (Lecture) -> Void
@@ -35,7 +36,10 @@ struct FolderDetailView: View {
                         ForEach(lectures) { lecture in
                             ZStack(alignment: .topTrailing) {
                                 NavigationLink {
-                                    LectureDetailView(lecture: lecture)
+                                    LectureDetailView(
+                                        lecture: lecture,
+                                        selectedRootTab: $selectedTab
+                                    )
                                 } label: {
                                     LectureCardView(lecture: lecture)
                                 }
