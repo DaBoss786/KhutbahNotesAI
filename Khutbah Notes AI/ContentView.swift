@@ -1232,6 +1232,7 @@ struct LectureDetailView: View {
                             requestTranslationIfNeeded(for: newLanguage)
                         }
                     } else {
+                        let transcriptText = displayLecture.transcriptFormatted ?? displayLecture.transcript
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .center) {
                                 Text("Transcript")
@@ -1247,12 +1248,12 @@ struct LectureDetailView: View {
                                     guard let text = exportableTranscriptText() else { return }
                                     presentShareSheet(with: text)
                                 },
-                                isDisabled: (displayLecture.transcript ?? "")
+                                isDisabled: (transcriptText ?? "")
                                     .trimmingCharacters(in: .whitespacesAndNewlines)
                                     .isEmpty
                             )
                         }
-                        Text(displayLecture.transcript ?? "Transcript will appear here once ready.")
+                        Text(transcriptText ?? "Transcript will appear here once ready.")
                             .font(transcriptBodyFont)
                             .foregroundColor(Theme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1389,7 +1390,7 @@ struct LectureDetailView: View {
     }
     
     private func exportableTranscriptText() -> String? {
-        guard let transcript = displayLecture.transcript?
+        guard let transcript = (displayLecture.transcriptFormatted ?? displayLecture.transcript)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !transcript.isEmpty else { return nil }
         

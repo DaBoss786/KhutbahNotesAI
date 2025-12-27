@@ -28,6 +28,7 @@ struct Lecture: Identifiable, Hashable, Codable {
     var quotaReason: String?
     var errorMessage: String? = nil
     var transcript: String?
+    var transcriptFormatted: String?
     var summary: LectureSummary?
     var summaryTranslations: [SummaryTranslation]? = nil
     var summaryTranslationRequests: [String] = []
@@ -49,6 +50,7 @@ extension Lecture {
         status: .ready,
         quotaReason: nil,
         transcript: "Sample transcript...",
+        transcriptFormatted: "Sample transcript...",
         summary: LectureSummary(
             mainTheme: "Patience during hardship",
             keyPoints: [

@@ -82,6 +82,7 @@ final class LectureStore: ObservableObject {
                 status: .ready,
                 quotaReason: nil,
                 transcript: nil,
+                transcriptFormatted: nil,
                 summary: nil,
                 audioPath: nil,
                 folderId: nil,
@@ -97,6 +98,7 @@ final class LectureStore: ObservableObject {
                 status: .processing,
                 quotaReason: nil,
                 transcript: nil,
+                transcriptFormatted: nil,
                 summary: nil,
                 audioPath: nil,
                 folderId: nil,
@@ -112,6 +114,7 @@ final class LectureStore: ObservableObject {
                 status: .failed,
                 quotaReason: nil,
                 transcript: nil,
+                transcriptFormatted: nil,
                 summary: nil,
                 audioPath: nil,
                 folderId: nil,
@@ -356,6 +359,7 @@ final class LectureStore: ObservableObject {
                     let chargedMinutes = data["chargedMinutes"] as? Int
                     let isFavorite = data["isFavorite"] as? Bool ?? false
                     let transcript = data["transcript"] as? String
+                    let transcriptFormatted = data["transcriptFormatted"] as? String
                     let audioPath = data["audioPath"] as? String
                     let folderId = data["folderId"] as? String
                     let folderName = data["folderName"] as? String
@@ -398,6 +402,7 @@ final class LectureStore: ObservableObject {
                         quotaReason: quotaReason,
                         errorMessage: errorMessage,
                         transcript: transcript,
+                        transcriptFormatted: transcriptFormatted,
                         summary: summary,
                         summaryTranslations: summaryTranslations.isEmpty ?
                             nil :
@@ -509,6 +514,7 @@ final class LectureStore: ObservableObject {
             status: .processing,
             quotaReason: nil,
             transcript: nil,
+            transcriptFormatted: nil,
             summary: nil,
             audioPath: audioPath,
             folderId: nil,
@@ -751,6 +757,7 @@ private extension LectureStore {
                 "isFavorite": false,
                 "status": "ready",
                 "transcript": DemoLectureSeed.transcript,
+                "transcriptFormatted": DemoLectureSeed.transcript,
                 "summary": summary,
                 "audioPath": DemoLectureSeed.audioPath
             ]
