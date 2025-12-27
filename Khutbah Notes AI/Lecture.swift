@@ -17,6 +17,12 @@ enum LectureStatus: String, Codable, Hashable {
     case blockedQuota
 }
 
+struct SummaryInProgressState: Hashable, Codable {
+    var startedAt: Date?
+    var expiresAt: Date?
+    var isLegacy: Bool
+}
+
 struct Lecture: Identifiable, Hashable, Codable {
     let id: String
     var title: String
@@ -30,6 +36,7 @@ struct Lecture: Identifiable, Hashable, Codable {
     var transcript: String?
     var transcriptFormatted: String?
     var summary: LectureSummary?
+    var summaryInProgress: SummaryInProgressState? = nil
     var summaryTranslations: [SummaryTranslation]? = nil
     var summaryTranslationRequests: [String] = []
     var summaryTranslationInProgress: [String] = []
@@ -69,6 +76,38 @@ extension Lecture {
 
     var isDemo: Bool {
         id == "demo-welcome" || (audioPath?.hasPrefix("demo/") ?? false)
+    }
+}
+
+extension Lecture {
+    static let summaryRetryTTL: TimeInterval = 15 * 60
+    
+    var hasTranscript: Bool {
+        let trimmed = transcript?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ) ?? ""
+        return !trimmed.isEmpty
+    }
+    
+    func shouldShowSummaryRetry(now: Date = Date()) -> Bool {
+        guard summary == nil else { return false }
+        
+        if status == .failed {
+            return hasTranscript
+        }
+        
+        guard status == .summarizing else { return false }
+        guard let inProgress = summaryInProgress else { return false }
+        
+        if let expiresAt = inProgress.expiresAt {
+            return now >= expiresAt
+        }
+        
+        if let startedAt = inProgress.startedAt {
+            return now.timeIntervalSince(startedAt) >= Self.summaryRetryTTL
+        }
+        
+        return false
     }
 }
 

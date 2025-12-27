@@ -159,6 +159,31 @@ final class LectureStore: ObservableObject {
             print("Failed to request summary translation: \(error.localizedDescription)")
         }
     }
+
+    func retrySummary(for lecture: Lecture) async {
+        guard let userId else {
+            print("No userId set on LectureStore; cannot retry summary.")
+            return
+        }
+        
+        guard lecture.summary == nil else { return }
+        
+        let data: [String: Any] = [
+            "status": "transcribed",
+            "summaryInProgress": FieldValue.delete(),
+            "errorMessage": FieldValue.delete()
+        ]
+        
+        do {
+            try await db.collection("users")
+                .document(userId)
+                .collection("lectures")
+                .document(lecture.id)
+                .updateData(data)
+        } catch {
+            print("Failed to retry summary: \(error.localizedDescription)")
+        }
+    }
     
     func saveJumuahStartTime(_ time: String, timezoneIdentifier: String) async {
         guard let userId else {
@@ -372,6 +397,8 @@ final class LectureStore: ObservableObject {
                     let errorMessage = data["errorMessage"] as? String
                     
                     let summary = self.parseSummary(from: data["summary"] as? [String: Any])
+                    let summaryInProgress =
+                        self.parseSummaryInProgress(from: data["summaryInProgress"])
                     let summaryTranslations = self.parseSummaryTranslations(
                         from: data["summaryTranslations"] as? [String: Any]
                     )
@@ -409,6 +436,7 @@ final class LectureStore: ObservableObject {
                         transcript: transcript,
                         transcriptFormatted: transcriptFormatted,
                         summary: summary,
+                        summaryInProgress: summaryInProgress,
                         summaryTranslations: summaryTranslations.isEmpty ?
                             nil :
                             summaryTranslations,
@@ -981,6 +1009,29 @@ private extension LectureStore {
             explicitAyatOrHadith: explicitAyatOrHadith,
             weeklyActions: weeklyActions
         )
+    }
+
+    func parseSummaryInProgress(from value: Any?) -> SummaryInProgressState? {
+        if let isInProgress = value as? Bool {
+            return isInProgress ?
+                SummaryInProgressState(startedAt: nil, expiresAt: nil, isLegacy: true) :
+                nil
+        }
+        
+        if let map = value as? [String: Any] {
+            let startedAt = (map["startedAt"] as? Timestamp)?.dateValue()
+            let expiresAt = (map["expiresAt"] as? Timestamp)?.dateValue()
+            if startedAt == nil && expiresAt == nil {
+                return nil
+            }
+            return SummaryInProgressState(
+                startedAt: startedAt,
+                expiresAt: expiresAt,
+                isLegacy: false
+            )
+        }
+        
+        return nil
     }
     
     func parseSummaryTranslations(from map: [String: Any]?) -> [SummaryTranslation] {

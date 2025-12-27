@@ -1138,6 +1138,9 @@ struct LectureDetailView: View {
     @State private var shareItems: [Any]? = nil
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
+    @State private var summaryRetryNow = Date()
+    private let summaryRetryTimer =
+        Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @AppStorage("didRequestDemoReview") private var didRequestDemoReview = false
     @AppStorage("realSummaryReviewCountedLectureIDs") private var realSummaryReviewCountedLectureIDs = StoredLectureIDSet()
     @AppStorage("didRequestRealSummaryReview") private var didRequestRealSummaryReview = false
@@ -1165,8 +1168,29 @@ struct LectureDetailView: View {
         return "Duration pending"
     }
 
-    private var isFailed: Bool {
-        displayLecture.status == .failed
+    private var isTranscriptionFailed: Bool {
+        displayLecture.status == .failed && !displayLecture.hasTranscript
+    }
+    
+    private var shouldShowSummaryRetry: Bool {
+        displayLecture.shouldShowSummaryRetry(now: summaryRetryNow)
+    }
+    
+    private var summaryStatusMessage: String? {
+        if displayLecture.status == .failed && displayLecture.hasTranscript {
+            if let errorMessage = displayLecture.errorMessage?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), !errorMessage.isEmpty {
+                return "Summary failed: \(errorMessage)"
+            }
+            return "Summary failed. Tap retry to try again."
+        }
+        
+        if displayLecture.status == .summarizing && shouldShowSummaryRetry {
+            return "Summary is taking longer than usual. You can retry now."
+        }
+        
+        return nil
     }
 
     private var failedContentCard: some View {
@@ -1252,7 +1276,7 @@ struct LectureDetailView: View {
                     
                     Divider()
                     
-                    if !isFailed {
+                    if !isTranscriptionFailed {
                         Picker("Content", selection: $selectedContentTab) {
                             ForEach(0..<tabs.count, id: \.self) { index in
                                 Text(tabs[index]).tag(index)
@@ -1261,7 +1285,7 @@ struct LectureDetailView: View {
                         .pickerStyle(.segmented)
                     }
 
-                    if isFailed {
+                    if isTranscriptionFailed {
                         failedContentCard
                     } else if selectedContentTab == 0 {
                         SummaryView(
@@ -1269,6 +1293,13 @@ struct LectureDetailView: View {
                             isBaseSummaryReady: displayLecture.summary != nil,
                             isTranslationLoading: isTranslationLoading,
                             translationError: translationError,
+                            statusMessage: summaryStatusMessage,
+                            showRetrySummary: shouldShowSummaryRetry,
+                            onRetrySummary: shouldShowSummaryRetry ? {
+                                Task {
+                                    await store.retrySummary(for: displayLecture)
+                                }
+                            } : nil,
                             selectedLanguage: $selectedSummaryLanguage,
                             textSize: $selectedTextSize
                         ) {
@@ -1361,6 +1392,9 @@ struct LectureDetailView: View {
                     .padding(.top, 12)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
+        }
+        .onReceive(summaryRetryTimer) { date in
+            summaryRetryNow = date
         }
         .sheet(isPresented: $isShareSheetPresented) {
             if let items = shareItems {
@@ -1881,6 +1915,9 @@ struct SummaryView<Actions: View>: View {
     let isBaseSummaryReady: Bool
     let isTranslationLoading: Bool
     let translationError: String?
+    let statusMessage: String?
+    let showRetrySummary: Bool
+    let onRetrySummary: (() -> Void)?
     @Binding var selectedLanguage: SummaryTranslationLanguage
     @Binding var textSize: TextSizeOption
     let actions: Actions
@@ -1890,6 +1927,9 @@ struct SummaryView<Actions: View>: View {
         isBaseSummaryReady: Bool,
         isTranslationLoading: Bool,
         translationError: String?,
+        statusMessage: String? = nil,
+        showRetrySummary: Bool = false,
+        onRetrySummary: (() -> Void)? = nil,
         selectedLanguage: Binding<SummaryTranslationLanguage>,
         textSize: Binding<TextSizeOption>,
         @ViewBuilder actions: () -> Actions = { EmptyView() }
@@ -1898,6 +1938,9 @@ struct SummaryView<Actions: View>: View {
         self.isBaseSummaryReady = isBaseSummaryReady
         self.isTranslationLoading = isTranslationLoading
         self.translationError = translationError
+        self.statusMessage = statusMessage
+        self.showRetrySummary = showRetrySummary
+        self.onRetrySummary = onRetrySummary
         self._selectedLanguage = selectedLanguage
         self._textSize = textSize
         self.actions = actions()
@@ -1951,12 +1994,18 @@ struct SummaryView<Actions: View>: View {
                     summarySection(title: "Weekly Actions",
                                    content: summary.weeklyActions)
                 } else if !isBaseSummaryReady {
-                    Text("AI summary will appear here once processed.")
-                        .font(summaryBodyFont)
-                        .foregroundColor(Theme.mutedText)
-                        .multilineTextAlignment(textAlignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: sectionAlignment, spacing: 12) {
+                        Text(statusMessage ?? "AI summary will appear here once processed.")
+                            .font(summaryBodyFont)
+                            .foregroundColor(Theme.mutedText)
+                            .multilineTextAlignment(textAlignment)
+                            .fixedSize(horizontal: false, vertical: true)
+                        
+                        if showRetrySummary, let onRetrySummary {
+                            SummaryRetryButton(action: onRetrySummary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
                 } else if isTranslationLoading {
                     HStack(spacing: 10) {
                         ProgressView()
@@ -2171,6 +2220,31 @@ struct ExportIconButtons: View {
                 .shadow(color: Theme.primaryGreen.opacity(0.18), radius: 6, x: 0, y: 4)
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct SummaryRetryButton: View {
+    var action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Label("Retry summary", systemImage: "arrow.clockwise")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    LinearGradient(
+                        colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(Capsule())
+                .shadow(color: Theme.primaryGreen.opacity(0.18), radius: 6, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Retry summary")
     }
 }
 
