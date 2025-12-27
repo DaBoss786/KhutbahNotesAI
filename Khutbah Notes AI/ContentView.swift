@@ -221,6 +221,9 @@ struct NotesView: View {
     @State private var showPaywall = false
     @State private var showAccountSheet = false
     @State private var showPaywallFromAccount = false
+    @State private var searchQuery = ""
+    @State private var activeSearchQuery = ""
+    @State private var showSearchResults = false
     
     private let segments = ["All Notes", "Folders"]
     
@@ -256,6 +259,10 @@ struct NotesView: View {
 
     private var canCopyUserId: Bool {
         store.userId != nil
+    }
+
+    private var trimmedSearchQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     var body: some View {
@@ -324,11 +331,26 @@ struct NotesView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 header
+                NavigationLink(
+                    destination: NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                        SearchResultsView(
+                            query: activeSearchQuery,
+                            selectedTab: $selectedTab,
+                            dashboardNavigationDepth: $dashboardNavigationDepth
+                        )
+                    },
+                    isActive: $showSearchResults
+                ) {
+                    EmptyView()
+                }
+                .frame(width: 0, height: 0)
+                .hidden()
                 if (store.userUsage?.plan ?? "free") != "premium" {
                     PromoBannerView {
                         showPaywall = true
                     }
                 }
+                searchBar
                 segmentPicker
                 if selectedSegment == 0 {
                     lectureList
@@ -504,6 +526,48 @@ struct NotesView: View {
         }
         .pickerStyle(.segmented)
     }
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(Theme.mutedText)
+            TextField("Search saved summaries", text: $searchQuery)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .submitLabel(.search)
+                .onSubmit {
+                    performSearch()
+                }
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(Theme.mutedText.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                performSearch()
+            } label: {
+                Text("Search")
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Theme.primaryGreen.opacity(0.12))
+                    .foregroundColor(Theme.primaryGreen)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(trimmedSearchQuery.isEmpty)
+            .opacity(trimmedSearchQuery.isEmpty ? 0.6 : 1)
+        }
+        .padding(12)
+        .background(Theme.cardBackground)
+        .cornerRadius(14)
+        .shadow(color: Theme.shadow, radius: 6, x: 0, y: 4)
+        .accessibilityLabel("Search summaries")
+    }
     
     private var lectureList: some View {
         VStack(spacing: 12) {
@@ -616,6 +680,13 @@ struct NotesView: View {
         selectedLecture = lecture
         renameText = lecture.title
         showRenameSheet = true
+    }
+
+    private func performSearch() {
+        let trimmed = trimmedSearchQuery
+        guard !trimmed.isEmpty else { return }
+        activeSearchQuery = trimmed
+        showSearchResults = true
     }
     
     private func startMove(for lecture: Lecture) {
@@ -872,7 +943,7 @@ struct NotesView: View {
     }
 }
 
-private struct NavigationDepthTracker<Content: View>: View {
+struct NavigationDepthTracker<Content: View>: View {
     @Binding var depth: Int
     let content: Content
     @State private var isActive = false
