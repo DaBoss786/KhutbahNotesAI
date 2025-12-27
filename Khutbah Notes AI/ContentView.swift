@@ -103,7 +103,10 @@ struct MainTabView: View {
     @State private var showPaywall = false
     @State private var dashboardNavigationDepth = 0
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
-    @State private var animateArrow = false
+    
+    private var shouldShowRecordPrompt: Bool {
+        !hasSavedRecording && selectedTab == 0 && dashboardNavigationDepth == 0
+    }
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -175,42 +178,8 @@ struct MainTabView: View {
             }
             .offset(y: -10)
             
-            if !hasSavedRecording, selectedTab == 0, dashboardNavigationDepth == 0 {
-                VStack(spacing: 4) {
-                    Text("Click here to start recording!")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundColor(Theme.primaryGreen)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.white.opacity(0.95))
-                                .shadow(color: Theme.primaryGreen.opacity(0.15),
-                                        radius: 8,
-                                        x: 0,
-                                        y: 4)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Theme.primaryGreen.opacity(0.2), lineWidth: 1)
-                        )
-                    Image(systemName: "arrow.down")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(Theme.primaryGreen)
-                        .offset(y: animateArrow ? 6 : -6)
-                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true),
-                                   value: animateArrow)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 90)
-                .onAppear {
-                    animateArrow = false
-                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                        animateArrow = true
-                    }
-                }
-                .allowsHitTesting(false)
+            if shouldShowRecordPrompt {
+                DashboardRecordPrompt()
             }
             
             if let message = toastMessage {
@@ -906,6 +875,7 @@ struct NotesView: View {
 private struct NavigationDepthTracker<Content: View>: View {
     @Binding var depth: Int
     let content: Content
+    @State private var isActive = false
     
     init(depth: Binding<Int>, @ViewBuilder content: () -> Content) {
         _depth = depth
@@ -915,11 +885,57 @@ private struct NavigationDepthTracker<Content: View>: View {
     var body: some View {
         content
             .onAppear {
+                guard !isActive else { return }
+                isActive = true
                 depth += 1
             }
             .onDisappear {
+                guard isActive else { return }
+                isActive = false
                 depth = max(0, depth - 1)
             }
+    }
+}
+
+private struct DashboardRecordPrompt: View {
+    @State private var animateArrow = false
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Text("Click here to start recording!")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(Theme.primaryGreen)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.95))
+                        .shadow(color: Theme.primaryGreen.opacity(0.15),
+                                radius: 8,
+                                x: 0,
+                                y: 4)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Theme.primaryGreen.opacity(0.2), lineWidth: 1)
+                )
+            Image(systemName: "arrow.down")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(Theme.primaryGreen)
+                .offset(y: animateArrow ? 6 : -6)
+                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                           value: animateArrow)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 90)
+        .onAppear {
+            animateArrow = false
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                animateArrow = true
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
