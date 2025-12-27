@@ -116,6 +116,7 @@ const CHUNK_CHAR_TARGET = 4000;
 const CHUNK_CHAR_OVERLAP = 300;
 const CHUNK_OUTPUT_TOKENS = 2000;
 const SUMMARY_MODEL = "gpt-5-mini";
+const SUMMARY_IN_PROGRESS_TTL_MS = 15 * 60 * 1000;
 const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = 2000;
 const TRANSCRIBE_CHUNK_SECONDS = 1200; // keep under model ~1400s limit
 const MIN_WORDS_PER_MINUTE = 50;
@@ -1488,6 +1489,254 @@ async function deleteUserAudio(uid: string): Promise<void> {
   await bucket.deleteFiles({prefix: `audio/${uid}/`});
 }
 
+type SummaryInProgressValue =
+  | true
+  | {
+      startedAt?: admin.firestore.Timestamp;
+      expiresAt?: admin.firestore.Timestamp;
+    };
+
+type SummaryLockResult = {
+  acquired: boolean;
+  reclaimed?: boolean;
+  reason?: "missing" | "not_ready" | "in_progress";
+};
+
+/**
+ * Check whether a summary-in-progress marker exists.
+ *
+ * @param {unknown} value Stored summaryInProgress value.
+ * @return {boolean} True when marker is present.
+ */
+function isSummaryInProgressSet(
+  value: unknown
+): value is SummaryInProgressValue {
+  return value === true || (typeof value === "object" && value !== null);
+}
+
+/**
+ * Convert a timestamp-like value to epoch millis.
+ *
+ * @param {unknown} value Timestamp-like value.
+ * @return {number | null} Millis value or null when unavailable.
+ */
+function getTimestampMillis(value: unknown): number | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof admin.firestore.Timestamp) {
+    return value.toMillis();
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof (value as {toMillis?: () => number}).toMillis === "function") {
+    return (value as {toMillis: () => number}).toMillis();
+  }
+
+  return null;
+}
+
+/**
+ * Determine whether a summary-in-progress marker is stale.
+ *
+ * @param {unknown} value Stored summaryInProgress value.
+ * @param {number} nowMs Current time in millis.
+ * @param {number | null} lastUpdatedMs Doc update time in millis.
+ * @param {number} ttlMs Staleness TTL in millis.
+ * @return {boolean} True if the marker is stale.
+ */
+function isSummaryInProgressStale(
+  value: unknown,
+  nowMs: number,
+  lastUpdatedMs: number | null = null,
+  ttlMs = SUMMARY_IN_PROGRESS_TTL_MS
+): boolean {
+  if (!isSummaryInProgressSet(value)) {
+    return false;
+  }
+
+  if (value === true) {
+    if (typeof lastUpdatedMs === "number") {
+      return nowMs - lastUpdatedMs > ttlMs;
+    }
+    return true;
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return true;
+  }
+
+  const inProgress = value as {
+    startedAt?: unknown;
+    expiresAt?: unknown;
+  };
+
+  const expiresAtMs = getTimestampMillis(inProgress.expiresAt);
+  if (expiresAtMs !== null) {
+    return nowMs > expiresAtMs;
+  }
+
+  const startedAtMs = getTimestampMillis(inProgress.startedAt);
+  if (startedAtMs !== null) {
+    return nowMs - startedAtMs > ttlMs;
+  }
+
+  return true;
+}
+
+/**
+ * Build a summary-in-progress marker with TTL fields.
+ *
+ * @param {number} nowMs Current time in millis.
+ * @return {object} Firestore update payload.
+ */
+function buildSummaryInProgress(nowMs: number): {
+  startedAt: admin.firestore.FieldValue;
+  expiresAt: admin.firestore.Timestamp;
+} {
+  return {
+    startedAt: admin.firestore.FieldValue.serverTimestamp(),
+    expiresAt: admin.firestore.Timestamp.fromMillis(
+      nowMs + SUMMARY_IN_PROGRESS_TTL_MS
+    ),
+  };
+}
+
+const SUMMARY_STALE_SWEEP_PAGE_SIZE = 200;
+const SUMMARY_STALE_SWEEP_MAX_DOCS = 1000;
+
+type SummarySweepStats = {
+  checked: number;
+  reclaimed: number;
+  skipped: number;
+};
+
+/**
+ * Reclaim a stale summary lock with a transaction.
+ *
+ * @param {DocumentReference} docRef Lecture document reference.
+ * @param {number} nowMs Current time in millis.
+ * @return {Promise<boolean>} True if reclaimed.
+ */
+async function tryReclaimStaleSummaryLock(
+  docRef: FirebaseFirestore.DocumentReference,
+  nowMs: number
+): Promise<boolean> {
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(docRef);
+    if (!snap.exists) {
+      return false;
+    }
+
+    const current = snap.data();
+    if (!current || current.summary) {
+      return false;
+    }
+
+    const status = current.status;
+    if (status !== "summarizing" && status !== "transcribed") {
+      return false;
+    }
+
+    const updateTimeMs = getTimestampMillis(snap.updateTime);
+    if (
+      !isSummaryInProgressStale(current.summaryInProgress, nowMs, updateTimeMs)
+    ) {
+      return false;
+    }
+
+    const update: Record<string, unknown> = {
+      summaryInProgress: admin.firestore.FieldValue.delete(),
+    };
+
+    if (status === "summarizing") {
+      update.status = "transcribed";
+      update.errorMessage = admin.firestore.FieldValue.delete();
+    }
+
+    tx.update(docRef, update);
+    return true;
+  });
+}
+
+/**
+ * Sweep a query for stale summary locks and reclaim them.
+ *
+ * @param {Query} query Query to sweep.
+ * @param {number} nowMs Current time in millis.
+ * @param {SummarySweepStats} stats Mutable stats aggregator.
+ * @param {string} label Label for logging.
+ * @return {Promise<void>} Resolves when sweep finishes.
+ */
+async function sweepStaleSummaryLockQuery(
+  query: FirebaseFirestore.Query,
+  nowMs: number,
+  stats: SummarySweepStats,
+  label: string
+): Promise<void> {
+  let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+
+  while (stats.checked < SUMMARY_STALE_SWEEP_MAX_DOCS) {
+    let page = query.limit(SUMMARY_STALE_SWEEP_PAGE_SIZE);
+    if (lastDoc) {
+      page = page.startAfter(lastDoc);
+    }
+
+    const snap = await page.get();
+    if (snap.empty) {
+      break;
+    }
+
+    for (const doc of snap.docs) {
+      if (stats.checked >= SUMMARY_STALE_SWEEP_MAX_DOCS) {
+        break;
+      }
+
+      stats.checked += 1;
+
+      const data = doc.data();
+      if (!data || data.summary) {
+        stats.skipped += 1;
+        continue;
+      }
+
+      const status = data.status;
+      if (status !== "summarizing" && status !== "transcribed") {
+        stats.skipped += 1;
+        continue;
+      }
+
+      const updateTimeMs = getTimestampMillis(doc.updateTime);
+      if (
+        !isSummaryInProgressStale(data.summaryInProgress, nowMs, updateTimeMs)
+      ) {
+        stats.skipped += 1;
+        continue;
+      }
+
+      const reclaimed = await tryReclaimStaleSummaryLock(doc.ref, nowMs);
+      if (reclaimed) {
+        stats.reclaimed += 1;
+      } else {
+        stats.skipped += 1;
+      }
+    }
+
+    lastDoc = snap.docs[snap.docs.length - 1];
+  }
+
+  if (stats.checked >= SUMMARY_STALE_SWEEP_MAX_DOCS) {
+    logger.warn("Stale summary lock sweep hit max docs.", {
+      label,
+      maxDocs: SUMMARY_STALE_SWEEP_MAX_DOCS,
+    });
+  }
+}
+
 export const summarizeKhutbah = onDocumentWritten(
   {
     document: "users/{userId}/lectures/{lectureId}",
@@ -1503,7 +1752,35 @@ export const summarizeKhutbah = onDocumentWritten(
     }
 
     const lecture = afterSnap.data();
-    if (!lecture || lecture.status !== "transcribed") {
+    if (!lecture) {
+      return;
+    }
+
+    const docRef = afterSnap.ref;
+    const nowMs = Date.now();
+    const hasInProgress = isSummaryInProgressSet(lecture.summaryInProgress);
+    const updateTimeMs = getTimestampMillis(afterSnap.updateTime);
+    const inProgressStale =
+      hasInProgress &&
+      isSummaryInProgressStale(
+        lecture.summaryInProgress,
+        nowMs,
+        updateTimeMs
+      );
+
+    if (hasInProgress && inProgressStale) {
+      console.warn(
+        "summarizeKhutbah: stale summaryInProgress detected; clearing.",
+        {
+          path: docRef.path,
+        }
+      );
+      await docRef.update({
+        summaryInProgress: admin.firestore.FieldValue.delete(),
+      });
+    }
+
+    if (lecture.status !== "transcribed") {
       return;
     }
 
@@ -1515,37 +1792,82 @@ export const summarizeKhutbah = onDocumentWritten(
       return;
     }
 
-    // Already summarized or in progress? Exit.
-    if (lecture.summary || lecture.summaryInProgress === true) {
+    if (lecture.summary) {
       return;
     }
 
-    const docRef = afterSnap.ref;
+    if (hasInProgress && !inProgressStale) {
+      console.info(
+        "summarizeKhutbah: summary already in progress; " +
+          "skipping.",
+        {
+          path: docRef.path,
+        }
+      );
+      return;
+    }
 
     // ---- Acquire a transactional lock so only one worker summarizes ----
-    const lockAcquired = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(docRef);
-      const current = snap.data();
+    const lockResult = await db.runTransaction<SummaryLockResult>(
+      async (tx) => {
+        const snap = await tx.get(docRef);
+        const current = snap.data();
+        const lockNowMs = Date.now();
+        const currentInProgress = current?.summaryInProgress;
+        const hasCurrentInProgress = isSummaryInProgressSet(currentInProgress);
+        const docUpdateTimeMs = getTimestampMillis(snap.updateTime);
+        const currentInProgressStale =
+          hasCurrentInProgress &&
+          isSummaryInProgressStale(
+            currentInProgress,
+            lockNowMs,
+            docUpdateTimeMs
+          );
 
-      if (
-        !snap.exists ||
-        current?.status !== "transcribed" ||
-        current?.summary ||
-        current?.summaryInProgress === true
-      ) {
-        return false;
+        if (!snap.exists) {
+          return {acquired: false, reason: "missing"};
+        }
+
+        if (current?.status !== "transcribed" || current?.summary) {
+          return {acquired: false, reason: "not_ready"};
+        }
+
+        if (hasCurrentInProgress && !currentInProgressStale) {
+          return {acquired: false, reason: "in_progress"};
+        }
+
+        tx.update(docRef, {
+          summaryInProgress: buildSummaryInProgress(lockNowMs),
+          status: "summarizing",
+        });
+
+        return {
+          acquired: true,
+          reclaimed: hasCurrentInProgress && currentInProgressStale,
+        };
       }
+    );
 
-      tx.update(docRef, {
-        summaryInProgress: true,
-        status: "summarizing",
-      });
-
-      return true;
-    });
-
-    if (!lockAcquired) {
+    if (!lockResult.acquired) {
+      if (lockResult.reason === "in_progress") {
+        console.info(
+          "summarizeKhutbah: summary already in progress; " +
+            "skipping.",
+          {
+            path: docRef.path,
+          }
+        );
+      }
       return;
+    }
+
+    if (lockResult.reclaimed) {
+      console.warn(
+        "summarizeKhutbah: reclaimed stale summaryInProgress lock.",
+        {
+          path: docRef.path,
+        }
+      );
     }
 
     try {
@@ -1606,6 +1928,47 @@ export const summarizeKhutbah = onDocumentWritten(
         summaryInProgress: admin.firestore.FieldValue.delete(),
       });
     }
+  }
+);
+
+export const sweepStaleSummaryLocks = onSchedule(
+  {
+    schedule: "*/30 * * * *",
+    timeZone: "UTC",
+    timeoutSeconds: 300,
+    retryCount: 1,
+    memory: "256MiB",
+  },
+  async () => {
+    const nowMs = Date.now();
+    const nowTs = admin.firestore.Timestamp.fromMillis(nowMs);
+    const stats: SummarySweepStats = {
+      checked: 0,
+      reclaimed: 0,
+      skipped: 0,
+    };
+
+    logger.info("Starting stale summary lock sweep.", {
+      now: new Date(nowMs).toISOString(),
+    });
+
+    await sweepStaleSummaryLockQuery(
+      db
+        .collectionGroup("lectures")
+        .where("summaryInProgress.expiresAt", "<=", nowTs),
+      nowMs,
+      stats,
+      "expiresAt"
+    );
+
+    await sweepStaleSummaryLockQuery(
+      db.collectionGroup("lectures").where("summaryInProgress", "==", true),
+      nowMs,
+      stats,
+      "boolean"
+    );
+
+    logger.info("Completed stale summary lock sweep.", stats);
   }
 );
 
