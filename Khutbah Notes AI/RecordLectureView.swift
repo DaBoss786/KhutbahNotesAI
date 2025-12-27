@@ -16,6 +16,7 @@ struct RecordLectureView: View {
     @State private var didShowLimitWarning = false
     @State private var didAutoStopForLimit = false
     @State private var limitReachedMessage: String? = nil
+    @AppStorage("hasSavedRecording") private var hasSavedRecording = false
     
     private enum RecordingLimitKind {
         case freeLifetime
@@ -199,6 +200,7 @@ struct RecordLectureView: View {
             onShowToast?(message, nil, nil)
         }
         
+        hasSavedRecording = true
         showTitleSheet = false
         titleText = ""
         onShowToast?(

@@ -101,11 +101,17 @@ struct MainTabView: View {
     @State private var toastActionTitle: String? = nil
     @State private var toastAction: (() -> Void)? = nil
     @State private var showPaywall = false
+    @State private var dashboardNavigationDepth = 0
+    @AppStorage("hasSavedRecording") private var hasSavedRecording = false
+    @State private var animateArrow = false
     
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                NotesView(selectedTab: $selectedTab)
+                NotesView(
+                    selectedTab: $selectedTab,
+                    dashboardNavigationDepth: $dashboardNavigationDepth
+                )
                     .tabItem {
                         Image(systemName: "book.closed.fill")
                         Text("Notes")
@@ -169,6 +175,44 @@ struct MainTabView: View {
             }
             .offset(y: -10)
             
+            if !hasSavedRecording, selectedTab == 0, dashboardNavigationDepth == 0 {
+                VStack(spacing: 4) {
+                    Text("Click here to start recording!")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Theme.primaryGreen)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.95))
+                                .shadow(color: Theme.primaryGreen.opacity(0.15),
+                                        radius: 8,
+                                        x: 0,
+                                        y: 4)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Theme.primaryGreen.opacity(0.2), lineWidth: 1)
+                        )
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(Theme.primaryGreen)
+                        .offset(y: animateArrow ? 6 : -6)
+                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                                   value: animateArrow)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 90)
+                .onAppear {
+                    animateArrow = false
+                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                        animateArrow = true
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+            
             if let message = toastMessage {
                 let actionTitle = toastActionTitle ?? "OK"
                 ToastView(message: message, actionTitle: actionTitle) {
@@ -189,6 +233,7 @@ struct MainTabView: View {
 struct NotesView: View {
     @EnvironmentObject var store: LectureStore
     @Binding var selectedTab: Int
+    @Binding var dashboardNavigationDepth: Int
     @State private var selectedSegment = 0
     @State private var showRenameSheet = false
     @State private var showMoveSheet = false
@@ -496,10 +541,12 @@ struct NotesView: View {
             ForEach(store.lectures) { lecture in
                 ZStack(alignment: .topTrailing) {
                     NavigationLink {
-                        LectureDetailView(
-                            lecture: lecture,
-                            selectedRootTab: $selectedTab
-                        )
+                        NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                            LectureDetailView(
+                                lecture: lecture,
+                                selectedRootTab: $selectedTab
+                            )
+                        }
                     } label: {
                         LectureCardView(lecture: lecture)
                     }
@@ -551,21 +598,23 @@ struct NotesView: View {
                 VStack(spacing: 12) {
                     ForEach(store.folders) { folder in
                         NavigationLink {
-                            FolderDetailView(
-                                folder: folder,
-                                lectures: lectures(in: folder),
-                                selectedTab: $selectedTab,
-                                onRename: { lecture in startRename(for: lecture) },
-                                onMove: { lecture in startMove(for: lecture) },
-                                onDelete: { lecture in
-                                    pendingDeleteLecture = lecture
-                                    showDeleteAlert = true
-                                },
-                                onAddLecture: {
-                                    addToFolderTarget = folder
-                                    showAddToFolderSheet = true
-                                }
-                            )
+                            NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                                FolderDetailView(
+                                    folder: folder,
+                                    lectures: lectures(in: folder),
+                                    selectedTab: $selectedTab,
+                                    onRename: { lecture in startRename(for: lecture) },
+                                    onMove: { lecture in startMove(for: lecture) },
+                                    onDelete: { lecture in
+                                        pendingDeleteLecture = lecture
+                                        showDeleteAlert = true
+                                    },
+                                    onAddLecture: {
+                                        addToFolderTarget = folder
+                                        showAddToFolderSheet = true
+                                    }
+                                )
+                            }
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 6) {
@@ -851,6 +900,26 @@ struct NotesView: View {
             .frame(maxWidth: .infinity)
         }
         .padding()
+    }
+}
+
+private struct NavigationDepthTracker<Content: View>: View {
+    @Binding var depth: Int
+    let content: Content
+    
+    init(depth: Binding<Int>, @ViewBuilder content: () -> Content) {
+        _depth = depth
+        self.content = content()
+    }
+    
+    var body: some View {
+        content
+            .onAppear {
+                depth += 1
+            }
+            .onDisappear {
+                depth = max(0, depth - 1)
+            }
     }
 }
 
@@ -2120,7 +2189,10 @@ struct SettingsView: View {
 }
 
 #Preview("Notes") {
-    NotesView(selectedTab: .constant(0))
+    NotesView(
+        selectedTab: .constant(0),
+        dashboardNavigationDepth: .constant(0)
+    )
         .environmentObject(LectureStore(seedMockData: true))
 }
 
