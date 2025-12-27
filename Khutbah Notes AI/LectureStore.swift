@@ -60,6 +60,11 @@ final class LectureStore: ObservableObject {
     private var userListener: ListenerRegistration?
     private(set) var userId: String?
     private var durationFetches: Set<String> = []
+    private let uploadFailureMessage = "Upload failed - tap to retry"
+    private let uploadRetryDelays: [TimeInterval] = [1, 3, 9]
+    private let maxUploadAttempts = 3
+    private var pendingUploadURLs: [String: URL] = [:]
+    private var activeUploads: Set<String> = []
     
     init(seedMockData: Bool = false) {
         if seedMockData {
@@ -488,14 +493,15 @@ final class LectureStore: ObservableObject {
         }
     }
     
+    @discardableResult
     func createLecture(
         withTitle title: String,
         recordingURL: URL,
         onError: ((String) -> Void)? = nil
-    ) {
+    ) -> String? {
         guard let userId = userId else {
             print("No userId set on LectureStore; cannot create lecture.")
-            return
+            return nil
         }
         
         let lectureId = UUID().uuidString
@@ -523,53 +529,247 @@ final class LectureStore: ObservableObject {
         
         // Insert at top so UI feels instant; Firestore listener will overwrite as needed
         lectures.insert(newLecture, at: 0)
+        pendingUploadURLs[lectureId] = recordingURL
+        Task { [weak self] in
+            await self?.uploadLectureAudioWithRetry(
+                lectureId: lectureId,
+                title: title,
+                recordingURL: recordingURL,
+                audioPath: audioPath,
+                date: now,
+                durationMinutes: durationMinutes,
+                onError: onError
+            )
+        }
+        return lectureId
+    }
+
+    func retryLectureUpload(
+        lectureId: String,
+        onError: ((String) -> Void)? = nil
+    ) {
+        guard let recordingURL = pendingUploadURLs[lectureId] else {
+            print("No pending recording URL found for lecture \(lectureId); cannot retry upload.")
+            return
+        }
+        guard let lecture = lectures.first(where: { $0.id == lectureId }),
+              let audioPath = lecture.audioPath else {
+            print("Missing lecture metadata for retry upload \(lectureId).")
+            return
+        }
+        Task { [weak self] in
+            await self?.uploadLectureAudioWithRetry(
+                lectureId: lectureId,
+                title: lecture.title,
+                recordingURL: recordingURL,
+                audioPath: audioPath,
+                date: lecture.date,
+                durationMinutes: lecture.durationMinutes,
+                onError: onError
+            )
+        }
+    }
+
+    private func uploadLectureAudioWithRetry(
+        lectureId: String,
+        title: String,
+        recordingURL: URL,
+        audioPath: String,
+        date: Date,
+        durationMinutes: Int?,
+        onError: ((String) -> Void)? = nil
+    ) async {
+        guard let userId = userId else {
+            print("No userId set on LectureStore; cannot upload lecture.")
+            return
+        }
+        guard !activeUploads.contains(lectureId) else {
+            print("Upload already in progress for lecture \(lectureId).")
+            return
+        }
+        guard FileManager.default.fileExists(atPath: recordingURL.path) else {
+            print("Recording file missing for lecture \(lectureId) at \(recordingURL.path).")
+            markUploadFailed(
+                userId: userId,
+                lectureId: lectureId,
+                title: title,
+                date: date,
+                durationMinutes: durationMinutes,
+                audioPath: audioPath
+            )
+            onError?(uploadFailureMessage)
+            return
+        }
         
-        // Storage path: audio/{userId}/{lectureId}.m4a
+        activeUploads.insert(lectureId)
+        defer { activeUploads.remove(lectureId) }
+        
         let audioRef = storage.reference(withPath: audioPath)
-        
         let uploadMetadata = StorageMetadata()
         uploadMetadata.contentType = "audio/m4a"
         
-        audioRef.putFile(from: recordingURL, metadata: uploadMetadata) { [weak self] metadata, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                print("Error uploading audio: \(error)")
-                DispatchQueue.main.async {
-                    onError?("Upload failed. Please try again.")
+        for attempt in 1...maxUploadAttempts {
+            print("Uploading audio for lecture \(lectureId) (attempt \(attempt)/\(maxUploadAttempts))")
+            do {
+                _ = try await putFileAsync(from: recordingURL, to: audioRef, metadata: uploadMetadata)
+                pendingUploadURLs.removeValue(forKey: lectureId)
+                print("Upload succeeded for lecture \(lectureId).")
+                updateLocalLectureStatus(lectureId: lectureId, status: .processing, errorMessage: nil)
+                saveLectureDocument(
+                    userId: userId,
+                    lectureId: lectureId,
+                    title: title,
+                    date: date,
+                    durationMinutes: durationMinutes,
+                    audioPath: audioPath,
+                    status: "processing",
+                    errorMessage: nil,
+                    onError: onError
+                )
+                return
+            } catch {
+                let shouldRetry = isTransientUploadError(error) && attempt < maxUploadAttempts
+                print("Upload attempt \(attempt) failed for lecture \(lectureId): \(error)")
+                if shouldRetry {
+                    let delay = uploadRetryDelays[min(attempt - 1, uploadRetryDelays.count - 1)]
+                    print("Retrying upload for lecture \(lectureId) in \(delay)s.")
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
                 }
-                // Optionally update status to .failed in Firestore later
+                print("Upload failed after \(attempt) attempts for lecture \(lectureId).")
+                markUploadFailed(
+                    userId: userId,
+                    lectureId: lectureId,
+                    title: title,
+                    date: date,
+                    durationMinutes: durationMinutes,
+                    audioPath: audioPath
+                )
+                onError?(uploadFailureMessage)
                 return
             }
-            
-            let audioPath = audioRef.fullPath
-            
-            var docData: [String: Any] = [
-                "title": title,
-                "date": Timestamp(date: now),
-                "isFavorite": false,
-                "status": "processing",
-                "transcript": NSNull(),
-                "summary": NSNull(),
-                "audioPath": audioPath
-            ]
-            docData["durationMinutes"] = durationMinutes ?? NSNull()
-            
-            self.db.collection("users")
-                .document(userId)
-                .collection("lectures")
-                .document(lectureId)
-                .setData(docData, merge: true) { error in
-                    if let error = error {
-                        print("Error saving lecture doc: \(error)")
-                        DispatchQueue.main.async {
-                            onError?("Couldn't save lecture details. Please try again.")
-                        }
-                    } else {
-                        print("Lecture metadata saved to Firestore for \(lectureId)")
-                    }
-                }
         }
+    }
+
+    private func putFileAsync(
+        from url: URL,
+        to reference: StorageReference,
+        metadata: StorageMetadata
+    ) async throws -> StorageMetadata {
+        try await withCheckedThrowingContinuation { continuation in
+            reference.putFile(from: url, metadata: metadata) { metadata, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let metadata = metadata {
+                    continuation.resume(returning: metadata)
+                } else {
+                    continuation.resume(throwing: NSError(
+                        domain: "LectureStoreUpload",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Upload failed with no metadata."]
+                    ))
+                }
+            }
+        }
+    }
+
+    private func saveLectureDocument(
+        userId: String,
+        lectureId: String,
+        title: String,
+        date: Date,
+        durationMinutes: Int?,
+        audioPath: String,
+        status: String,
+        errorMessage: String?,
+        onError: ((String) -> Void)? = nil
+    ) {
+        var docData: [String: Any] = [
+            "title": title,
+            "date": Timestamp(date: date),
+            "isFavorite": false,
+            "status": status,
+            "transcript": NSNull(),
+            "summary": NSNull(),
+            "audioPath": audioPath
+        ]
+        docData["durationMinutes"] = durationMinutes ?? NSNull()
+        if let errorMessage {
+            docData["errorMessage"] = errorMessage
+        } else {
+            docData["errorMessage"] = FieldValue.delete()
+        }
+        
+        db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lectureId)
+            .setData(docData, merge: true) { error in
+                if let error = error {
+                    print("Error saving lecture doc: \(error)")
+                    if let onError {
+                        Task { @MainActor in
+                            onError("Couldn't save lecture details. Please try again.")
+                        }
+                    }
+                } else {
+                    print("Lecture metadata saved to Firestore for \(lectureId)")
+                }
+            }
+    }
+
+    private func markUploadFailed(
+        userId: String,
+        lectureId: String,
+        title: String,
+        date: Date,
+        durationMinutes: Int?,
+        audioPath: String
+    ) {
+        updateLocalLectureStatus(
+            lectureId: lectureId,
+            status: .failed,
+            errorMessage: uploadFailureMessage
+        )
+        saveLectureDocument(
+            userId: userId,
+            lectureId: lectureId,
+            title: title,
+            date: date,
+            durationMinutes: durationMinutes,
+            audioPath: audioPath,
+            status: "failed",
+            errorMessage: uploadFailureMessage
+        )
+    }
+
+    private func updateLocalLectureStatus(
+        lectureId: String,
+        status: LectureStatus,
+        errorMessage: String?
+    ) {
+        guard let index = lectures.firstIndex(where: { $0.id == lectureId }) else { return }
+        var updated = lectures[index]
+        updated.status = status
+        updated.errorMessage = errorMessage
+        lectures[index] = updated
+    }
+
+    private func isTransientUploadError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return true
+        }
+        if nsError.domain == StorageErrorDomain,
+           let code = StorageErrorCode(rawValue: nsError.code) {
+            switch code {
+            case .unknown, .retryLimitExceeded:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
     
     func createFolder(named name: String, folderId: String = UUID().uuidString) {

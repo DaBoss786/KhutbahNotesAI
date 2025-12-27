@@ -193,12 +193,24 @@ struct RecordLectureView: View {
         }
         
         let finalTitle = titleText.isEmpty ? defaultTitle() : titleText
-        store.createLecture(
-            withTitle: finalTitle,
-            recordingURL: url
-        ) { message in
-            onShowToast?(message, nil, nil)
+        var createdLectureId: String?
+        func handleUploadError(_ message: String) {
+            guard let lectureId = createdLectureId else {
+                onShowToast?(message, nil, nil)
+                return
+            }
+            onShowToast?(message, "Retry") {
+                store.retryLectureUpload(
+                    lectureId: lectureId,
+                    onError: handleUploadError
+                )
+            }
         }
+        createdLectureId = store.createLecture(
+            withTitle: finalTitle,
+            recordingURL: url,
+            onError: handleUploadError
+        )
         
         hasSavedRecording = true
         showTitleSheet = false

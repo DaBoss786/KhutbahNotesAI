@@ -1146,6 +1146,7 @@ struct LectureDetailView: View {
     private let failureMessage =
         "Transcription failed. Try recording in a quieter space or closer to the speaker."
     private let refundMessage = "Any charged minutes were refunded."
+    private let uploadRetryMessage = "Upload failed - tap to retry"
     
     private var displayLecture: Lecture {
         store.lectures.first(where: { $0.id == lecture.id }) ?? lecture
@@ -1185,10 +1186,22 @@ struct LectureDetailView: View {
 
             if let errorMessage = displayLecture.errorMessage,
                !errorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Reason: \(errorMessage)")
-                    .font(Theme.bodyFont)
-                    .foregroundColor(Theme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
+                if errorMessage == uploadRetryMessage {
+                    Button {
+                        store.retryLectureUpload(lectureId: displayLecture.id)
+                    } label: {
+                        Text("Reason: \(errorMessage)")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text("Reason: \(errorMessage)")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(Theme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Text(refundMessage)

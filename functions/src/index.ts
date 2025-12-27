@@ -1045,14 +1045,17 @@ export const onAudioUpload = onObjectFinalized(
       }
 
       const safeDurationMinutes = durationMinutes || 1;
+      const enforceQualityThresholds = (durationMinutes || 0) > 2;
       const wordCount = countWords(transcriptText);
       const wordsPerMinute = wordCount / safeDurationMinutes;
       const repetitionFlag = isRepetitiveTranscript(
         transcriptText,
         chunkTranscripts
       );
-      const tooFewWords = wordsPerMinute < MIN_WORDS_PER_MINUTE;
+      const tooFewWords =
+        enforceQualityThresholds && wordsPerMinute < MIN_WORDS_PER_MINUTE;
       const tooShortForDuration =
+        enforceQualityThresholds &&
         transcriptText.length < MIN_CHARS_PER_MINUTE * safeDurationMinutes;
 
       logger.info("Transcript quality metrics", {
