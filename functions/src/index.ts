@@ -998,34 +998,279 @@ export const onAudioUpload = onObjectFinalized(
         filePath
       );
       chunkPaths = await chunkAudio(tempFilePath);
-      const chunkTranscripts: string[] = [];
+      const retryDelaysMs = [1000, 3000, 9000];
+      const maxAttempts = 3;
+      const sleep = (ms: number) =>
+        new Promise((resolve) => setTimeout(resolve, ms));
+      const primaryTranscriptionModel = "gpt-4o-mini-transcribe";
+      const fallbackTranscriptionModel = "gpt-4o-transcribe";
+      type ChunkResult = {
+        text: string;
+        model: string;
+        fallbackTriggered: boolean;
+        fallbackReason?: string;
+      };
+      const chunkResults: ChunkResult[] = [];
+      const extractTranscriptText = (transcription: unknown) => {
+        const rawText = (transcription as {text?: string}).text;
+        return typeof rawText === "string" && rawText.trim().length > 0 ?
+          rawText.trim() :
+          "";
+      };
+      const transcribeChunkWithRetry = async (
+        chunkPath: string,
+        chunkIndex: number,
+        totalChunks: number,
+        model: string
+      ) => {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            return await openai.audio.transcriptions.create({
+              file: fs.createReadStream(chunkPath),
+              model,
+            });
+          } catch (error: unknown) {
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+            const isLastAttempt = attempt === maxAttempts;
+
+            if (isLastAttempt) {
+              logger.error("Transcription chunk failed after retries.", {
+                lectureId,
+                chunkIndex,
+                totalChunks,
+                model,
+                attempts: maxAttempts,
+                error: errorMessage,
+              });
+              throw new Error(
+                `Transcription failed for chunk ${chunkIndex}/${totalChunks}: ${
+                  errorMessage
+                }`
+              );
+            }
+
+            const delayMs = retryDelaysMs[attempt - 1] ?? 1000;
+            logger.warn("Transcription chunk failed; retrying.", {
+              lectureId,
+              chunkIndex,
+              totalChunks,
+              model,
+              attempt,
+              nextAttempt: attempt + 1,
+              delayMs,
+              error: errorMessage,
+            });
+            await sleep(delayMs);
+          }
+        }
+
+        throw new Error("Transcription failed for unknown reason.");
+      };
+      const transcribeChunk = async (
+        chunkPath: string,
+        chunkIndex: number,
+        totalChunks: number,
+        model: string
+      ) => {
+        const transcription = await transcribeChunkWithRetry(
+          chunkPath,
+          chunkIndex,
+          totalChunks,
+          model
+        );
+        return extractTranscriptText(transcription);
+      };
 
       for (let i = 0; i < chunkPaths.length; i++) {
         const chunkPath = chunkPaths[i];
-        const transcription =
-          await openai.audio.transcriptions.create({
-            file: fs.createReadStream(chunkPath),
-            model: "gpt-4o-mini-transcribe",
-          });
+        const chunkIndex = i + 1;
+        const totalChunks = chunkPaths.length;
+        let modelUsed = primaryTranscriptionModel;
+        let fallbackTriggered = false;
+        let fallbackReason: string | undefined;
 
-        const rawText = (transcription as unknown as {text?: string}).text;
-        const chunkText =
-          typeof rawText === "string" && rawText.trim().length > 0 ?
-            rawText.trim() :
-            "";
-
-        if (chunkText) {
-          chunkTranscripts.push(chunkText);
-        } else {
-          console.warn(
-            `Empty transcript returned for chunk ${i + 1}/${
-              chunkPaths.length
-            } of lecture ${lectureId}`
+        let chunkText = await transcribeChunk(
+          chunkPath,
+          chunkIndex,
+          totalChunks,
+          primaryTranscriptionModel
+        );
+        if (!chunkText) {
+          fallbackTriggered = true;
+          fallbackReason = "empty_text";
+          modelUsed = fallbackTranscriptionModel;
+          chunkText = await transcribeChunk(
+            chunkPath,
+            chunkIndex,
+            totalChunks,
+            fallbackTranscriptionModel
           );
+        }
+
+        chunkResults.push({
+          text: chunkText,
+          model: modelUsed,
+          fallbackTriggered,
+          fallbackReason,
+        });
+        logger.info("Transcription chunk completed.", {
+          lectureId,
+          chunkIndex,
+          totalChunks,
+          model: modelUsed,
+          fallbackTriggered,
+          fallbackReason,
+          textLength: chunkText.length,
+        });
+        if (!chunkText) {
+          logger.warn("Empty transcript returned for chunk.", {
+            lectureId,
+            chunkIndex,
+            totalChunks,
+            model: modelUsed,
+            fallbackTriggered,
+          });
         }
       }
 
-      const transcriptText = chunkTranscripts.join("\n\n").trim();
+      const safeDurationMinutes = durationMinutes || 1;
+      const enforceQualityThresholds = (durationMinutes || 0) > 2;
+      const buildTranscriptState = () => {
+        const chunkTranscripts = chunkResults
+          .map((result) => result.text)
+          .filter((text) => text && text.trim().length > 0)
+          .map((text) => text.trim());
+        const transcriptText = chunkTranscripts.join("\n\n").trim();
+        return {chunkTranscripts, transcriptText};
+      };
+      const evaluateTranscriptQuality = (
+        transcriptText: string,
+        chunkTranscripts: string[],
+        pass: string
+      ) => {
+        const wordCount = countWords(transcriptText);
+        const wordsPerMinute = wordCount / safeDurationMinutes;
+        const repetitionFlag = isRepetitiveTranscript(
+          transcriptText,
+          chunkTranscripts
+        );
+        const tooFewWords =
+          enforceQualityThresholds &&
+          wordsPerMinute < MIN_WORDS_PER_MINUTE;
+        const tooShortForDuration =
+          enforceQualityThresholds &&
+          transcriptText.length <
+            MIN_CHARS_PER_MINUTE * safeDurationMinutes;
+
+        logger.info("Transcript quality metrics", {
+          lectureId,
+          durationMinutes,
+          wordCount,
+          wordsPerMinute,
+          repetitionFlag,
+          pass,
+        });
+
+        return {
+          repetitionFlag,
+          tooFewWords,
+          tooShortForDuration,
+          wordCount,
+          wordsPerMinute,
+        };
+      };
+
+      let {chunkTranscripts, transcriptText} = buildTranscriptState();
+      let quality = evaluateTranscriptQuality(
+        transcriptText,
+        chunkTranscripts,
+        "initial"
+      );
+      const needsFallback =
+        !transcriptText ||
+        quality.repetitionFlag ||
+        quality.tooFewWords ||
+        quality.tooShortForDuration;
+
+      if (needsFallback) {
+        const fallbackReasons: string[] = [];
+        if (!transcriptText) {
+          fallbackReasons.push("empty_transcript");
+        }
+        if (quality.repetitionFlag) {
+          fallbackReasons.push("repetition");
+        }
+        if (quality.tooFewWords || quality.tooShortForDuration) {
+          fallbackReasons.push("low_quality");
+        }
+
+        const chunksToRetry = chunkResults
+          .map((result, index) => ({result, index}))
+          .filter(
+            ({result}) => result.model !== fallbackTranscriptionModel
+          );
+
+        if (chunksToRetry.length > 0) {
+          logger.warn(
+            "Transcript quality checks failed; retrying chunks " +
+              "with fallback model.",
+            {
+              lectureId,
+              durationMinutes,
+              reasons: fallbackReasons,
+              chunksToRetry: chunksToRetry.length,
+              totalChunks: chunkResults.length,
+              fallbackModel: fallbackTranscriptionModel,
+            }
+          );
+
+          for (const {index} of chunksToRetry) {
+            const chunkPath = chunkPaths[index];
+            const chunkIndex = index + 1;
+            const totalChunks = chunkPaths.length;
+            const chunkText = await transcribeChunk(
+              chunkPath,
+              chunkIndex,
+              totalChunks,
+              fallbackTranscriptionModel
+            );
+            chunkResults[index] = {
+              text: chunkText,
+              model: fallbackTranscriptionModel,
+              fallbackTriggered: true,
+              fallbackReason: "quality_retry",
+            };
+            logger.info("Transcription chunk completed.", {
+              lectureId,
+              chunkIndex,
+              totalChunks,
+              model: fallbackTranscriptionModel,
+              fallbackTriggered: true,
+              fallbackReason: "quality_retry",
+              textLength: chunkText.length,
+            });
+            if (!chunkText) {
+              logger.warn("Empty transcript returned for chunk.", {
+                lectureId,
+                chunkIndex,
+                totalChunks,
+                model: fallbackTranscriptionModel,
+                fallbackTriggered: true,
+              });
+            }
+          }
+
+          const rebuilt = buildTranscriptState();
+          chunkTranscripts = rebuilt.chunkTranscripts;
+          transcriptText = rebuilt.transcriptText;
+          quality = evaluateTranscriptQuality(
+            transcriptText,
+            chunkTranscripts,
+            "fallback"
+          );
+        }
+      }
 
       if (!transcriptText) {
         console.warn(
@@ -1044,34 +1289,12 @@ export const onAudioUpload = onObjectFinalized(
         return;
       }
 
-      const safeDurationMinutes = durationMinutes || 1;
-      const enforceQualityThresholds = (durationMinutes || 0) > 2;
-      const wordCount = countWords(transcriptText);
-      const wordsPerMinute = wordCount / safeDurationMinutes;
-      const repetitionFlag = isRepetitiveTranscript(
-        transcriptText,
-        chunkTranscripts
-      );
-      const tooFewWords =
-        enforceQualityThresholds && wordsPerMinute < MIN_WORDS_PER_MINUTE;
-      const tooShortForDuration =
-        enforceQualityThresholds &&
-        transcriptText.length < MIN_CHARS_PER_MINUTE * safeDurationMinutes;
-
-      logger.info("Transcript quality metrics", {
-        lectureId,
-        durationMinutes,
-        wordCount,
-        wordsPerMinute,
-        repetitionFlag,
-      });
-
-      if (repetitionFlag) {
+      if (quality.repetitionFlag) {
         logger.warn("Transcript rejected for repetition.", {
           lectureId,
           durationMinutes,
-          wordCount,
-          wordsPerMinute,
+          wordCount: quality.wordCount,
+          wordsPerMinute: quality.wordsPerMinute,
         });
         await lectureRef.set(
           {
@@ -1084,12 +1307,12 @@ export const onAudioUpload = onObjectFinalized(
         return;
       }
 
-      if (tooFewWords || tooShortForDuration) {
+      if (quality.tooFewWords || quality.tooShortForDuration) {
         logger.warn("Transcript rejected for short length.", {
           lectureId,
           durationMinutes,
-          wordCount,
-          wordsPerMinute,
+          wordCount: quality.wordCount,
+          wordsPerMinute: quality.wordsPerMinute,
         });
         await lectureRef.set(
           {
