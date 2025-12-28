@@ -22,16 +22,8 @@ struct RecordingActionStore {
         RecordingDefaults.shared.set(action.rawValue, forKey: RecordingUserDefaultsKeys.controlAction)
     }
 
-    static func clearControlAction() {
-        RecordingDefaults.shared.removeObject(forKey: RecordingUserDefaultsKeys.controlAction)
-    }
-
     static func setRouteAction(_ action: RecordingRouteAction) {
         RecordingDefaults.shared.set(action.rawValue, forKey: RecordingUserDefaultsKeys.routeAction)
-    }
-
-    static func clearRouteAction() {
-        RecordingDefaults.shared.removeObject(forKey: RecordingUserDefaultsKeys.routeAction)
     }
 }
 
