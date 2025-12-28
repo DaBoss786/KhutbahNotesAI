@@ -19,7 +19,6 @@ final class RecordingManager: NSObject, ObservableObject {
     private var lastRecordingURL: URL?
     private var notificationObservers: [NSObjectProtocol] = []
     private var shouldResumeAfterInterruption = false
-    private let liveActivityName = "Khutbah recording"
     private var liveActivityController: Any?
     
     enum RecordingError: Error {
@@ -314,7 +313,7 @@ final class RecordingManager: NSObject, ObservableObject {
         let elapsed = currentElapsed
         Task { @MainActor in
             if liveActivityController == nil {
-                liveActivityController = RecordingLiveActivityController(activityName: liveActivityName)
+                liveActivityController = RecordingLiveActivityController(activityName: RecordingLiveActivityController.defaultActivityName)
             }
             (liveActivityController as? RecordingLiveActivityController)?
                 .startOrUpdate(isPaused: isPaused, elapsed: elapsed)

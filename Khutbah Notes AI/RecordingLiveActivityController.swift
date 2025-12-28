@@ -5,6 +5,8 @@ import OneSignalLiveActivities
 @available(iOS 16.1, *)
 @MainActor
 final class RecordingLiveActivityController {
+    static let defaultActivityName = "Khutbah recording"
+
     private var activity: Activity<OneSignalWidgetAttributes>?
     private let activityId: String
     private let activityName: String
