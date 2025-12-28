@@ -4,6 +4,8 @@ import AVFoundation
 
 /// Handles microphone permissions and audio recording lifecycle.
 final class RecordingManager: NSObject, ObservableObject {
+    static let shared = RecordingManager()
+
     @Published var isRecording: Bool = false
     @Published var isPaused: Bool = false
     @Published var elapsedTime: TimeInterval = 0
@@ -14,6 +16,7 @@ final class RecordingManager: NSObject, ObservableObject {
     private var meterTimer: Timer?
     private var startDate: Date?
     private var accumulatedTime: TimeInterval = 0
+    private var lastRecordingURL: URL?
     private var notificationObservers: [NSObjectProtocol] = []
     private var shouldResumeAfterInterruption = false
     private let liveActivityName = "Khutbah recording"
@@ -63,6 +66,7 @@ final class RecordingManager: NSObject, ObservableObject {
     
     private func beginRecording() throws {
         try configureSession()
+        lastRecordingURL = nil
         
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -99,6 +103,10 @@ final class RecordingManager: NSObject, ObservableObject {
     func stopRecording() -> URL? {
         guard let recorder = audioRecorder else {
             isRecording = false
+            isPaused = false
+            if let cachedURL = lastRecordingURL {
+                return cachedURL
+            }
             print("No active recording to stop.")
             return nil
         }
@@ -111,6 +119,7 @@ final class RecordingManager: NSObject, ObservableObject {
         endLiveActivityIfAvailable()
         resetTiming()
         let recordedURL = recorder.url
+        lastRecordingURL = recordedURL
         audioRecorder = nil
         
         do {
@@ -286,6 +295,18 @@ final class RecordingManager: NSObject, ObservableObject {
             return accumulatedTime + Date().timeIntervalSince(startDate)
         }
         return accumulatedTime
+    }
+
+    var currentElapsedTime: TimeInterval {
+        currentElapsed
+    }
+
+    var hasPendingRecording: Bool {
+        lastRecordingURL != nil
+    }
+
+    func clearLastRecording() {
+        lastRecordingURL = nil
     }
 
     private func startLiveActivityIfAvailable(isPaused: Bool) {

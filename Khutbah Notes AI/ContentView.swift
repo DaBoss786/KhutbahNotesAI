@@ -102,7 +102,10 @@ struct MainTabView: View {
     @State private var toastAction: (() -> Void)? = nil
     @State private var showPaywall = false
     @State private var dashboardNavigationDepth = 0
+    @State private var pendingRecordingRouteAction: RecordingRouteAction? = nil
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
+    @AppStorage(RecordingUserDefaultsKeys.controlAction, store: RecordingDefaults.shared) private var pendingControlActionRaw = ""
+    @AppStorage(RecordingUserDefaultsKeys.routeAction, store: RecordingDefaults.shared) private var pendingRouteActionRaw = ""
     
     private var shouldShowRecordPrompt: Bool {
         !hasSavedRecording && selectedTab == 0 && dashboardNavigationDepth == 0
@@ -123,6 +126,7 @@ struct MainTabView: View {
                 
                 RecordLectureView(
                     selectedTab: $selectedTab,
+                    pendingRouteAction: $pendingRecordingRouteAction,
                     onShowToast: { message, actionTitle, action in
                         withAnimation {
                             toastMessage = message
@@ -196,6 +200,35 @@ struct MainTabView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .onAppear {
+            handlePendingActions()
+        }
+        .onChange(of: pendingControlActionRaw) { _ in
+            handlePendingControlAction()
+        }
+        .onChange(of: pendingRouteActionRaw) { _ in
+            handlePendingRouteAction()
+        }
+    }
+
+    private func handlePendingActions() {
+        handlePendingControlAction()
+        handlePendingRouteAction()
+    }
+
+    private func handlePendingControlAction() {
+        guard let action = RecordingControlAction(rawValue: pendingControlActionRaw) else { return }
+        Task { @MainActor in
+            RecordingControlCenter.shared.handle(action, shouldRouteToSaveCard: action == .stop)
+        }
+        pendingControlActionRaw = ""
+    }
+
+    private func handlePendingRouteAction() {
+        guard let action = RecordingRouteAction(rawValue: pendingRouteActionRaw) else { return }
+        selectedTab = 1
+        pendingRecordingRouteAction = action
+        pendingRouteActionRaw = ""
     }
 }
 

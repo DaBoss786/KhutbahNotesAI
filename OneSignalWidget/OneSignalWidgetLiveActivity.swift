@@ -9,6 +9,7 @@ import ActivityKit
 import WidgetKit
 import SwiftUI
 import OneSignalLiveActivities
+import AppIntents
 
 @available(iOS 16.1, *)
 struct OneSignalWidgetAttributes: OneSignalLiveActivityAttributes {
@@ -68,6 +69,10 @@ struct OneSignalWidgetLiveActivity: Widget {
                 .font(.system(size: 36, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundColor(LiveActivityColors.deepGreen)
+
+                if #available(iOS 17.0, *) {
+                    LiveActivityControls(isPaused: isPaused)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .multilineTextAlignment(.center)
@@ -75,6 +80,7 @@ struct OneSignalWidgetLiveActivity: Widget {
             .padding(.vertical, 8)
             .activityBackgroundTint(LiveActivityColors.lockScreenBackground)
             .activitySystemActionForegroundColor(.white)
+            .recordingWidgetLink()
         } dynamicIsland: { context in
             let isPaused = context.state.isPaused
             let statusColor = isPaused ? LiveActivityColors.pauseAccent : LiveActivityColors.brandGreen
@@ -109,17 +115,23 @@ struct OneSignalWidgetLiveActivity: Widget {
                     .foregroundColor(LiveActivityColors.deepGreen)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(isPaused ? "Paused" : "Recording")
-                        .font(.caption2.weight(.semibold))
-                        .textCase(.uppercase)
-                        .tracking(0.8)
-                        .foregroundColor(statusColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(isPaused ? LiveActivityColors.pausePill : LiveActivityColors.recordPill)
-                        )
+                    VStack(spacing: 8) {
+                        Text(isPaused ? "Paused" : "Recording")
+                            .font(.caption2.weight(.semibold))
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+                            .foregroundColor(statusColor)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(isPaused ? LiveActivityColors.pausePill : LiveActivityColors.recordPill)
+                            )
+
+                        if #available(iOS 17.0, *) {
+                            LiveActivityControls(isPaused: isPaused)
+                        }
+                    }
                 }
             } compactLeading: {
                 Circle()
@@ -139,6 +151,7 @@ struct OneSignalWidgetLiveActivity: Widget {
                     .foregroundColor(statusColor)
             }
             .keylineTint(statusColor)
+            .recordingWidgetLink()
         }
     }
 }
@@ -208,7 +221,138 @@ private enum LiveActivityColors {
     static let mutedGreen = Color(red: 0.07, green: 0.36, blue: 0.25).opacity(0.6)
     static let brandGreen = Color(red: 0.13, green: 0.61, blue: 0.39)
     static let pauseAccent = Color(red: 0.87, green: 0.55, blue: 0.20)
+    static let stopAccent = Color(red: 0.70, green: 0.20, blue: 0.18)
     static let lockScreenBackground = Color(red: 0.98, green: 0.97, blue: 0.94)
     static let recordPill = Color(red: 0.20, green: 0.31, blue: 0.30)
     static let pausePill = Color(red: 0.33, green: 0.25, blue: 0.18)
+}
+
+@available(iOS 17.0, *)
+private struct LiveActivityControls: View {
+    let isPaused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if isPaused {
+                LiveActivityControlButton(
+                    intent: ResumeRecordingIntent(),
+                    title: "Resume",
+                    systemImage: "play.fill",
+                    tint: LiveActivityColors.brandGreen
+                )
+            } else {
+                LiveActivityControlButton(
+                    intent: PauseRecordingIntent(),
+                    title: "Pause",
+                    systemImage: "pause.fill",
+                    tint: LiveActivityColors.pauseAccent
+                )
+            }
+
+            LiveActivityControlButton(
+                intent: StopRecordingIntent(),
+                title: "Stop",
+                systemImage: "stop.fill",
+                tint: LiveActivityColors.stopAccent
+            )
+        }
+        .controlSize(.small)
+    }
+}
+
+@available(iOS 17.0, *)
+private struct LiveActivityControlButton<Intent: AppIntent>: View {
+    let intent: Intent
+    let title: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Button(intent: intent) {
+            Label(title, systemImage: systemImage)
+        }
+        .font(.caption2.weight(.semibold))
+        .tint(tint)
+        .buttonStyle(.borderedProminent)
+    }
+}
+
+private let recordingDeepLinkURL = URL(string: "khutbahnotesai://recording?action=openRecording")!
+
+@available(iOS 16.1, *)
+private extension View {
+    @ViewBuilder
+    func recordingWidgetLink() -> some View {
+        if #available(iOS 17.0, *) {
+            self
+        } else {
+            self.widgetURL(recordingDeepLinkURL)
+        }
+    }
+}
+
+@available(iOS 16.1, *)
+private extension DynamicIsland {
+    func recordingWidgetLink() -> DynamicIsland {
+        if #available(iOS 17.0, *) {
+            return self
+        }
+        return widgetURL(recordingDeepLinkURL)
+    }
+}
+
+@available(iOS 17.0, *)
+private enum WidgetRecordingControlAction: String {
+    case pause
+    case resume
+    case stop
+}
+
+@available(iOS 17.0, *)
+private enum WidgetRecordingUserDefaultsKeys {
+    static let appGroup = "group.com.medswipeapp.Khutbah-Notes-AI.onesignal"
+    static let controlAction = "recordingControlAction"
+}
+
+@available(iOS 17.0, *)
+private enum WidgetRecordingUserDefaults {
+    static let shared: UserDefaults = UserDefaults(suiteName: WidgetRecordingUserDefaultsKeys.appGroup) ?? .standard
+}
+
+@available(iOS 17.0, *)
+private func storeControlAction(_ action: WidgetRecordingControlAction) {
+    WidgetRecordingUserDefaults.shared.set(action.rawValue, forKey: WidgetRecordingUserDefaultsKeys.controlAction)
+}
+
+@available(iOS 17.0, *)
+struct PauseRecordingIntent: AppIntent {
+    static var title: LocalizedStringResource = "Pause Recording"
+    static var openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult {
+        storeControlAction(.pause)
+        return .result()
+    }
+}
+
+@available(iOS 17.0, *)
+struct ResumeRecordingIntent: AppIntent {
+    static var title: LocalizedStringResource = "Resume Recording"
+    static var openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult {
+        storeControlAction(.resume)
+        return .result()
+    }
+}
+
+@available(iOS 17.0, *)
+struct StopRecordingIntent: AppIntent {
+    static var title: LocalizedStringResource = "Stop Recording"
+    static var openAppWhenRun = true
+
+    func perform() async throws -> some IntentResult {
+        storeControlAction(.stop)
+        return .result()
+    }
 }

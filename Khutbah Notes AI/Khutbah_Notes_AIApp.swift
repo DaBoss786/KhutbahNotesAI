@@ -50,6 +50,11 @@ struct Khutbah_Notes_AIApp: App {
                 }
             }
             .environmentObject(store)
+            .onOpenURL { url in
+                if let action = RecordingDeepLink.action(from: url) {
+                    RecordingActionStore.setRouteAction(action)
+                }
+            }
         }
     }
     

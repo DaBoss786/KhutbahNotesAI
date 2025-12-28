@@ -3,11 +3,12 @@ import AVFoundation
 
 struct RecordLectureView: View {
     @Binding var selectedTab: Int
+    @Binding var pendingRouteAction: RecordingRouteAction?
     var onShowToast: ((String, String?, (() -> Void)?) -> Void)? = nil
     var onShowPaywall: (() -> Void)? = nil
     
     @EnvironmentObject var store: LectureStore
-    @StateObject private var recordingManager = RecordingManager()
+    @StateObject private var recordingManager = RecordingManager.shared
     @State private var showTitleSheet = false
     @State private var titleText = ""
     @State private var animatePulse = false
@@ -82,6 +83,7 @@ struct RecordLectureView: View {
         }
         .onAppear {
             if recordingManager.isRecording { startPulse() }
+            handlePendingRouteAction()
         }
         .onChange(of: recordingManager.isRecording) { isRecording in
             if isRecording {
@@ -93,6 +95,9 @@ struct RecordLectureView: View {
         }
         .onChange(of: recordingManager.elapsedTime) { _ in
             handleLimitTick()
+        }
+        .onChange(of: pendingRouteAction) { _ in
+            handlePendingRouteAction()
         }
         .alert("Discard recording?", isPresented: $showDiscardAlert) {
             Button("Delete", role: .destructive) {
@@ -131,7 +136,7 @@ struct RecordLectureView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 
-                if limitReachedMessage == nil {
+                if recordingManager.isPaused && limitReachedMessage == nil {
                     Button(action: resumeRecordingTapped) {
                         Text("Resume Recording")
                             .frame(maxWidth: .infinity)
@@ -212,6 +217,7 @@ struct RecordLectureView: View {
             onError: handleUploadError
         )
         
+        recordingManager.clearLastRecording()
         hasSavedRecording = true
         showTitleSheet = false
         titleText = ""
@@ -231,16 +237,11 @@ struct RecordLectureView: View {
     }
     
     private func discardRecording() {
-        guard recordingManager.isRecording else {
-            showTitleSheet = false
-            titleText = ""
-            return
-        }
-        
         let url = recordingManager.stopRecording()
         if let url = url {
             try? FileManager.default.removeItem(at: url)
         }
+        recordingManager.clearLastRecording()
         showTitleSheet = false
         titleText = ""
     }
@@ -351,6 +352,20 @@ struct RecordLectureView: View {
         didShowLimitWarning = false
         didAutoStopForLimit = false
         limitReachedMessage = nil
+    }
+
+    private func handlePendingRouteAction() {
+        guard let action = pendingRouteAction else { return }
+        defer { pendingRouteAction = nil }
+        switch action {
+        case .openRecording:
+            selectedTab = 1
+        case .showSaveCard:
+            selectedTab = 1
+            guard recordingManager.isRecording || recordingManager.isPaused || recordingManager.hasPendingRecording else { return }
+            titleText = titleText.isEmpty ? defaultTitle() : titleText
+            showTitleSheet = true
+        }
     }
     
     private func startPulse() {
@@ -688,7 +703,7 @@ struct ToastView: View {
 
 struct RecordLectureView_Previews: PreviewProvider {
     static var previews: some View {
-        RecordLectureView(selectedTab: .constant(1))
+        RecordLectureView(selectedTab: .constant(1), pendingRouteAction: .constant(nil))
             .environmentObject(LectureStore())
     }
 }

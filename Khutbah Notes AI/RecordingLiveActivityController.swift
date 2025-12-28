@@ -16,10 +16,15 @@ final class RecordingLiveActivityController {
 
     func startOrUpdate(isPaused: Bool, elapsed: TimeInterval) {
         if activity == nil {
-            start(isPaused: isPaused, elapsed: elapsed)
-        } else {
-            update(isPaused: isPaused, elapsed: elapsed)
+            if attachToExistingActivityIfNeeded() {
+                update(isPaused: isPaused, elapsed: elapsed)
+            } else {
+                start(isPaused: isPaused, elapsed: elapsed)
+            }
+            return
         }
+
+        update(isPaused: isPaused, elapsed: elapsed)
     }
 
     func start(isPaused: Bool, elapsed: TimeInterval) {
@@ -44,6 +49,7 @@ final class RecordingLiveActivityController {
     }
 
     func update(isPaused: Bool, elapsed: TimeInterval) {
+        if activity == nil, !attachToExistingActivityIfNeeded() { return }
         guard let activity else { return }
         Task {
             await activity.update(using: makeContentState(isPaused: isPaused, elapsed: elapsed))
@@ -51,9 +57,17 @@ final class RecordingLiveActivityController {
     }
 
     func end(finalElapsed: TimeInterval) {
-        guard let activity else { return }
+        let endState = makeContentState(isPaused: true, elapsed: finalElapsed)
+        guard let activity else {
+            Task {
+                for activity in Activity<OneSignalWidgetAttributes>.activities {
+                    await activity.end(using: endState, dismissalPolicy: .immediate)
+                }
+            }
+            return
+        }
         Task {
-            await activity.end(using: makeContentState(isPaused: true, elapsed: finalElapsed), dismissalPolicy: .immediate)
+            await activity.end(using: endState, dismissalPolicy: .immediate)
         }
         self.activity = nil
     }
@@ -66,5 +80,12 @@ final class RecordingLiveActivityController {
             elapsed: elapsed,
             onesignal: nil
         )
+    }
+
+    private func attachToExistingActivityIfNeeded() -> Bool {
+        guard activity == nil else { return true }
+        guard let existing = Activity<OneSignalWidgetAttributes>.activities.first else { return false }
+        activity = existing
+        return true
     }
 }
