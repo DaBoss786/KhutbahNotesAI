@@ -3550,6 +3550,10 @@ function isPlainRecord(value: unknown): value is RevenueCatEvent {
 const ONESIGNAL_APP_ID = "290aa0ce-8c6c-4e7d-84c1-914fbdac66f1";
 const adminToken = defineSecret("ADMIN_TOKEN");
 const FIRESTORE_BATCH_SIZE = 500;
+const WEEKLY_ACTION_TIME = "21:00";
+const WEEKLY_ACTION_WEEKDAY = 2;
+const WEEKLY_ACTION_PLACEHOLDER =
+  /^(no action mentioned|not mentioned)[.!?]*$/i;
 
 // ============== TYPES ==============
 
@@ -3570,6 +3574,20 @@ interface UserDoc {
 
 interface ScheduleGroup {
   userIds: string[];
+  time: string;
+  timezone: string;
+  sendAfterUtc: string;
+}
+
+interface WeeklyActionNotification {
+  userId: string;
+  lectureId: string;
+  weeklyAction: string;
+  preference: "push" | "provisional";
+}
+
+interface WeeklyActionGroup {
+  userActions: WeeklyActionNotification[];
   time: string;
   timezone: string;
   sendAfterUtc: string;
@@ -3677,7 +3695,48 @@ function isValidTimezone(tz: string): boolean {
   return dt.isValid;
 }
 
+/**
+ * Pick the first meaningful weekly action string from a list.
+ *
+ * @param {unknown} raw Weekly action candidates.
+ * @return {string|null} Trimmed action or null if none.
+ */
+function extractMeaningfulWeeklyAction(raw: unknown): string | null {
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+
+  for (const item of raw) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const trimmed = item.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (WEEKLY_ACTION_PLACEHOLDER.test(trimmed)) {
+      continue;
+    }
+    return trimmed;
+  }
+
+  return null;
+}
+
 // ============== DATE/TIME CALCULATIONS ==============
+
+/**
+ * Get the next given weekday, including today if it matches.
+ *
+ * @param {DateTime} fromDate Starting date.
+ * @param {number} weekday Luxon weekday (1=Monday..7=Sunday).
+ * @return {DateTime} The next matching weekday in the given zone.
+ */
+function getNextWeekday(fromDate: DateTime, weekday: number): DateTime {
+  const dayOfWeek = fromDate.weekday;
+  const daysUntil = (weekday - dayOfWeek + 7) % 7;
+  return fromDate.plus({days: daysUntil}).startOf("day");
+}
 
 /**
  * Get the next Friday, including today if it's Friday and before cutoff.
@@ -3701,6 +3760,50 @@ function getNextFriday(
 
   const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
   return fromDate.plus({days: daysUntilFriday || 7}).startOf("day");
+}
+
+/**
+ * Calculate UTC send_after for weekly action delivery.
+ *
+ * @param {string} timezone IANA timezone.
+ * @param {DateTime=} referenceDate Optional reference UTC time.
+ * @return {string|null} ISO string for send_after or null on error.
+ */
+function calculateWeeklyActionSendTime(
+  timezone: string,
+  referenceDate?: DateTime
+): string | null {
+  if (!isValidTimezone(timezone)) {
+    logger.error(`Invalid timezone: ${timezone}`);
+    return null;
+  }
+
+  const parsed = validateAndParseTime(WEEKLY_ACTION_TIME);
+  if (
+    !parsed.valid ||
+    parsed.hours === undefined ||
+    parsed.minutes === undefined
+  ) {
+    logger.error(
+      `Invalid weekly action time: ${WEEKLY_ACTION_TIME} - ${parsed.error}`
+    );
+    return null;
+  }
+
+  const now = referenceDate || DateTime.utc();
+  const nowInTz = now.setZone(timezone);
+  let sendLocal = getNextWeekday(nowInTz, WEEKLY_ACTION_WEEKDAY).set({
+    hour: parsed.hours,
+    minute: parsed.minutes,
+    second: 0,
+    millisecond: 0,
+  });
+
+  if (sendLocal <= nowInTz) {
+    sendLocal = sendLocal.plus({days: 7});
+  }
+
+  return sendLocal.toUTC().toISO();
 }
 
 /**
@@ -3902,7 +4005,389 @@ async function sendSummaryReadyNotification(
   }
 }
 
+/**
+ * Send a weekly action notification via OneSignal.
+ *
+ * @param {string} userId OneSignal external ID.
+ * @param {string} lectureId Lecture document ID.
+ * @param {string} weeklyAction Weekly action text.
+ * @param {"push" | "provisional"} preference Notification preference.
+ * @param {string} sendAfterUtc ISO send_after in UTC.
+ * @param {string} apiKey OneSignal REST API key.
+ * @return {Promise<SendResult>} OneSignal response outcome.
+ */
+async function sendWeeklyActionNotification(
+  userId: string,
+  lectureId: string,
+  weeklyAction: string,
+  preference: "push" | "provisional",
+  sendAfterUtc: string,
+  apiKey: string
+): Promise<SendResult> {
+  const trimmedAction = weeklyAction.trim();
+  if (!trimmedAction) {
+    return {success: false, error: "weekly_action_empty"};
+  }
+
+  const payload = {
+    app_id: ONESIGNAL_APP_ID,
+    include_aliases: {
+      external_id: [userId],
+    },
+    target_channel: "push",
+    headings: {
+      en: "Weekly Action",
+    },
+    contents: {
+      en: trimmedAction,
+    },
+    data: {
+      type: "weekly_action",
+      lectureId,
+    },
+    send_after: sendAfterUtc,
+    collapse_id: `weekly-action-${lectureId}`,
+    ttl: 86400,
+    ios_interruption_level: preference === "provisional" ? "passive" : "active",
+  };
+
+  try {
+    const res = await fetch("https://api.onesignal.com/notifications?c=push", {
+      method: "POST",
+      headers: {
+        "Authorization": `Key ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      logger.error("OneSignal API error (weekly action):", data);
+      return {success: false, error: JSON.stringify(data)};
+    }
+
+    const invalidAliases = data.errors?.invalid_aliases?.external_id;
+    if (invalidAliases?.length) {
+      logger.warn(
+        `${invalidAliases.length} users not found in OneSignal (weekly action)`
+      );
+    }
+
+    return {
+      success: true,
+      id: data.id,
+      invalidAliases,
+    };
+  } catch (error) {
+    return {success: false, error: String(error)};
+  }
+}
+
 // ============== SCHEDULED FUNCTIONS ==============
+
+/**
+ * Find the most recent weekly action within a time window.
+ *
+ * @param {string} userId User document ID.
+ * @param {admin.firestore.Timestamp} since Minimum summarizedAt timestamp.
+ * @return {Promise<{lectureId: string, weeklyAction: string} | null>}
+ */
+async function getRecentWeeklyActionForUser(
+  userId: string,
+  since: admin.firestore.Timestamp
+): Promise<{lectureId: string; weeklyAction: string} | null> {
+  const lecturesSnap = await db
+    .collection("users")
+    .doc(userId)
+    .collection("lectures")
+    .where("summarizedAt", ">=", since)
+    .orderBy("summarizedAt", "desc")
+    .get();
+
+  for (const lectureDoc of lecturesSnap.docs) {
+    const lecture = lectureDoc.data();
+    const weeklyAction = extractMeaningfulWeeklyAction(
+      lecture.summary?.weeklyActions
+    );
+    if (weeklyAction) {
+      return {lectureId: lectureDoc.id, weeklyAction};
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Core scheduling runner for weekly actions.
+ *
+ * @param {string} runLabel Label for logging.
+ * @param {DateTime} now Current UTC time reference.
+ * @return {Promise<void>} Resolves when scheduling completes.
+ */
+async function runWeeklyActionScheduling(
+  runLabel: string,
+  now: DateTime
+): Promise<void> {
+  const dayName = now.weekdayLong;
+  logger.info(
+    `Starting weekly action scheduling (${runLabel}, ${dayName} run)...`
+  );
+
+  const apiKey = onesignalApiKey.value();
+  if (!apiKey) {
+    logger.error("ONESIGNAL_API_KEY not configured");
+    return;
+  }
+
+  const todayKey = now.toISODate();
+  const existingRun = await db
+    .collection("notificationLogs")
+    .where("type", "==", "weekly_action")
+    .where("runDate", "==", todayKey)
+    .where("success", "==", true)
+    .limit(1)
+    .get();
+
+  if (!existingRun.empty) {
+    logger.info(`Already ran successfully today (${todayKey}), skipping`);
+    return;
+  }
+
+  try {
+    const groups: Map<string, WeeklyActionGroup> = new Map();
+    let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+    let totalProcessed = 0;
+    let skippedNoPrefs = 0;
+    let skippedNotEnabled = 0;
+    let skippedInvalidTz = 0;
+    let skippedNoWeeklyActions = 0;
+    let skippedPastSendTime = 0;
+
+    const cutoff = now.minus({days: 7});
+    const cutoffTs = admin.firestore.Timestamp.fromMillis(cutoff.toMillis());
+
+    let hasMore = true;
+    while (hasMore) {
+      let query = db
+        .collection("users")
+        .orderBy("__name__")
+        .limit(FIRESTORE_BATCH_SIZE);
+
+      if (lastDoc) {
+        query = query.startAfter(lastDoc);
+      }
+
+      const snapshot = await query.get();
+
+      if (snapshot.empty) {
+        hasMore = false;
+        break;
+      }
+
+      lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+      for (const doc of snapshot.docs) {
+        totalProcessed++;
+        const data = doc.data() as UserDoc;
+        const prefs = data.preferences;
+
+        if (!prefs) {
+          skippedNoPrefs++;
+          continue;
+        }
+
+        const notifPref = prefs.notificationPreference;
+        if (notifPref !== "push" && notifPref !== "provisional") {
+          skippedNotEnabled++;
+          continue;
+        }
+
+        const timezone = prefs.jumuahTimezone;
+        if (!timezone || !isValidTimezone(timezone)) {
+          skippedInvalidTz++;
+          continue;
+        }
+
+        const weeklyActionEntry = await getRecentWeeklyActionForUser(
+          doc.id,
+          cutoffTs
+        );
+        if (!weeklyActionEntry) {
+          skippedNoWeeklyActions++;
+          continue;
+        }
+
+        const sendAfterUtc = calculateWeeklyActionSendTime(timezone, now);
+        if (!sendAfterUtc) {
+          skippedInvalidTz++;
+          continue;
+        }
+
+        if (DateTime.fromISO(sendAfterUtc) < now) {
+          skippedPastSendTime++;
+          continue;
+        }
+
+        const groupKey = getGroupKey(WEEKLY_ACTION_TIME, timezone);
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, {
+            userActions: [],
+            time: WEEKLY_ACTION_TIME,
+            timezone,
+            sendAfterUtc,
+          });
+        }
+        const targetGroup = groups.get(groupKey);
+        if (targetGroup) {
+          targetGroup.userActions.push({
+            userId: doc.id,
+            lectureId: weeklyActionEntry.lectureId,
+            weeklyAction: weeklyActionEntry.weeklyAction,
+            preference: notifPref,
+          });
+        }
+      }
+
+      if (totalProcessed > 100000) {
+        logger.warn("Reached 100k user limit, stopping pagination");
+        break;
+      }
+    }
+
+    logger.info("Processed users for weekly actions", {
+      totalProcessed,
+      groupCount: groups.size,
+    });
+    logger.info("Skipped users", {
+      noPrefs: skippedNoPrefs,
+      notEnabled: skippedNotEnabled,
+      invalidTz: skippedInvalidTz,
+      noWeeklyActions: skippedNoWeeklyActions,
+      pastSendTime: skippedPastSendTime,
+    });
+
+    if (groups.size === 0) {
+      logger.info("No users to notify");
+      await logWeeklyActionRun(now, true, 0, 0, totalProcessed, {
+        skipped: {
+          noPrefs: skippedNoPrefs,
+          notEnabled: skippedNotEnabled,
+          invalidTz: skippedInvalidTz,
+          noWeeklyActions: skippedNoWeeklyActions,
+          pastSendTime: skippedPastSendTime,
+        },
+      });
+      return;
+    }
+
+    let successfulBatches = 0;
+    let failedBatches = 0;
+    let totalUsersTargeted = 0;
+    let totalInvalidAliases = 0;
+
+    for (const [, group] of groups) {
+      for (let i = 0; i < group.userActions.length; i += 2000) {
+        const batch = group.userActions.slice(i, i + 2000);
+        let batchFailures = 0;
+        let batchSuccesses = 0;
+        let batchInvalidAliases = 0;
+
+        for (const item of batch) {
+          const result = await sendWeeklyActionNotification(
+            item.userId,
+            item.lectureId,
+            item.weeklyAction,
+            item.preference,
+            group.sendAfterUtc,
+            apiKey
+          );
+
+          if (result.success) {
+            batchSuccesses++;
+            if (result.invalidAliases) {
+              batchInvalidAliases += result.invalidAliases.length;
+            }
+          } else {
+            batchFailures++;
+            logger.error("Failed weekly action send", {
+              userId: item.userId,
+              lectureId: item.lectureId,
+              error: result.error,
+            });
+          }
+        }
+
+        totalUsersTargeted += batchSuccesses;
+        totalInvalidAliases += batchInvalidAliases;
+
+        if (batchFailures === 0) {
+          successfulBatches++;
+          logger.info("Scheduled weekly action batch", {
+            count: batchSuccesses,
+            timezone: group.timezone,
+            sendAfterUtc: group.sendAfterUtc,
+          });
+        } else {
+          failedBatches++;
+          logger.error("Weekly action batch had failures", {
+            successCount: batchSuccesses,
+            failureCount: batchFailures,
+            timezone: group.timezone,
+            sendAfterUtc: group.sendAfterUtc,
+          });
+        }
+
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
+    const success = failedBatches === 0;
+    await logWeeklyActionRun(
+      now,
+      success,
+      successfulBatches,
+      totalUsersTargeted,
+      totalProcessed,
+      {
+        failedBatches,
+        invalidAliases: totalInvalidAliases,
+        skipped: {
+          noPrefs: skippedNoPrefs,
+          notEnabled: skippedNotEnabled,
+          invalidTz: skippedInvalidTz,
+          noWeeklyActions: skippedNoWeeklyActions,
+          pastSendTime: skippedPastSendTime,
+        },
+      }
+    );
+
+    logger.info("Done scheduling weekly actions", {
+      successfulBatches,
+      totalUsersTargeted,
+      totalInvalidAliases,
+    });
+  } catch (error) {
+    logger.error("Error scheduling weekly actions:", error);
+    await logWeeklyActionRun(now, false, 0, 0, 0, {error: String(error)});
+    throw error;
+  }
+}
+
+export const scheduleWeeklyActionsPush = onSchedule(
+  {
+    schedule: "0 1 * * 2",
+    timeZone: "UTC",
+    secrets: [onesignalApiKey],
+    timeoutSeconds: 540,
+    retryCount: 2,
+    memory: "512MiB",
+  },
+  async () => {
+    await runWeeklyActionScheduling("Tuesday 01:00 UTC", DateTime.utc());
+  }
+);
 
 /**
  * Core scheduling runner used by both cron jobs.
@@ -4191,6 +4676,41 @@ async function logRun(
     });
   } catch (e) {
     logger.error("Failed to log run:", e);
+  }
+}
+
+/**
+ * Log the weekly action run result to Firestore.
+ *
+ * @param {DateTime} runTime Time of the run.
+ * @param {boolean} success Whether the run fully succeeded.
+ * @param {number} batches Number of batches sent.
+ * @param {number} users Number of users targeted.
+ * @param {number} totalProcessed Total users processed.
+ * @param {Record<string, unknown>=} extra Optional extra metadata.
+ * @return {Promise<void>} Resolves when log is written.
+ */
+async function logWeeklyActionRun(
+  runTime: DateTime,
+  success: boolean,
+  batches: number,
+  users: number,
+  totalProcessed: number,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await db.collection("notificationLogs").add({
+      type: "weekly_action",
+      runDate: runTime.toISODate(),
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      success,
+      batchesSent: batches,
+      usersTargeted: users,
+      usersProcessed: totalProcessed,
+      ...extra,
+    });
+  } catch (e) {
+    logger.error("Failed to log weekly action run:", e);
   }
 }
 
