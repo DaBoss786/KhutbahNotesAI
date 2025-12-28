@@ -1192,6 +1192,22 @@ struct LectureDetailView: View {
         
         return nil
     }
+    
+    private var isTranscriptProcessing: Bool {
+        !displayLecture.hasTranscript && (
+            displayLecture.status == .processing
+                || displayLecture.status == .summarizing
+        )
+    }
+    
+    private var transcriptStatusMessage: String {
+        switch displayLecture.status {
+        case .summarizing:
+            return "Finalizing transcript..."
+        default:
+            return "Transcribing audio..."
+        }
+    }
 
     private var failedContentCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1368,10 +1384,21 @@ struct LectureDetailView: View {
                                     .isEmpty
                             )
                         }
-                        Text(transcriptText ?? "Transcript will appear here once ready.")
-                            .font(transcriptBodyFont)
-                            .foregroundColor(Theme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
+                        if isTranscriptProcessing {
+                            HStack(alignment: .center, spacing: 8) {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                Text(transcriptStatusMessage)
+                                    .font(transcriptBodyFont)
+                                    .foregroundColor(Theme.mutedText)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        } else {
+                            Text(transcriptText ?? "Transcript will appear here once ready.")
+                                .font(transcriptBodyFont)
+                                .foregroundColor(Theme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
