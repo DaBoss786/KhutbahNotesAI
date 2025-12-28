@@ -33,53 +33,61 @@ struct OneSignalWidgetLiveActivity: Widget {
             let elapsedText = elapsedString(context.state.elapsed)
             let displayDate = context.state.startedAt
 
-            VStack(spacing: 14) {
-                HStack(spacing: 8) {
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
                     Image("KhutbahNotesLogoSmall")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 16, height: 16)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                    Text("Khutbah Notes")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(LiveActivityColors.brandGreen)
-                        .textCase(.uppercase)
-                        .tracking(1.0)
-                    Spacer()
-                    Text(isPaused ? "Paused" : "Recording")
-                        .font(.caption2.weight(.semibold))
-                        .textCase(.uppercase)
-                        .tracking(0.8)
-                        .foregroundColor(statusColor)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(isPaused ? LiveActivityColors.pausePill : LiveActivityColors.recordPill)
+                        .frame(width: 26, height: 26)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(LiveActivityColors.logoOutline, lineWidth: 1)
                         )
-                }
 
-                Group {
-                    if isPaused {
-                        Text(elapsedText)
-                    } else {
-                        Text(displayDate, style: .timer)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Khutbah Notes")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(LiveActivityColors.deepGreen)
+
+                        LiveActivityStatusLabel(isPaused: isPaused)
                     }
+
+                    Spacer()
+
+                    Image(systemName: "waveform")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(LiveActivityColors.mutedGreen)
                 }
-                .font(.system(size: 36, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundColor(LiveActivityColors.deepGreen)
 
                 if #available(iOS 17.0, *) {
-                    LiveActivityControls(isPaused: isPaused)
+                    HStack(spacing: 12) {
+                        LiveActivityTimerView(isPaused: isPaused, elapsedText: elapsedText, displayDate: displayDate)
+                        Spacer(minLength: 8)
+                        LiveActivityControls(isPaused: isPaused, layout: .lockScreen)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(LiveActivityColors.controlBackground)
+                    )
+                } else {
+                    HStack {
+                        Spacer()
+                        LiveActivityTimerView(isPaused: isPaused, elapsedText: elapsedText, displayDate: displayDate)
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(LiveActivityColors.controlBackground)
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(14)
             .activityBackgroundTint(LiveActivityColors.lockScreenBackground)
-            .activitySystemActionForegroundColor(.white)
+            .activitySystemActionForegroundColor(LiveActivityColors.deepGreen)
             .recordingWidgetLink()
         } dynamicIsland: { context in
             let isPaused = context.state.isPaused
@@ -103,33 +111,14 @@ struct OneSignalWidgetLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Group {
-                        if isPaused {
-                            Text(elapsedText)
-                        } else {
-                            Text(displayDate, style: .timer)
-                        }
-                    }
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundColor(LiveActivityColors.deepGreen)
+                    LiveActivityTimerView(isPaused: isPaused, elapsedText: elapsedText, displayDate: displayDate)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(spacing: 8) {
-                        Text(isPaused ? "Paused" : "Recording")
-                            .font(.caption2.weight(.semibold))
-                            .textCase(.uppercase)
-                            .tracking(0.8)
-                            .foregroundColor(statusColor)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(isPaused ? LiveActivityColors.pausePill : LiveActivityColors.recordPill)
-                            )
+                    VStack(spacing: 6) {
+                        LiveActivityStatusLabel(isPaused: isPaused)
 
                         if #available(iOS 17.0, *) {
-                            LiveActivityControls(isPaused: isPaused)
+                            LiveActivityControls(isPaused: isPaused, layout: .dynamicIsland)
                         }
                     }
                 }
@@ -220,9 +209,12 @@ private enum LiveActivityColors {
     static let deepGreen = Color(red: 0.07, green: 0.36, blue: 0.25)
     static let mutedGreen = Color(red: 0.07, green: 0.36, blue: 0.25).opacity(0.6)
     static let brandGreen = Color(red: 0.13, green: 0.61, blue: 0.39)
+    static let recordingDot = Color(red: 0.85, green: 0.25, blue: 0.22)
     static let pauseAccent = Color(red: 0.87, green: 0.55, blue: 0.20)
     static let stopAccent = Color(red: 0.70, green: 0.20, blue: 0.18)
     static let lockScreenBackground = Color(red: 0.98, green: 0.97, blue: 0.94)
+    static let controlBackground = Color(red: 0.91, green: 0.98, blue: 0.94)
+    static let logoOutline = Color(red: 0.87, green: 0.92, blue: 0.88)
     static let recordPill = Color(red: 0.20, green: 0.31, blue: 0.30)
     static let pausePill = Color(red: 0.33, green: 0.25, blue: 0.18)
 }
@@ -230,22 +222,25 @@ private enum LiveActivityColors {
 @available(iOS 17.0, *)
 private struct LiveActivityControls: View {
     let isPaused: Bool
+    let layout: LiveActivityControlLayout
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: layout.spacing) {
             if isPaused {
                 LiveActivityControlButton(
                     intent: ResumeRecordingIntent(),
                     title: "Resume",
                     systemImage: "play.fill",
-                    tint: LiveActivityColors.brandGreen
+                    tint: LiveActivityColors.brandGreen,
+                    layout: layout
                 )
             } else {
                 LiveActivityControlButton(
                     intent: PauseRecordingIntent(),
                     title: "Pause",
                     systemImage: "pause.fill",
-                    tint: LiveActivityColors.pauseAccent
+                    tint: LiveActivityColors.pauseAccent,
+                    layout: layout
                 )
             }
 
@@ -253,10 +248,10 @@ private struct LiveActivityControls: View {
                 intent: StopRecordingIntent(),
                 title: "Stop",
                 systemImage: "stop.fill",
-                tint: LiveActivityColors.stopAccent
+                tint: LiveActivityColors.stopAccent,
+                layout: layout
             )
         }
-        .controlSize(.small)
     }
 }
 
@@ -266,14 +261,116 @@ private struct LiveActivityControlButton<Intent: AppIntent>: View {
     let title: String
     let systemImage: String
     let tint: Color
+    let layout: LiveActivityControlLayout
 
     var body: some View {
         Button(intent: intent) {
             Label(title, systemImage: systemImage)
+                .font(layout.font)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, layout.horizontalPadding)
+                .padding(.vertical, layout.verticalPadding)
+                .foregroundColor(.white)
+                .background(
+                    Capsule()
+                        .fill(tint)
+                )
         }
-        .font(.caption2.weight(.semibold))
-        .tint(tint)
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.plain)
+    }
+}
+
+@available(iOS 17.0, *)
+private enum LiveActivityControlLayout {
+    case lockScreen
+    case dynamicIsland
+
+    var font: Font {
+        switch self {
+        case .lockScreen:
+            return .footnote.weight(.semibold)
+        case .dynamicIsland:
+            return .caption2.weight(.semibold)
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .lockScreen:
+            return 14
+        case .dynamicIsland:
+            return 10
+        }
+    }
+
+    var verticalPadding: CGFloat {
+        switch self {
+        case .lockScreen:
+            return 8
+        case .dynamicIsland:
+            return 6
+        }
+    }
+
+    var spacing: CGFloat {
+        switch self {
+        case .lockScreen:
+            return 10
+        case .dynamicIsland:
+            return 8
+        }
+    }
+}
+
+@available(iOS 16.1, *)
+private struct LiveActivityStatusLabel: View {
+    let isPaused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if isPaused {
+                Circle()
+                    .fill(LiveActivityColors.pauseAccent)
+                    .frame(width: 8, height: 8)
+            } else {
+                TimelineView(.animation) { context in
+                    let phase = context.date.timeIntervalSinceReferenceDate
+                    let pulse = (sin(phase * 2.0 * .pi * 0.8) + 1) / 2
+                    let scale = 0.85 + (0.25 * pulse)
+                    let opacity = 0.55 + (0.45 * pulse)
+
+                    Circle()
+                        .fill(LiveActivityColors.recordingDot)
+                        .frame(width: 8, height: 8)
+                        .scaleEffect(scale)
+                        .opacity(opacity)
+                }
+            }
+            Text(isPaused ? "Paused" : "Recording")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(LiveActivityColors.mutedGreen)
+        }
+    }
+}
+
+@available(iOS 16.1, *)
+private struct LiveActivityTimerView: View {
+    let isPaused: Bool
+    let elapsedText: String
+    let displayDate: Date
+
+    var body: some View {
+        Group {
+            if isPaused {
+                Text(elapsedText)
+            } else {
+                Text(displayDate, style: .timer)
+            }
+        }
+        .font(.system(size: 34, weight: .bold, design: .rounded))
+        .monospacedDigit()
+        .foregroundColor(LiveActivityColors.deepGreen)
     }
 }
 
