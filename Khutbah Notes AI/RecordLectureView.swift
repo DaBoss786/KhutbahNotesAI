@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UniformTypeIdentifiers
 
 struct RecordLectureView: View {
     @Binding var selectedTab: Int
@@ -17,6 +18,10 @@ struct RecordLectureView: View {
     @State private var didShowLimitWarning = false
     @State private var didAutoStopForLimit = false
     @State private var limitReachedMessage: String? = nil
+    @State private var showAudioPicker = false
+    @State private var showUploadTitleSheet = false
+    @State private var uploadTitleText = ""
+    @State private var selectedUploadURL: URL? = nil
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
     
     private enum RecordingLimitKind {
@@ -64,6 +69,7 @@ struct RecordLectureView: View {
                         controlRow
                     } else {
                         tapHint
+                        uploadButton
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -81,6 +87,14 @@ struct RecordLectureView: View {
                 namingSheet
             }
         }
+        .sheet(isPresented: $showUploadTitleSheet) {
+            if #available(iOS 16.0, *) {
+                uploadNamingSheet
+                    .presentationDetents([.medium, .large])
+            } else {
+                uploadNamingSheet
+            }
+        }
         .onAppear {
             if recordingManager.isRecording { startPulse() }
             handlePendingRouteAction()
@@ -96,6 +110,11 @@ struct RecordLectureView: View {
         .onChange(of: recordingManager.elapsedTime) { _ in
             handleLimitTick()
         }
+        .onChange(of: showUploadTitleSheet) { isPresented in
+            if !isPresented {
+                resetUploadSelection()
+            }
+        }
         .onChange(of: pendingRouteAction) { _ in
             handlePendingRouteAction()
         }
@@ -106,6 +125,31 @@ struct RecordLectureView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This will delete the current khutbah recording.")
+        }
+        .fileImporter(
+            isPresented: $showAudioPicker,
+            allowedContentTypes: [.audio],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                selectedUploadURL = url
+                uploadTitleText = url.deletingPathExtension().lastPathComponent
+                showUploadTitleSheet = true
+            case .failure(let error):
+                let nsError = error as NSError
+                if nsError.domain == NSCocoaErrorDomain,
+                   nsError.code == CocoaError.userCancelled.rawValue {
+                    return
+                }
+                print("Failed to pick audio file: \(error)")
+                onShowToast?(
+                    "Couldn't open that file. Please choose another audio file.",
+                    nil,
+                    nil
+                )
+            }
         }
     }
     
@@ -146,6 +190,43 @@ struct RecordLectureView: View {
                 
                 Button(role: .destructive, action: { showDiscardAlert = true }) {
                     Text("Discard")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 8)
+            
+            Spacer()
+        }
+        .padding()
+    }
+
+    private var uploadNamingSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Name your upload")
+                .font(.title2.bold())
+            
+            TextField("Lecture title", text: $uploadTitleText)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
+            
+            Text("We'll upload the audio and start transcription.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+            
+            VStack(spacing: 12) {
+                Button(action: uploadAudioTapped) {
+                    Text("Upload")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                
+                Button(action: {
+                    resetUploadSelection()
+                    showUploadTitleSheet = false
+                }) {
+                    Text("Cancel")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -228,6 +309,54 @@ struct RecordLectureView: View {
         )
         selectedTab = 0
     }
+
+    private func uploadAudioTapped() {
+        guard let fileURL = selectedUploadURL else {
+            showUploadTitleSheet = false
+            return
+        }
+        
+        let finalTitle = uploadTitleText.isEmpty ? defaultTitle() : uploadTitleText
+        var createdLectureId: String?
+        func handleUploadError(_ message: String) {
+            guard let lectureId = createdLectureId else {
+                onShowToast?(message, nil, nil)
+                return
+            }
+            
+            if message == store.uploadFailureMessageText {
+                onShowToast?(message, "Retry") {
+                    store.retryLectureUpload(
+                        lectureId: lectureId,
+                        onError: handleUploadError
+                    )
+                }
+            } else {
+                onShowToast?(message, nil, nil)
+            }
+        }
+        
+        createdLectureId = store.createLectureFromFile(
+            withTitle: finalTitle,
+            fileURL: fileURL,
+            onError: handleUploadError
+        )
+        
+        guard createdLectureId != nil else {
+            resetUploadSelection()
+            showUploadTitleSheet = false
+            return
+        }
+        
+        resetUploadSelection()
+        showUploadTitleSheet = false
+        onShowToast?(
+            "Audio saved. Transcription and summary will be available in a few minutes.",
+            nil,
+            nil
+        )
+        selectedTab = 0
+    }
     
     private func resumeRecordingTapped() {
         showTitleSheet = false
@@ -244,6 +373,11 @@ struct RecordLectureView: View {
         recordingManager.clearLastRecording()
         showTitleSheet = false
         titleText = ""
+    }
+
+    private func resetUploadSelection() {
+        selectedUploadURL = nil
+        uploadTitleText = ""
     }
     
     private func defaultTitle() -> String {
@@ -382,6 +516,22 @@ struct RecordLectureView: View {
     private func stopPulse() {
         animatePulse = false
         blinkDot = false
+    }
+
+    private var uploadButton: some View {
+        Button(action: { showAudioPicker = true }) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.and.arrow.up")
+                Text("Upload audio")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+            }
+            .foregroundColor(Theme.primaryGreen)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(Theme.primaryGreen.opacity(0.12))
+            .cornerRadius(14)
+        }
+        .buttonStyle(.plain)
     }
     
     private var tapHint: some View {

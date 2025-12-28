@@ -1078,6 +1078,7 @@ struct PromoBannerView: View {
 }
 
 struct LectureCardView: View {
+    @EnvironmentObject var store: LectureStore
     let lecture: Lecture
     
     private var dateText: String {
@@ -1093,6 +1094,10 @@ struct LectureCardView: View {
     private var durationText: String? {
         guard let minutes = lecture.durationMinutes else { return nil }
         return "\(minutes) mins"
+    }
+
+    private var isUploading: Bool {
+        store.activeUploads.contains(lecture.id)
     }
     
     var body: some View {
@@ -1123,6 +1128,11 @@ struct LectureCardView: View {
             }
             
             Spacer()
+
+            if isUploading {
+                ProgressView()
+                    .progressViewStyle(.circular)
+            }
         }
         .padding()
         .background(Theme.cardBackground)
@@ -2436,6 +2446,7 @@ struct SettingsView: View {
 
 #Preview("Lecture Card") {
     LectureCardView(lecture: .mock)
+        .environmentObject(LectureStore())
         .padding()
         .background(Theme.background)
 }

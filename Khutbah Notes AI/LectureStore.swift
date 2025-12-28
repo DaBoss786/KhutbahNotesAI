@@ -63,8 +63,13 @@ final class LectureStore: ObservableObject {
     private let uploadFailureMessage = "Upload failed - tap to retry"
     private let uploadRetryDelays: [TimeInterval] = [1, 3, 9]
     private let maxUploadAttempts = 3
+    private let maxUploadFileSizeBytes: Int64 = 100 * 1024 * 1024
+    private let supportedAudioExtensions: Set<String> = [
+        "m4a", "mp3", "wav", "aac", "m4b", "aif", "aiff", "caf"
+    ]
     private var pendingUploadURLs: [String: URL] = [:]
-    private var activeUploads: Set<String> = []
+    private var pendingUploadSources: [String: URL] = [:]
+    @Published private(set) var activeUploads: Set<String> = []
     
     init(seedMockData: Bool = false) {
         if seedMockData {
@@ -131,6 +136,10 @@ final class LectureStore: ObservableObject {
     func updateLecture(_ lecture: Lecture) {
         guard let index = lectures.firstIndex(where: { $0.id == lecture.id }) else { return }
         lectures[index] = lecture
+    }
+
+    var uploadFailureMessageText: String {
+        uploadFailureMessage
     }
 
     func requestSummaryTranslation(
@@ -572,29 +581,162 @@ final class LectureStore: ObservableObject {
         return lectureId
     }
 
+    @discardableResult
+    func createLectureFromFile(
+        withTitle title: String,
+        fileURL: URL,
+        onError: ((String) -> Void)? = nil
+    ) -> String? {
+        guard let userId = userId else {
+            print("No userId set on LectureStore; cannot create lecture.")
+            return nil
+        }
+        
+        if let validationError = validatePickedAudioFile(at: fileURL) {
+            onError?(validationError)
+            return nil
+        }
+        
+        let lectureId = UUID().uuidString
+        let now = Date()
+        let audioPath = "audio/\(userId)/\(lectureId).m4a"
+        let durationMinutes = durationMinutes(for: fileURL)
+        
+        let newLecture = Lecture(
+            id: lectureId,
+            title: title,
+            date: now,
+            durationMinutes: durationMinutes,
+            chargedMinutes: nil,
+            isFavorite: false,
+            status: .processing,
+            quotaReason: nil,
+            transcript: nil,
+            transcriptFormatted: nil,
+            summary: nil,
+            audioPath: audioPath,
+            folderId: nil,
+            folderName: nil
+        )
+        
+        lectures.insert(newLecture, at: 0)
+        pendingUploadSources[lectureId] = fileURL
+        Task { [weak self] in
+            await self?.uploadLectureFromFileWithRetry(
+                lectureId: lectureId,
+                title: title,
+                sourceURL: fileURL,
+                audioPath: audioPath,
+                date: now,
+                durationMinutes: durationMinutes,
+                onError: onError
+            )
+        }
+        
+        return lectureId
+    }
+
     func retryLectureUpload(
         lectureId: String,
         onError: ((String) -> Void)? = nil
     ) {
-        guard let recordingURL = pendingUploadURLs[lectureId] else {
-            print("No pending recording URL found for lecture \(lectureId); cannot retry upload.")
-            return
-        }
         guard let lecture = lectures.first(where: { $0.id == lectureId }),
               let audioPath = lecture.audioPath else {
             print("Missing lecture metadata for retry upload \(lectureId).")
             return
         }
+
+        if let recordingURL = pendingUploadURLs[lectureId] {
+            if FileManager.default.fileExists(atPath: recordingURL.path) {
+                Task { [weak self] in
+                    await self?.uploadLectureAudioWithRetry(
+                        lectureId: lectureId,
+                        title: lecture.title,
+                        recordingURL: recordingURL,
+                        audioPath: audioPath,
+                        date: lecture.date,
+                        durationMinutes: lecture.durationMinutes,
+                        onError: onError
+                    )
+                }
+                return
+            } else {
+                pendingUploadURLs.removeValue(forKey: lectureId)
+            }
+        }
+
+        guard let sourceURL = pendingUploadSources[lectureId] else {
+            print("No pending recording URL found for lecture \(lectureId); cannot retry upload.")
+            return
+        }
+
         Task { [weak self] in
-            await self?.uploadLectureAudioWithRetry(
+            await self?.uploadLectureFromFileWithRetry(
                 lectureId: lectureId,
                 title: lecture.title,
-                recordingURL: recordingURL,
+                sourceURL: sourceURL,
                 audioPath: audioPath,
                 date: lecture.date,
                 durationMinutes: lecture.durationMinutes,
                 onError: onError
             )
+        }
+    }
+
+    private func uploadLectureFromFileWithRetry(
+        lectureId: String,
+        title: String,
+        sourceURL: URL,
+        audioPath: String,
+        date: Date,
+        durationMinutes: Int?,
+        onError: ((String) -> Void)? = nil
+    ) async {
+        guard let userId = userId else {
+            print("No userId set on LectureStore; cannot upload lecture.")
+            return
+        }
+        guard !activeUploads.contains(lectureId) else {
+            print("Upload already in progress for lecture \(lectureId).")
+            return
+        }
+        
+        do {
+            let prepared = try await prepareAudioFileForUpload(from: sourceURL, lectureId: lectureId)
+            pendingUploadURLs[lectureId] = prepared.url
+            
+            let resolvedDuration = prepared.durationMinutes ?? durationMinutes
+            if let preparedDuration = prepared.durationMinutes, preparedDuration != durationMinutes {
+                updateLocalLectureDuration(lectureId: lectureId, durationMinutes: preparedDuration)
+            }
+            
+            await uploadLectureAudioWithRetry(
+                lectureId: lectureId,
+                title: title,
+                recordingURL: prepared.url,
+                audioPath: audioPath,
+                date: date,
+                durationMinutes: resolvedDuration,
+                onError: onError
+            )
+        } catch {
+            let message = uploadPreparationMessage(for: error)
+            let shouldKeepSource = message == uploadFailureMessage
+            
+            if !shouldKeepSource {
+                pendingUploadSources.removeValue(forKey: lectureId)
+            }
+            
+            markUploadFailed(
+                userId: userId,
+                lectureId: lectureId,
+                title: title,
+                date: date,
+                durationMinutes: durationMinutes,
+                audioPath: audioPath,
+                errorMessage: message
+            )
+            onError?(message)
         }
     }
 
@@ -641,6 +783,7 @@ final class LectureStore: ObservableObject {
             do {
                 _ = try await putFileAsync(from: recordingURL, to: audioRef, metadata: uploadMetadata)
                 pendingUploadURLs.removeValue(forKey: lectureId)
+                pendingUploadSources.removeValue(forKey: lectureId)
                 print("Upload succeeded for lecture \(lectureId).")
                 updateLocalLectureStatus(lectureId: lectureId, status: .processing, errorMessage: nil)
                 saveLectureDocument(
@@ -752,12 +895,14 @@ final class LectureStore: ObservableObject {
         title: String,
         date: Date,
         durationMinutes: Int?,
-        audioPath: String
+        audioPath: String,
+        errorMessage: String? = nil
     ) {
+        let message = errorMessage ?? uploadFailureMessage
         updateLocalLectureStatus(
             lectureId: lectureId,
             status: .failed,
-            errorMessage: uploadFailureMessage
+            errorMessage: message
         )
         saveLectureDocument(
             userId: userId,
@@ -767,7 +912,7 @@ final class LectureStore: ObservableObject {
             durationMinutes: durationMinutes,
             audioPath: audioPath,
             status: "failed",
-            errorMessage: uploadFailureMessage
+            errorMessage: message
         )
     }
 
@@ -780,6 +925,13 @@ final class LectureStore: ObservableObject {
         var updated = lectures[index]
         updated.status = status
         updated.errorMessage = errorMessage
+        lectures[index] = updated
+    }
+
+    private func updateLocalLectureDuration(lectureId: String, durationMinutes: Int?) {
+        guard let index = lectures.firstIndex(where: { $0.id == lectureId }) else { return }
+        var updated = lectures[index]
+        updated.durationMinutes = durationMinutes
         lectures[index] = updated
     }
 
@@ -798,6 +950,186 @@ final class LectureStore: ObservableObject {
             }
         }
         return false
+    }
+
+    private func validatePickedAudioFile(at url: URL) -> String? {
+        let ext = url.pathExtension.lowercased()
+        guard supportedAudioExtensions.contains(ext) else {
+            return unsupportedAudioTypeMessage
+        }
+        if let sizeBytes = fileSizeBytes(at: url), sizeBytes > maxUploadFileSizeBytes {
+            return fileTooLargeMessage
+        }
+        return nil
+    }
+
+    private func fileSizeBytes(at url: URL) -> Int64? {
+        let accessGranted = url.startAccessingSecurityScopedResource()
+        defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+        
+        if let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+           values.isRegularFile == true,
+           let size = values.fileSize {
+            return Int64(size)
+        }
+        
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attributes[.size] as? NSNumber {
+            return size.int64Value
+        }
+        
+        return nil
+    }
+
+    private func uploadPreparationMessage(for error: Error) -> String {
+        if let prepError = error as? AudioUploadPreparationError {
+            switch prepError {
+            case .unsupportedFileType:
+                return unsupportedAudioTypeMessage
+            case .fileTooLarge:
+                return fileTooLargeMessage
+            case .unreadable:
+                return uploadFailureMessage
+            case .transcodeFailed:
+                return "Couldn't convert this file to M4A. Please choose another audio file."
+            }
+        }
+        return uploadFailureMessage
+    }
+
+    private var unsupportedAudioTypeMessage: String {
+        "Unsupported file type. Please choose a .m4a, .mp3, .wav, .aac, .m4b, .aif, .aiff, or .caf file."
+    }
+
+    private var fileTooLargeMessage: String {
+        "That file is too large. Please choose an audio file under 100 MB."
+    }
+
+    private struct PreparedAudioFile {
+        let url: URL
+        let durationMinutes: Int?
+    }
+
+    private enum AudioUploadPreparationError: Error {
+        case unsupportedFileType
+        case fileTooLarge
+        case unreadable
+        case transcodeFailed
+    }
+
+    private func prepareAudioFileForUpload(
+        from sourceURL: URL,
+        lectureId: String
+    ) async throws -> PreparedAudioFile {
+        let allowedExtensions = supportedAudioExtensions
+        let maxBytes = maxUploadFileSizeBytes
+        
+        return try await Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            let accessGranted = sourceURL.startAccessingSecurityScopedResource()
+            defer { if accessGranted { sourceURL.stopAccessingSecurityScopedResource() } }
+            
+            let sourceExtension = sourceURL.pathExtension.lowercased()
+            guard allowedExtensions.contains(sourceExtension) else {
+                throw AudioUploadPreparationError.unsupportedFileType
+            }
+            
+            let resourceValues = try sourceURL.resourceValues(forKeys: [
+                .isReadableKey,
+                .isRegularFileKey,
+                .fileSizeKey
+            ])
+            guard resourceValues.isReadable == true, resourceValues.isRegularFile == true else {
+                throw AudioUploadPreparationError.unreadable
+            }
+            if let fileSize = resourceValues.fileSize, Int64(fileSize) > maxBytes {
+                throw AudioUploadPreparationError.fileTooLarge
+            }
+            
+            let tempDirectory = fileManager.temporaryDirectory
+            let tempSourceURL = tempDirectory
+                .appendingPathComponent("upload-\(lectureId)-source")
+                .appendingPathExtension(sourceExtension)
+            if fileManager.fileExists(atPath: tempSourceURL.path) {
+                try fileManager.removeItem(at: tempSourceURL)
+            }
+            
+            var coordinationError: NSError?
+            var copyError: Error?
+            let coordinator = NSFileCoordinator()
+            coordinator.coordinate(readingItemAt: sourceURL, options: [], error: &coordinationError) { readingURL in
+                do {
+                    try fileManager.copyItem(at: readingURL, to: tempSourceURL)
+                } catch {
+                    copyError = error
+                }
+            }
+            
+            if let coordinationError {
+                throw coordinationError
+            }
+            if let copyError {
+                throw copyError
+            }
+            
+            if let attributes = try? fileManager.attributesOfItem(atPath: tempSourceURL.path),
+               let size = attributes[.size] as? NSNumber,
+               size.int64Value > maxBytes {
+                throw AudioUploadPreparationError.fileTooLarge
+            }
+            
+            var finalURL = tempSourceURL
+            if sourceExtension != "m4a" {
+                let outputURL = tempDirectory
+                    .appendingPathComponent("upload-\(lectureId)")
+                    .appendingPathExtension("m4a")
+                if fileManager.fileExists(atPath: outputURL.path) {
+                    try fileManager.removeItem(at: outputURL)
+                }
+                
+                let asset = AVURLAsset(url: tempSourceURL, options: [
+                    AVURLAssetPreferPreciseDurationAndTimingKey: true
+                ])
+                guard let exportSession = AVAssetExportSession(
+                    asset: asset,
+                    presetName: AVAssetExportPresetAppleM4A
+                ) else {
+                    throw AudioUploadPreparationError.transcodeFailed
+                }
+                
+                exportSession.outputURL = outputURL
+                exportSession.outputFileType = .m4a
+                exportSession.shouldOptimizeForNetworkUse = true
+                
+                finalURL = try await withCheckedThrowingContinuation { continuation in
+                    exportSession.exportAsynchronously {
+                        switch exportSession.status {
+                        case .completed:
+                            continuation.resume(returning: outputURL)
+                        case .failed, .cancelled:
+                            continuation.resume(throwing: AudioUploadPreparationError.transcodeFailed)
+                        default:
+                            continuation.resume(throwing: AudioUploadPreparationError.transcodeFailed)
+                        }
+                    }
+                }
+            }
+            
+            if let attributes = try? fileManager.attributesOfItem(atPath: finalURL.path),
+               let size = attributes[.size] as? NSNumber,
+               size.int64Value > maxBytes {
+                throw AudioUploadPreparationError.fileTooLarge
+            }
+            
+            let durationAsset = AVURLAsset(url: finalURL, options: [
+                AVURLAssetPreferPreciseDurationAndTimingKey: true
+            ])
+            let durationMinutes = LectureStore.durationMinutes(
+                fromSeconds: CMTimeGetSeconds(durationAsset.duration)
+            )
+            
+            return PreparedAudioFile(url: finalURL, durationMinutes: durationMinutes)
+        }.value
     }
     
     func createFolder(named name: String, folderId: String = UUID().uuidString) {
@@ -1090,7 +1422,7 @@ private extension LectureStore {
         return Self.durationMinutes(fromSeconds: CMTimeGetSeconds(asset.duration))
     }
     
-    static func durationMinutes(fromSeconds seconds: Double) -> Int? {
+    nonisolated static func durationMinutes(fromSeconds seconds: Double) -> Int? {
         guard seconds.isFinite, seconds > 0 else { return nil }
         let minutes = Int((seconds / 60).rounded())
         return max(1, minutes)
