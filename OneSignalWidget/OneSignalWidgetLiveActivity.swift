@@ -231,7 +231,9 @@ private struct LiveActivityControls: View {
                     intent: ResumeRecordingIntent(),
                     title: "Resume",
                     systemImage: "play.fill",
-                    tint: LiveActivityColors.brandGreen,
+                    foreground: .white,
+                    background: LiveActivityColors.brandGreen,
+                    border: nil,
                     layout: layout
                 )
             } else {
@@ -239,7 +241,9 @@ private struct LiveActivityControls: View {
                     intent: PauseRecordingIntent(),
                     title: "Pause",
                     systemImage: "pause.fill",
-                    tint: LiveActivityColors.pauseAccent,
+                    foreground: LiveActivityColors.brandGreen,
+                    background: .white,
+                    border: LiveActivityColors.brandGreen,
                     layout: layout
                 )
             }
@@ -248,7 +252,9 @@ private struct LiveActivityControls: View {
                 intent: StopRecordingIntent(),
                 title: "Stop",
                 systemImage: "stop.fill",
-                tint: LiveActivityColors.stopAccent,
+                foreground: .white,
+                background: LiveActivityColors.stopAccent,
+                border: nil,
                 layout: layout
             )
         }
@@ -260,7 +266,9 @@ private struct LiveActivityControlButton<Intent: AppIntent>: View {
     let intent: Intent
     let title: String
     let systemImage: String
-    let tint: Color
+    let foreground: Color
+    let background: Color
+    let border: Color?
     let layout: LiveActivityControlLayout
 
     var body: some View {
@@ -271,10 +279,14 @@ private struct LiveActivityControlButton<Intent: AppIntent>: View {
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, layout.horizontalPadding)
                 .padding(.vertical, layout.verticalPadding)
-                .foregroundColor(.white)
+                .foregroundColor(foreground)
                 .background(
                     Capsule()
-                        .fill(tint)
+                        .fill(background)
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(border ?? .clear, lineWidth: border == nil ? 0 : 1)
                 )
         }
         .buttonStyle(.plain)
