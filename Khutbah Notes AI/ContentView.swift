@@ -1995,11 +1995,14 @@ struct SummaryView<Actions: View>: View {
                                    content: summary.weeklyActions)
                 } else if !isBaseSummaryReady {
                     VStack(alignment: sectionAlignment, spacing: 12) {
-                        Text(statusMessage ?? "AI summary will appear here once processed.")
-                            .font(summaryBodyFont)
-                            .foregroundColor(Theme.mutedText)
-                            .multilineTextAlignment(textAlignment)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                            Text(statusMessage ?? "Generating summary...")
+                                .font(summaryBodyFont)
+                                .foregroundColor(Theme.mutedText)
+                        }
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                         
                         if showRetrySummary, let onRetrySummary {
                             SummaryRetryButton(action: onRetrySummary)
