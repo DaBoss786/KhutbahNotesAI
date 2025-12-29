@@ -69,6 +69,7 @@ final class LectureStore: ObservableObject {
     ]
     private var pendingUploadURLs: [String: URL] = [:]
     private var pendingUploadSources: [String: URL] = [:]
+    private var uploadAnalytics: [String: UploadAnalyticsContext] = [:]
     @Published private(set) var activeUploads: Set<String> = []
     
     init(seedMockData: Bool = false) {
@@ -140,6 +141,173 @@ final class LectureStore: ObservableObject {
 
     var uploadFailureMessageText: String {
         uploadFailureMessage
+    }
+    
+    private func startUploadAnalytics(
+        lectureId: String,
+        trigger: AudioUploadTrigger,
+        fileURL: URL
+    ) {
+        let uploadId = UUID().uuidString
+        let fileSizeBytes = fileSizeBytes(at: fileURL)
+        let fileDurationSeconds = fileDurationSeconds(for: fileURL)
+        let context = UploadAnalyticsContext(
+            uploadId: uploadId,
+            trigger: trigger,
+            fileSizeBytes: fileSizeBytes,
+            fileDurationSeconds: fileDurationSeconds,
+            uploadStart: nil
+        )
+        uploadAnalytics[lectureId] = context
+        AnalyticsManager.logAudioUploadAttempt(
+            uploadId: uploadId,
+            fileSizeBytes: fileSizeBytes,
+            fileDurationSeconds: fileDurationSeconds,
+            networkType: currentNetworkTypeValue(),
+            trigger: trigger
+        )
+    }
+    
+    private func ensureUploadAnalyticsContext(
+        lectureId: String,
+        trigger: AudioUploadTrigger,
+        fileURL: URL
+    ) -> UploadAnalyticsContext {
+        if let existing = uploadAnalytics[lectureId] {
+            return existing
+        }
+        startUploadAnalytics(lectureId: lectureId, trigger: trigger, fileURL: fileURL)
+        if let created = uploadAnalytics[lectureId] {
+            return created
+        }
+        return UploadAnalyticsContext(
+            uploadId: UUID().uuidString,
+            trigger: trigger,
+            fileSizeBytes: nil,
+            fileDurationSeconds: nil,
+            uploadStart: nil
+        )
+    }
+    
+    private func logUploadStarted(
+        lectureId: String,
+        trigger: AudioUploadTrigger,
+        fileURL: URL,
+        resume: Bool
+    ) -> UploadAnalyticsContext {
+        var context = ensureUploadAnalyticsContext(
+            lectureId: lectureId,
+            trigger: trigger,
+            fileURL: fileURL
+        )
+        if context.uploadStart == nil {
+            context.uploadStart = Date()
+            uploadAnalytics[lectureId] = context
+        }
+        AnalyticsManager.logAudioUploadStarted(uploadId: context.uploadId, resume: resume)
+        return context
+    }
+    
+    private func logUploadFailure(
+        lectureId: String,
+        stage: AudioUploadFailureStage,
+        errorCode: AudioUploadErrorCode,
+        retryable: Bool
+    ) {
+        let uploadId = uploadAnalytics[lectureId]?.uploadId ?? UUID().uuidString
+        AnalyticsManager.logAudioUploadFailed(
+            uploadId: uploadId,
+            failureStage: stage,
+            errorCode: errorCode,
+            networkType: currentNetworkTypeValue(),
+            retryable: retryable
+        )
+        uploadAnalytics.removeValue(forKey: lectureId)
+    }
+    
+    private func logUploadSuccess(
+        lectureId: String,
+        completion: UploadCompletionContext
+    ) {
+        let durationMs = Int((Date().timeIntervalSince(completion.uploadStartTime) * 1000).rounded())
+        AnalyticsManager.logAudioUploadSuccess(
+            uploadId: completion.uploadId,
+            totalBytes: completion.totalBytes,
+            durationMs: durationMs,
+            retriesCount: completion.retriesCount
+        )
+        uploadAnalytics.removeValue(forKey: lectureId)
+    }
+    
+    private func currentNetworkTypeValue() -> String {
+        NetworkTypeProvider.shared.currentNetworkType().rawValue
+    }
+    
+    private func normalizedUploadErrorCode(_ error: Error) -> AudioUploadErrorCode {
+        if let prepError = error as? AudioUploadPreparationError {
+            switch prepError {
+            case .fileTooLarge:
+                return .fileTooLarge
+            case .unsupportedFileType, .unreadable, .transcodeFailed:
+                return .client4xx
+            }
+        }
+        
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            if nsError.code == NSURLErrorTimedOut {
+                return .timeout
+            }
+            if nsError.code == NSURLErrorCancelled {
+                return .canceled
+            }
+            return .network
+        }
+        
+        if nsError.domain == StorageErrorDomain,
+           let code = StorageErrorCode(rawValue: nsError.code) {
+            switch code {
+            case .unauthenticated, .unauthorized:
+                return .auth
+            case .cancelled:
+                return .canceled
+            case .retryLimitExceeded:
+                return .network
+            case .quotaExceeded:
+                return .client4xx
+            case .unknown:
+                return .unknown
+            default:
+                return .unknown
+            }
+        }
+        
+        if nsError.domain == FirestoreErrorDomain,
+           let code = FirestoreErrorCode.Code(rawValue: nsError.code) {
+            switch code {
+            case .unauthenticated, .permissionDenied:
+                return .auth
+            case .deadlineExceeded:
+                return .timeout
+            case .unavailable:
+                return .network
+            case .resourceExhausted, .failedPrecondition, .invalidArgument:
+                return .client4xx
+            default:
+                return .unknown
+            }
+        }
+        
+        return .unknown
+    }
+    
+    private func isRetryable(errorCode: AudioUploadErrorCode) -> Bool {
+        switch errorCode {
+        case .network, .timeout, .server5xx:
+            return true
+        default:
+            return false
+        }
     }
 
     func requestSummaryTranslation(
@@ -567,6 +735,11 @@ final class LectureStore: ObservableObject {
         // Insert at top so UI feels instant; Firestore listener will overwrite as needed
         lectures.insert(newLecture, at: 0)
         pendingUploadURLs[lectureId] = recordingURL
+        startUploadAnalytics(
+            lectureId: lectureId,
+            trigger: .recording,
+            fileURL: recordingURL
+        )
         Task { [weak self] in
             await self?.uploadLectureAudioWithRetry(
                 lectureId: lectureId,
@@ -575,6 +748,8 @@ final class LectureStore: ObservableObject {
                 audioPath: audioPath,
                 date: now,
                 durationMinutes: durationMinutes,
+                trigger: .recording,
+                resume: false,
                 onError: onError
             )
         }
@@ -592,12 +767,26 @@ final class LectureStore: ObservableObject {
             return nil
         }
         
+        let lectureId = UUID().uuidString
+        startUploadAnalytics(
+            lectureId: lectureId,
+            trigger: .manual,
+            fileURL: fileURL
+        )
+        
         if let validationError = validatePickedAudioFile(at: fileURL) {
-            onError?(validationError)
+            let message = uploadPreparationMessage(for: validationError)
+            let errorCode = normalizedUploadErrorCode(validationError)
+            logUploadFailure(
+                lectureId: lectureId,
+                stage: .prepare,
+                errorCode: errorCode,
+                retryable: isRetryable(errorCode: errorCode)
+            )
+            onError?(message)
             return nil
         }
         
-        let lectureId = UUID().uuidString
         let now = Date()
         let audioPath = "audio/\(userId)/\(lectureId).m4a"
         let durationMinutes = durationMinutes(for: fileURL)
@@ -629,6 +818,8 @@ final class LectureStore: ObservableObject {
                 audioPath: audioPath,
                 date: now,
                 durationMinutes: durationMinutes,
+                trigger: .manual,
+                resume: false,
                 onError: onError
             )
         }
@@ -640,6 +831,10 @@ final class LectureStore: ObservableObject {
         lectureId: String,
         onError: ((String) -> Void)? = nil
     ) {
+        guard !activeUploads.contains(lectureId) else {
+            print("Upload already in progress for lecture \(lectureId).")
+            return
+        }
         guard let lecture = lectures.first(where: { $0.id == lectureId }),
               let audioPath = lecture.audioPath else {
             print("Missing lecture metadata for retry upload \(lectureId).")
@@ -648,6 +843,11 @@ final class LectureStore: ObservableObject {
 
         if let recordingURL = pendingUploadURLs[lectureId] {
             if FileManager.default.fileExists(atPath: recordingURL.path) {
+                startUploadAnalytics(
+                    lectureId: lectureId,
+                    trigger: .recording,
+                    fileURL: recordingURL
+                )
                 Task { [weak self] in
                     await self?.uploadLectureAudioWithRetry(
                         lectureId: lectureId,
@@ -656,6 +856,8 @@ final class LectureStore: ObservableObject {
                         audioPath: audioPath,
                         date: lecture.date,
                         durationMinutes: lecture.durationMinutes,
+                        trigger: .recording,
+                        resume: true,
                         onError: onError
                     )
                 }
@@ -670,6 +872,11 @@ final class LectureStore: ObservableObject {
             return
         }
 
+        startUploadAnalytics(
+            lectureId: lectureId,
+            trigger: .manual,
+            fileURL: sourceURL
+        )
         Task { [weak self] in
             await self?.uploadLectureFromFileWithRetry(
                 lectureId: lectureId,
@@ -678,6 +885,8 @@ final class LectureStore: ObservableObject {
                 audioPath: audioPath,
                 date: lecture.date,
                 durationMinutes: lecture.durationMinutes,
+                trigger: .manual,
+                resume: true,
                 onError: onError
             )
         }
@@ -690,9 +899,17 @@ final class LectureStore: ObservableObject {
         audioPath: String,
         date: Date,
         durationMinutes: Int?,
+        trigger: AudioUploadTrigger,
+        resume: Bool,
         onError: ((String) -> Void)? = nil
     ) async {
         guard let userId = userId else {
+            logUploadFailure(
+                lectureId: lectureId,
+                stage: .auth,
+                errorCode: .auth,
+                retryable: false
+            )
             print("No userId set on LectureStore; cannot upload lecture.")
             return
         }
@@ -700,6 +917,12 @@ final class LectureStore: ObservableObject {
             print("Upload already in progress for lecture \(lectureId).")
             return
         }
+        
+        _ = ensureUploadAnalyticsContext(
+            lectureId: lectureId,
+            trigger: trigger,
+            fileURL: sourceURL
+        )
         
         do {
             let prepared = try await prepareAudioFileForUpload(from: sourceURL, lectureId: lectureId)
@@ -717,6 +940,8 @@ final class LectureStore: ObservableObject {
                 audioPath: audioPath,
                 date: date,
                 durationMinutes: resolvedDuration,
+                trigger: trigger,
+                resume: resume,
                 onError: onError
             )
         } catch {
@@ -736,6 +961,13 @@ final class LectureStore: ObservableObject {
                 audioPath: audioPath,
                 errorMessage: message
             )
+            let errorCode = normalizedUploadErrorCode(error)
+            logUploadFailure(
+                lectureId: lectureId,
+                stage: .prepare,
+                errorCode: errorCode,
+                retryable: isRetryable(errorCode: errorCode)
+            )
             onError?(message)
         }
     }
@@ -747,9 +979,17 @@ final class LectureStore: ObservableObject {
         audioPath: String,
         date: Date,
         durationMinutes: Int?,
+        trigger: AudioUploadTrigger,
+        resume: Bool,
         onError: ((String) -> Void)? = nil
     ) async {
         guard let userId = userId else {
+            logUploadFailure(
+                lectureId: lectureId,
+                stage: .auth,
+                errorCode: .auth,
+                retryable: false
+            )
             print("No userId set on LectureStore; cannot upload lecture.")
             return
         }
@@ -767,6 +1007,12 @@ final class LectureStore: ObservableObject {
                 durationMinutes: durationMinutes,
                 audioPath: audioPath
             )
+            logUploadFailure(
+                lectureId: lectureId,
+                stage: .prepare,
+                errorCode: .client4xx,
+                retryable: false
+            )
             onError?(uploadFailureMessage)
             return
         }
@@ -777,6 +1023,15 @@ final class LectureStore: ObservableObject {
         let audioRef = storage.reference(withPath: audioPath)
         let uploadMetadata = StorageMetadata()
         uploadMetadata.contentType = "audio/m4a"
+        
+        let uploadContext = logUploadStarted(
+            lectureId: lectureId,
+            trigger: trigger,
+            fileURL: recordingURL,
+            resume: resume
+        )
+        let uploadStartTime = uploadContext.uploadStart ?? Date()
+        let totalBytes = fileSizeBytes(at: recordingURL)
         
         for attempt in 1...maxUploadAttempts {
             print("Uploading audio for lecture \(lectureId) (attempt \(attempt)/\(maxUploadAttempts))")
@@ -795,6 +1050,12 @@ final class LectureStore: ObservableObject {
                     audioPath: audioPath,
                     status: "processing",
                     errorMessage: nil,
+                    uploadCompletion: UploadCompletionContext(
+                        uploadId: uploadContext.uploadId,
+                        uploadStartTime: uploadStartTime,
+                        totalBytes: totalBytes,
+                        retriesCount: attempt - 1
+                    ),
                     onError: onError
                 )
                 return
@@ -815,6 +1076,13 @@ final class LectureStore: ObservableObject {
                     date: date,
                     durationMinutes: durationMinutes,
                     audioPath: audioPath
+                )
+                let errorCode = normalizedUploadErrorCode(error)
+                logUploadFailure(
+                    lectureId: lectureId,
+                    stage: .upload,
+                    errorCode: errorCode,
+                    retryable: isTransientUploadError(error)
                 )
                 onError?(uploadFailureMessage)
                 return
@@ -853,6 +1121,7 @@ final class LectureStore: ObservableObject {
         audioPath: String,
         status: String,
         errorMessage: String?,
+        uploadCompletion: UploadCompletionContext? = nil,
         onError: ((String) -> Void)? = nil
     ) {
         var docData: [String: Any] = [
@@ -883,8 +1152,24 @@ final class LectureStore: ObservableObject {
                             onError("Couldn't save lecture details. Please try again.")
                         }
                     }
+                    if let uploadCompletion {
+                        Task { @MainActor in
+                            let errorCode = self.normalizedUploadErrorCode(error)
+                            self.logUploadFailure(
+                                lectureId: lectureId,
+                                stage: .finalize,
+                                errorCode: errorCode,
+                                retryable: self.isRetryable(errorCode: errorCode)
+                            )
+                        }
+                    }
                 } else {
                     print("Lecture metadata saved to Firestore for \(lectureId)")
+                    if let uploadCompletion {
+                        Task { @MainActor in
+                            self.logUploadSuccess(lectureId: lectureId, completion: uploadCompletion)
+                        }
+                    }
                 }
             }
     }
@@ -952,13 +1237,13 @@ final class LectureStore: ObservableObject {
         return false
     }
 
-    private func validatePickedAudioFile(at url: URL) -> String? {
+    private func validatePickedAudioFile(at url: URL) -> AudioUploadPreparationError? {
         let ext = url.pathExtension.lowercased()
         guard supportedAudioExtensions.contains(ext) else {
-            return unsupportedAudioTypeMessage
+            return .unsupportedFileType
         }
         if let sizeBytes = fileSizeBytes(at: url), sizeBytes > maxUploadFileSizeBytes {
-            return fileTooLargeMessage
+            return .fileTooLarge
         }
         return nil
     }
@@ -1003,6 +1288,21 @@ final class LectureStore: ObservableObject {
 
     private var fileTooLargeMessage: String {
         "That file is too large. Please choose an audio file under 100 MB."
+    }
+
+    private struct UploadAnalyticsContext {
+        let uploadId: String
+        let trigger: AudioUploadTrigger
+        let fileSizeBytes: Int64?
+        let fileDurationSeconds: Int?
+        var uploadStart: Date?
+    }
+
+    private struct UploadCompletionContext {
+        let uploadId: String
+        let uploadStartTime: Date
+        let totalBytes: Int64?
+        let retriesCount: Int
     }
 
     private struct PreparedAudioFile {
@@ -1420,6 +1720,15 @@ private extension LectureStore {
             AVURLAssetPreferPreciseDurationAndTimingKey: true
         ])
         return Self.durationMinutes(fromSeconds: CMTimeGetSeconds(asset.duration))
+    }
+
+    func fileDurationSeconds(for recordingURL: URL) -> Int? {
+        let asset = AVURLAsset(url: recordingURL, options: [
+            AVURLAssetPreferPreciseDurationAndTimingKey: true
+        ])
+        let seconds = CMTimeGetSeconds(asset.duration)
+        guard seconds.isFinite, seconds > 0 else { return nil }
+        return Int(seconds.rounded())
     }
     
     nonisolated static func durationMinutes(fromSeconds seconds: Double) -> Int? {
