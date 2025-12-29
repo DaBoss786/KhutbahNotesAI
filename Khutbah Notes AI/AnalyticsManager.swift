@@ -50,6 +50,7 @@ enum AnalyticsParameterKey {
 }
 
 struct AnalyticsManager {
+    
     static func configure(isEnabled: Bool = true) {
         // Central toggle so consent wiring stays in one place.
         Analytics.setAnalyticsCollectionEnabled(isEnabled)
