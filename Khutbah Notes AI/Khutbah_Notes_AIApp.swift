@@ -10,6 +10,7 @@ import UIKit
 import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseAnalytics
 import RevenueCat
 import OneSignalFramework
 import OneSignalLiveActivities
@@ -23,6 +24,7 @@ struct Khutbah_Notes_AIApp: App {
     
     init() {
         FirebaseApp.configure()
+        AnalyticsManager.configure()
         
         // Configure RevenueCat
         Purchases.logLevel = .debug
@@ -61,6 +63,7 @@ struct Khutbah_Notes_AIApp: App {
     private func signInAnonymouslyIfNeeded(using store: LectureStore) {
         if let user = Auth.auth().currentUser {
             print("Firebase already signed in with uid: \(user.uid)")
+            AnalyticsManager.setUserId(user.uid)
             syncRevenueCatUser(with: user.uid)
             OneSignalIntegration.linkCurrentUser(with: user.uid)
             store.start(for: user.uid)
@@ -80,6 +83,7 @@ struct Khutbah_Notes_AIApp: App {
             
             print("Signed in anonymously with uid: \(user.uid)")
             DispatchQueue.main.async {
+                AnalyticsManager.setUserId(user.uid)
                 self.syncRevenueCatUser(with: user.uid)
                 OneSignalIntegration.linkCurrentUser(with: user.uid)
                 self.store.start(for: user.uid)
