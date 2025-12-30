@@ -22,6 +22,12 @@ import {
   QuotaError,
   type UserData,
 } from "./quota";
+import {
+  isEntitlementActive,
+  isRevenueCatEventStale,
+  resolveMonthlyMinutesUsed,
+  type ExistingBillingState,
+} from "./revenuecat";
 
 export {
   addOneMonth,
@@ -3051,22 +3057,62 @@ export const revenueCatWebhook = onRequest(
         const userRef = db.collection("users").doc(uid);
         const existingSnap = await tx.get(userRef);
         const existingUpdatedAt = existingSnap.get("rcUpdatedAt");
-        if (existingUpdatedAt instanceof admin.firestore.Timestamp) {
-          if (existingUpdatedAt.toMillis() >= updatedAt.getTime()) {
-            return {applied: false, reason: "stale"};
-          }
+        if (isRevenueCatEventStale(existingUpdatedAt, updatedAt)) {
+          return {
+            applied: false,
+            reason: "stale",
+            preservedUsage: false,
+            monthlyMinutesUsed: null,
+          };
         }
+        const existingData = existingSnap.exists ?
+          (existingSnap.data() as Record<string, unknown>) :
+          null;
+        const existingMonthlyUsed =
+          existingData && typeof existingData.monthlyMinutesUsed === "number" ?
+            existingData.monthlyMinutesUsed :
+            0;
+        const existingState: ExistingBillingState | null = existingData ?
+          {
+            plan:
+              typeof existingData.plan === "string" ? existingData.plan : null,
+            periodStart:
+              existingData.periodStart instanceof admin.firestore.Timestamp ?
+                existingData.periodStart :
+                null,
+            renewsAt:
+              existingData.renewsAt instanceof admin.firestore.Timestamp ?
+                existingData.renewsAt :
+                null,
+            monthlyMinutesUsed:
+              typeof existingData.monthlyMinutesUsed === "number" ?
+                existingData.monthlyMinutesUsed :
+                null,
+          } :
+          null;
+
+        const plan = active ? "premium" : "free";
+        const monthlyMinutesUsed = resolveMonthlyMinutesUsed(existingState, {
+          plan,
+          periodStart,
+          renewsAt,
+        });
+        const preservedUsage =
+          plan === "premium" &&
+          monthlyMinutesUsed === existingMonthlyUsed &&
+          existingMonthlyUsed > 0;
+
         const updates: Record<string, unknown> = {
-          plan: active ? "premium" : "free",
+          plan,
           monthlyKey,
-          monthlyMinutesUsed: 0,
+          monthlyMinutesUsed,
           periodStart: admin.firestore.Timestamp.fromDate(periodStart),
           renewsAt: admin.firestore.Timestamp.fromDate(renewsAt),
           ...metadata,
         };
 
         tx.set(userRef, updates, {merge: true});
-        return {applied: true};
+        return {applied: true, preservedUsage, monthlyMinutesUsed};
       });
 
       if (!result.applied) {
@@ -3078,6 +3124,15 @@ export const revenueCatWebhook = onRequest(
         });
         res.status(200).send("stale");
         return;
+      }
+
+      if (result.preservedUsage) {
+        logger.info("RevenueCat webhook preserved monthly usage", {
+          uid,
+          entitlement: entitlement.identifier,
+          eventType: entitlement.eventType ?? null,
+          monthlyMinutesUsed: result.monthlyMinutesUsed ?? null,
+        });
       }
 
       logger.info("RevenueCat webhook processed", {
@@ -3310,22 +3365,6 @@ function parseMillisToDate(value: number | null): Date | null {
  * @param {Date} now Current time.
  * @return {boolean} True if active.
  */
-function isEntitlementActive(
-  eventType: string | null,
-  expiresAt: Date | null,
-  now: Date
-): boolean {
-  if (eventType && eventType.toUpperCase() === "EXPIRATION") {
-    return false;
-  }
-
-  if (expiresAt) {
-    return expiresAt.getTime() > now.getTime();
-  }
-
-  return true;
-}
-
 /**
  * Build metadata fields to persist from the RC event.
  *
