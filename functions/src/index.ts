@@ -3039,15 +3039,23 @@ export const revenueCatWebhook = onRequest(
       addOneMonth(periodStart);
     const monthlyKey = getMonthlyKey(periodStart);
 
+    const updatedAt = entitlement.updatedAt ?? now;
     const metadata = buildRevenueCatMetadata(
       eventPayload,
-      entitlement,
-      now
+      {...entitlement, updatedAt},
+      updatedAt
     );
 
     try {
-      await db.runTransaction(async (tx) => {
+      const result = await db.runTransaction(async (tx) => {
         const userRef = db.collection("users").doc(uid);
+        const existingSnap = await tx.get(userRef);
+        const existingUpdatedAt = existingSnap.get("rcUpdatedAt");
+        if (existingUpdatedAt instanceof admin.firestore.Timestamp) {
+          if (existingUpdatedAt.toMillis() >= updatedAt.getTime()) {
+            return {applied: false, reason: "stale"};
+          }
+        }
         const updates: Record<string, unknown> = {
           plan: active ? "premium" : "free",
           monthlyKey,
@@ -3058,7 +3066,19 @@ export const revenueCatWebhook = onRequest(
         };
 
         tx.set(userRef, updates, {merge: true});
+        return {applied: true};
       });
+
+      if (!result.applied) {
+        logger.info("RevenueCat webhook ignored stale event", {
+          uid,
+          entitlement: entitlement.identifier,
+          eventType: entitlement.eventType ?? null,
+          incomingUpdatedAt: updatedAt.toISOString(),
+        });
+        res.status(200).send("stale");
+        return;
+      }
 
       logger.info("RevenueCat webhook processed", {
         uid,
