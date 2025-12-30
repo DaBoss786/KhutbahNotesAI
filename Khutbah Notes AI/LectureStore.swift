@@ -64,12 +64,14 @@ final class LectureStore: ObservableObject {
     private let uploadRetryDelays: [TimeInterval] = [1, 3, 9]
     private let maxUploadAttempts = 3
     private let maxUploadFileSizeBytes: Int64 = 100 * 1024 * 1024
+    private let transcriptionBackend = "internal"
     private let supportedAudioExtensions: Set<String> = [
         "m4a", "mp3", "wav", "aac", "m4b", "aif", "aiff", "caf"
     ]
     private var pendingUploadURLs: [String: URL] = [:]
     private var pendingUploadSources: [String: URL] = [:]
     private var uploadAnalytics: [String: UploadAnalyticsContext] = [:]
+    private var transcriptionAnalytics: [String: TranscriptionAnalyticsContext] = [:]
     @Published private(set) var activeUploads: Set<String> = []
     
     init(seedMockData: Bool = false) {
@@ -239,8 +241,137 @@ final class LectureStore: ObservableObject {
         uploadAnalytics.removeValue(forKey: lectureId)
     }
     
+    @discardableResult
+    private func startTranscriptionAnalytics(
+        lectureId: String,
+        uploadId: String?,
+        fileSizeBytes: Int64?,
+        fileDurationSeconds: Int?,
+        trigger: TranscriptionTrigger,
+        languageHint: String?
+    ) -> TranscriptionAnalyticsContext {
+        if let existing = transcriptionAnalytics[lectureId] {
+            return existing
+        }
+        let context = TranscriptionAnalyticsContext(
+            transcriptionId: UUID().uuidString,
+            uploadId: uploadId,
+            audioSizeBytes: fileSizeBytes,
+            audioDurationSeconds: fileDurationSeconds,
+            trigger: trigger,
+            languageHint: languageHint,
+            requestStart: Date(),
+            requestSent: false,
+            retriesCount: 0
+        )
+        transcriptionAnalytics[lectureId] = context
+        AnalyticsManager.logTranscriptionRequestAttempt(
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            audioDurationSeconds: context.audioDurationSeconds,
+            audioSizeBytes: context.audioSizeBytes,
+            networkType: currentNetworkTypeValue(),
+            trigger: trigger,
+            languageHint: context.languageHint
+        )
+        return context
+    }
+    
+    private func logTranscriptionRequestSent(lectureId: String) {
+        guard var context = transcriptionAnalytics[lectureId], !context.requestSent else {
+            return
+        }
+        // Use audio size as a proxy for request payload size.
+        AnalyticsManager.logTranscriptionRequestSent(
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            backend: transcriptionBackend,
+            requestBytes: context.audioSizeBytes
+        )
+        context.requestSent = true
+        transcriptionAnalytics[lectureId] = context
+    }
+    
+    private func logTranscriptionFailure(
+        lectureId: String,
+        stage: TranscriptionFailureStage,
+        errorCode: TranscriptionErrorCode,
+        httpStatus: Int?,
+        retryable: Bool
+    ) {
+        guard let context = transcriptionAnalytics[lectureId] else { return }
+        AnalyticsManager.logTranscriptionFailed(
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            failureStage: stage,
+            errorCode: errorCode,
+            httpStatus: httpStatus,
+            retryable: retryable,
+            networkType: currentNetworkTypeValue()
+        )
+        transcriptionAnalytics.removeValue(forKey: lectureId)
+    }
+    
+    private func logTranscriptionSuccess(
+        lectureId: String,
+        transcript: String?
+    ) {
+        guard let context = transcriptionAnalytics[lectureId] else { return }
+        let processingMs: Int?
+        if let requestStart = context.requestStart {
+            processingMs = Int((Date().timeIntervalSince(requestStart) * 1000).rounded())
+        } else {
+            processingMs = nil
+        }
+        AnalyticsManager.logTranscriptionSuccess(
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            transcriptChars: transcript?.count,
+            processingMs: processingMs,
+            retriesCount: context.retriesCount
+        )
+        transcriptionAnalytics.removeValue(forKey: lectureId)
+    }
+    
+    private func handleTranscriptionAnalyticsUpdates(
+        previousById: [String: Lecture],
+        currentLectures: [Lecture]
+    ) {
+        for lecture in currentLectures {
+            guard transcriptionAnalytics[lecture.id] != nil else { continue }
+            let previous = previousById[lecture.id]
+            if lecture.hasTranscript && (previous?.hasTranscript != true) {
+                logTranscriptionSuccess(lectureId: lecture.id, transcript: lecture.transcript)
+                continue
+            }
+            if lecture.status == .failed || lecture.status == .blockedQuota {
+                let errorCode: TranscriptionErrorCode = lecture.status == .blockedQuota ? .quota : .unknown
+                logTranscriptionFailure(
+                    lectureId: lecture.id,
+                    stage: .processing,
+                    errorCode: errorCode,
+                    httpStatus: nil,
+                    retryable: isRetryable(errorCode: errorCode)
+                )
+            }
+        }
+    }
+    
     private func currentNetworkTypeValue() -> String {
         NetworkTypeProvider.shared.currentNetworkType().rawValue
+    }
+    
+    private func currentLanguageHintValue() -> String? {
+        Locale.current.languageCode
+    }
+    
+    private func transcriptionTrigger(for uploadTrigger: AudioUploadTrigger) -> TranscriptionTrigger {
+        switch uploadTrigger {
+        case .manual:
+            return .manual
+        case .recording, .retake:
+            return .auto
+        }
     }
     
     private func normalizedUploadErrorCode(_ error: Error) -> AudioUploadErrorCode {
@@ -302,6 +433,48 @@ final class LectureStore: ObservableObject {
     }
     
     private func isRetryable(errorCode: AudioUploadErrorCode) -> Bool {
+        switch errorCode {
+        case .network, .timeout, .server5xx:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    private func normalizedTranscriptionErrorCode(_ error: Error) -> TranscriptionErrorCode {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            if nsError.code == NSURLErrorTimedOut {
+                return .timeout
+            }
+            if nsError.code == NSURLErrorCancelled {
+                return .canceled
+            }
+            return .network
+        }
+        
+        if nsError.domain == FirestoreErrorDomain,
+           let code = FirestoreErrorCode.Code(rawValue: nsError.code) {
+            switch code {
+            case .unauthenticated, .permissionDenied:
+                return .auth
+            case .deadlineExceeded:
+                return .timeout
+            case .unavailable:
+                return .network
+            case .resourceExhausted:
+                return .quota
+            case .invalidArgument, .failedPrecondition:
+                return .client4xx
+            default:
+                return .unknown
+            }
+        }
+        
+        return .unknown
+    }
+    
+    private func isRetryable(errorCode: TranscriptionErrorCode) -> Bool {
         switch errorCode {
         case .network, .timeout, .server5xx:
             return true
@@ -551,7 +724,12 @@ final class LectureStore: ObservableObject {
                     return
                 }
                 
-                self.lectures = documents.compactMap { doc in
+                var previousById: [String: Lecture] = [:]
+                previousById.reserveCapacity(self.lectures.count)
+                for lecture in self.lectures {
+                    previousById[lecture.id] = lecture
+                }
+                let updatedLectures: [Lecture] = documents.compactMap { doc in
                     let data = doc.data()
                     let id = doc.documentID
                     
@@ -631,8 +809,12 @@ final class LectureStore: ObservableObject {
                         folderName: folderName
                     )
                 }
-                
-                self.fillMissingDurationsIfNeeded(for: self.lectures)
+                self.handleTranscriptionAnalyticsUpdates(
+                    previousById: previousById,
+                    currentLectures: updatedLectures
+                )
+                self.lectures = updatedLectures
+                self.fillMissingDurationsIfNeeded(for: updatedLectures)
             }
         
         userListener = db.collection("users")
@@ -1045,6 +1227,14 @@ final class LectureStore: ObservableObject {
                 pendingUploadSources.removeValue(forKey: lectureId)
                 print("Upload succeeded for lecture \(lectureId).")
                 updateLocalLectureStatus(lectureId: lectureId, status: .processing, errorMessage: nil)
+                _ = startTranscriptionAnalytics(
+                    lectureId: lectureId,
+                    uploadId: uploadContext.uploadId,
+                    fileSizeBytes: uploadContext.fileSizeBytes ?? totalBytes,
+                    fileDurationSeconds: uploadContext.fileDurationSeconds,
+                    trigger: transcriptionTrigger(for: trigger),
+                    languageHint: currentLanguageHintValue()
+                )
                 saveLectureDocument(
                     userId: userId,
                     lectureId: lectureId,
@@ -1156,8 +1346,8 @@ final class LectureStore: ObservableObject {
                             onError("Couldn't save lecture details. Please try again.")
                         }
                     }
-                    if let uploadCompletion {
-                        Task { @MainActor in
+                    Task { @MainActor in
+                        if let uploadCompletion {
                             let errorCode = self.normalizedUploadErrorCode(error)
                             self.logUploadFailure(
                                 lectureId: lectureId,
@@ -1166,13 +1356,22 @@ final class LectureStore: ObservableObject {
                                 retryable: self.isRetryable(errorCode: errorCode)
                             )
                         }
+                        let transcriptionError = self.normalizedTranscriptionErrorCode(error)
+                        self.logTranscriptionFailure(
+                            lectureId: lectureId,
+                            stage: .request,
+                            errorCode: transcriptionError,
+                            httpStatus: nil,
+                            retryable: self.isRetryable(errorCode: transcriptionError)
+                        )
                     }
                 } else {
                     print("Lecture metadata saved to Firestore for \(lectureId)")
-                    if let uploadCompletion {
-                        Task { @MainActor in
+                    Task { @MainActor in
+                        if let uploadCompletion {
                             self.logUploadSuccess(lectureId: lectureId, completion: uploadCompletion)
                         }
+                        self.logTranscriptionRequestSent(lectureId: lectureId)
                     }
                 }
             }
@@ -1307,6 +1506,18 @@ final class LectureStore: ObservableObject {
         let uploadStartTime: Date
         let totalBytes: Int64?
         let retriesCount: Int
+    }
+    
+    private struct TranscriptionAnalyticsContext {
+        let transcriptionId: String
+        let uploadId: String?
+        let audioSizeBytes: Int64?
+        let audioDurationSeconds: Int?
+        let trigger: TranscriptionTrigger
+        let languageHint: String?
+        var requestStart: Date?
+        var requestSent: Bool
+        var retriesCount: Int
     }
 
     private struct PreparedAudioFile {
