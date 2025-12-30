@@ -10,6 +10,10 @@ enum AnalyticsEvent: String {
     case transcriptionRequestSent = "transcription_request_sent"
     case transcriptionFailed = "transcription_failed"
     case transcriptionSuccess = "transcription_success"
+    case summarizationRequestAttempt = "summarization_request_attempt"
+    case summarizationRequestSent = "summarization_request_sent"
+    case summarizationFailed = "summarization_failed"
+    case summarizationSuccess = "summarization_success"
 }
 
 enum AudioUploadTrigger: String {
@@ -62,9 +66,35 @@ enum TranscriptionErrorCode: String {
     case unknown
 }
 
+enum SummarizationTrigger: String {
+    case auto
+    case manual
+}
+
+enum SummarizationFailureStage: String {
+    case prepare
+    case auth
+    case request
+    case processing
+}
+
+enum SummarizationErrorCode: String {
+    // Keep this vocabulary tight for stable dashboards.
+    case auth
+    case network
+    case timeout
+    case server5xx = "server_5xx"
+    case client4xx = "client_4xx"
+    case invalidInput = "invalid_input"
+    case quota
+    case canceled
+    case unknown
+}
+
 enum AnalyticsParameterKey {
     static let uploadId = "upload_id"
     static let transcriptionId = "transcription_id"
+    static let summarizationId = "summarization_id"
     static let fileSize = "file_size"
     static let fileDuration = "file_duration"
     static let audioSize = "audio_size"
@@ -72,6 +102,7 @@ enum AnalyticsParameterKey {
     static let networkType = "network_type"
     static let trigger = "trigger"
     static let languageHint = "language_hint"
+    static let language = "language"
     static let backend = "backend"
     static let requestBytes = "request_bytes"
     static let resume = "resume"
@@ -84,6 +115,7 @@ enum AnalyticsParameterKey {
     static let processingMs = "processing_ms"
     static let retriesCount = "retries_count"
     static let transcriptChars = "transcript_chars"
+    static let summaryChars = "summary_chars"
     static let reason = "reason"
 }
 
@@ -216,6 +248,82 @@ struct AnalyticsManager {
             AnalyticsParameterKey.transcriptionId: transcriptionId,
             AnalyticsParameterKey.uploadId: uploadId,
             AnalyticsParameterKey.transcriptChars: transcriptChars,
+            AnalyticsParameterKey.processingMs: processingMs,
+            AnalyticsParameterKey.retriesCount: retriesCount
+        ])
+    }
+
+    static func logSummarizationRequestAttempt(
+        summarizationId: String,
+        transcriptionId: String?,
+        uploadId: String?,
+        transcriptChars: Int?,
+        language: String?,
+        networkType: String,
+        trigger: SummarizationTrigger
+    ) {
+        log(.summarizationRequestAttempt, parameters: [
+            AnalyticsParameterKey.summarizationId: summarizationId,
+            AnalyticsParameterKey.transcriptionId: transcriptionId,
+            AnalyticsParameterKey.uploadId: uploadId,
+            AnalyticsParameterKey.transcriptChars: transcriptChars,
+            AnalyticsParameterKey.language: language,
+            AnalyticsParameterKey.networkType: networkType,
+            AnalyticsParameterKey.trigger: trigger.rawValue
+        ])
+    }
+
+    static func logSummarizationRequestSent(
+        summarizationId: String,
+        transcriptionId: String?,
+        uploadId: String?,
+        backend: String,
+        requestBytes: Int64?
+    ) {
+        log(.summarizationRequestSent, parameters: [
+            AnalyticsParameterKey.summarizationId: summarizationId,
+            AnalyticsParameterKey.transcriptionId: transcriptionId,
+            AnalyticsParameterKey.uploadId: uploadId,
+            AnalyticsParameterKey.backend: backend,
+            AnalyticsParameterKey.requestBytes: requestBytes
+        ])
+    }
+
+    static func logSummarizationFailed(
+        summarizationId: String,
+        transcriptionId: String?,
+        uploadId: String?,
+        failureStage: SummarizationFailureStage,
+        errorCode: SummarizationErrorCode,
+        httpStatus: Int?,
+        retryable: Bool,
+        networkType: String
+    ) {
+        log(.summarizationFailed, parameters: [
+            AnalyticsParameterKey.summarizationId: summarizationId,
+            AnalyticsParameterKey.transcriptionId: transcriptionId,
+            AnalyticsParameterKey.uploadId: uploadId,
+            AnalyticsParameterKey.failureStage: failureStage.rawValue,
+            AnalyticsParameterKey.errorCode: errorCode.rawValue,
+            AnalyticsParameterKey.httpStatus: httpStatus,
+            AnalyticsParameterKey.retryable: retryable,
+            AnalyticsParameterKey.networkType: networkType
+        ])
+    }
+
+    static func logSummarizationSuccess(
+        summarizationId: String,
+        transcriptionId: String?,
+        uploadId: String?,
+        summaryChars: Int?,
+        processingMs: Int?,
+        retriesCount: Int
+    ) {
+        log(.summarizationSuccess, parameters: [
+            AnalyticsParameterKey.summarizationId: summarizationId,
+            AnalyticsParameterKey.transcriptionId: transcriptionId,
+            AnalyticsParameterKey.uploadId: uploadId,
+            AnalyticsParameterKey.summaryChars: summaryChars,
             AnalyticsParameterKey.processingMs: processingMs,
             AnalyticsParameterKey.retriesCount: retriesCount
         ])

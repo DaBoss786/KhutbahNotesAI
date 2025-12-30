@@ -65,6 +65,7 @@ final class LectureStore: ObservableObject {
     private let maxUploadAttempts = 3
     private let maxUploadFileSizeBytes: Int64 = 100 * 1024 * 1024
     private let transcriptionBackend = "internal"
+    private let summarizationBackend = "internal"
     private let supportedAudioExtensions: Set<String> = [
         "m4a", "mp3", "wav", "aac", "m4b", "aif", "aiff", "caf"
     ]
@@ -72,6 +73,8 @@ final class LectureStore: ObservableObject {
     private var pendingUploadSources: [String: URL] = [:]
     private var uploadAnalytics: [String: UploadAnalyticsContext] = [:]
     private var transcriptionAnalytics: [String: TranscriptionAnalyticsContext] = [:]
+    private var summarizationAnalytics: [String: SummarizationAnalyticsContext] = [:]
+    private var transcriptionCorrelation: [String: TranscriptionCorrelationContext] = [:]
     @Published private(set) var activeUploads: Set<String> = []
     
     init(seedMockData: Bool = false) {
@@ -265,6 +268,10 @@ final class LectureStore: ObservableObject {
             retriesCount: 0
         )
         transcriptionAnalytics[lectureId] = context
+        transcriptionCorrelation[lectureId] = TranscriptionCorrelationContext(
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId
+        )
         AnalyticsManager.logTranscriptionRequestAttempt(
             transcriptionId: context.transcriptionId,
             uploadId: context.uploadId,
@@ -332,6 +339,102 @@ final class LectureStore: ObservableObject {
         )
         transcriptionAnalytics.removeValue(forKey: lectureId)
     }
+
+    @discardableResult
+    private func startSummarizationAnalytics(
+        lecture: Lecture,
+        trigger: SummarizationTrigger,
+        startedAt: Date?
+    ) -> SummarizationAnalyticsContext {
+        if let existing = summarizationAnalytics[lecture.id] {
+            return existing
+        }
+        let transcriptText = lecture.transcript ?? lecture.transcriptFormatted
+        let transcriptChars = transcriptText?.count
+        let transcriptBytes = transcriptText.map { Int64($0.utf8.count) }
+        let correlation = summarizationCorrelation(for: lecture.id)
+        let context = SummarizationAnalyticsContext(
+            summarizationId: UUID().uuidString,
+            transcriptionId: correlation?.transcriptionId,
+            uploadId: correlation?.uploadId,
+            transcriptChars: transcriptChars,
+            transcriptBytes: transcriptBytes,
+            language: currentLanguageHintValue(),
+            requestStart: startedAt ?? Date(),
+            requestSent: false,
+            retriesCount: 0
+        )
+        summarizationAnalytics[lecture.id] = context
+        AnalyticsManager.logSummarizationRequestAttempt(
+            summarizationId: context.summarizationId,
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            transcriptChars: context.transcriptChars,
+            language: context.language,
+            networkType: currentNetworkTypeValue(),
+            trigger: trigger
+        )
+        return context
+    }
+
+    private func logSummarizationRequestSent(lectureId: String) {
+        guard var context = summarizationAnalytics[lectureId], !context.requestSent else {
+            return
+        }
+        AnalyticsManager.logSummarizationRequestSent(
+            summarizationId: context.summarizationId,
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            backend: summarizationBackend,
+            requestBytes: context.transcriptBytes
+        )
+        context.requestSent = true
+        summarizationAnalytics[lectureId] = context
+    }
+
+    private func logSummarizationFailure(
+        lectureId: String,
+        stage: SummarizationFailureStage,
+        errorCode: SummarizationErrorCode,
+        httpStatus: Int?,
+        retryable: Bool
+    ) {
+        guard let context = summarizationAnalytics[lectureId] else { return }
+        AnalyticsManager.logSummarizationFailed(
+            summarizationId: context.summarizationId,
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            failureStage: stage,
+            errorCode: errorCode,
+            httpStatus: httpStatus,
+            retryable: retryable,
+            networkType: currentNetworkTypeValue()
+        )
+        summarizationAnalytics.removeValue(forKey: lectureId)
+    }
+
+    private func logSummarizationSuccess(
+        lectureId: String,
+        summary: LectureSummary?
+    ) {
+        guard let context = summarizationAnalytics[lectureId] else { return }
+        let processingMs: Int?
+        if let requestStart = context.requestStart {
+            processingMs = Int((Date().timeIntervalSince(requestStart) * 1000).rounded())
+        } else {
+            processingMs = nil
+        }
+        AnalyticsManager.logSummarizationSuccess(
+            summarizationId: context.summarizationId,
+            transcriptionId: context.transcriptionId,
+            uploadId: context.uploadId,
+            summaryChars: summaryCharCount(summary),
+            processingMs: processingMs,
+            retriesCount: context.retriesCount
+        )
+        summarizationAnalytics.removeValue(forKey: lectureId)
+        transcriptionCorrelation.removeValue(forKey: lectureId)
+    }
     
     private func handleTranscriptionAnalyticsUpdates(
         previousById: [String: Lecture],
@@ -355,6 +458,73 @@ final class LectureStore: ObservableObject {
                 )
             }
         }
+    }
+
+    private func handleSummarizationAnalyticsUpdates(
+        previousById: [String: Lecture],
+        currentLectures: [Lecture]
+    ) {
+        for lecture in currentLectures {
+            let previous = previousById[lecture.id]
+            if let startedAt = lecture.summaryInProgress?.startedAt,
+               var context = summarizationAnalytics[lecture.id] {
+                context.requestStart = startedAt
+                summarizationAnalytics[lecture.id] = context
+            }
+            let isSummarizing = lecture.status == .summarizing || lecture.summaryInProgress != nil
+            let wasSummarizing = previous?.status == .summarizing || previous?.summaryInProgress != nil
+            if isSummarizing && !wasSummarizing {
+                _ = startSummarizationAnalytics(
+                    lecture: lecture,
+                    trigger: .auto,
+                    startedAt: lecture.summaryInProgress?.startedAt
+                )
+                logSummarizationRequestSent(lectureId: lecture.id)
+            } else if isSummarizing {
+                logSummarizationRequestSent(lectureId: lecture.id)
+            }
+            if lecture.summary != nil && (previous?.summary == nil) {
+                logSummarizationSuccess(lectureId: lecture.id, summary: lecture.summary)
+                continue
+            }
+            if lecture.status == .failed || lecture.status == .blockedQuota {
+                let errorCode: SummarizationErrorCode = lecture.status == .blockedQuota ? .quota : .unknown
+                logSummarizationFailure(
+                    lectureId: lecture.id,
+                    stage: .processing,
+                    errorCode: errorCode,
+                    httpStatus: nil,
+                    retryable: isRetryable(errorCode: errorCode)
+                )
+            }
+        }
+    }
+
+    private func summarizationCorrelation(
+        for lectureId: String
+    ) -> TranscriptionCorrelationContext? {
+        if let active = transcriptionAnalytics[lectureId] {
+            return TranscriptionCorrelationContext(
+                transcriptionId: active.transcriptionId,
+                uploadId: active.uploadId
+            )
+        }
+        return transcriptionCorrelation[lectureId]
+    }
+
+    private func summaryCharCount(_ summary: LectureSummary?) -> Int? {
+        guard let summary else { return nil }
+        var count = summary.mainTheme.count
+        for point in summary.keyPoints {
+            count += point.count
+        }
+        for item in summary.explicitAyatOrHadith {
+            count += item.count
+        }
+        for action in summary.weeklyActions {
+            count += action.count
+        }
+        return count
     }
     
     private func currentNetworkTypeValue() -> String {
@@ -483,6 +653,52 @@ final class LectureStore: ObservableObject {
         }
     }
 
+    private func normalizedSummarizationErrorCode(_ error: Error) -> SummarizationErrorCode {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            if nsError.code == NSURLErrorTimedOut {
+                return .timeout
+            }
+            if nsError.code == NSURLErrorCancelled {
+                return .canceled
+            }
+            return .network
+        }
+
+        if nsError.domain == FirestoreErrorDomain,
+           let code = FirestoreErrorCode.Code(rawValue: nsError.code) {
+            switch code {
+            case .unauthenticated, .permissionDenied:
+                return .auth
+            case .deadlineExceeded:
+                return .timeout
+            case .unavailable:
+                return .network
+            case .resourceExhausted:
+                return .quota
+            case .invalidArgument, .outOfRange:
+                return .invalidInput
+            case .failedPrecondition, .alreadyExists, .notFound:
+                return .client4xx
+            case .cancelled:
+                return .canceled
+            default:
+                return .unknown
+            }
+        }
+
+        return .unknown
+    }
+
+    private func isRetryable(errorCode: SummarizationErrorCode) -> Bool {
+        switch errorCode {
+        case .network, .timeout, .server5xx:
+            return true
+        default:
+            return false
+        }
+    }
+
     func requestSummaryTranslation(
         for lecture: Lecture,
         language: SummaryTranslationLanguage
@@ -517,6 +733,12 @@ final class LectureStore: ObservableObject {
         }
         
         guard lecture.summary == nil else { return }
+        summarizationAnalytics.removeValue(forKey: lecture.id)
+        _ = startSummarizationAnalytics(
+            lecture: lecture,
+            trigger: .manual,
+            startedAt: Date()
+        )
         
         let data: [String: Any] = [
             "status": "transcribed",
@@ -530,7 +752,16 @@ final class LectureStore: ObservableObject {
                 .collection("lectures")
                 .document(lecture.id)
                 .updateData(data)
+            logSummarizationRequestSent(lectureId: lecture.id)
         } catch {
+            let errorCode = normalizedSummarizationErrorCode(error)
+            logSummarizationFailure(
+                lectureId: lecture.id,
+                stage: .request,
+                errorCode: errorCode,
+                httpStatus: nil,
+                retryable: isRetryable(errorCode: errorCode)
+            )
             print("Failed to retry summary: \(error.localizedDescription)")
         }
     }
@@ -810,6 +1041,10 @@ final class LectureStore: ObservableObject {
                     )
                 }
                 self.handleTranscriptionAnalyticsUpdates(
+                    previousById: previousById,
+                    currentLectures: updatedLectures
+                )
+                self.handleSummarizationAnalyticsUpdates(
                     previousById: previousById,
                     currentLectures: updatedLectures
                 )
@@ -1529,6 +1764,23 @@ final class LectureStore: ObservableObject {
         let audioDurationSeconds: Int?
         let trigger: TranscriptionTrigger
         let languageHint: String?
+        var requestStart: Date?
+        var requestSent: Bool
+        var retriesCount: Int
+    }
+
+    private struct TranscriptionCorrelationContext {
+        let transcriptionId: String
+        let uploadId: String?
+    }
+
+    private struct SummarizationAnalyticsContext {
+        let summarizationId: String
+        let transcriptionId: String?
+        let uploadId: String?
+        let transcriptChars: Int?
+        let transcriptBytes: Int64?
+        let language: String?
         var requestStart: Date?
         var requestSent: Bool
         var retriesCount: Int
