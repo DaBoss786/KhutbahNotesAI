@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		73F3F4792329D6803F763811 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 40B741C18E818A6063500304 /* XCTest.framework */; };
 		D402B96C2EEFC8FC0039F8DA /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = D402B96B2EEFC8FC0039F8DA /* RevenueCat */; };
 		D402B96E2EEFC8FC0039F8DA /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = D402B96D2EEFC8FC0039F8DA /* RevenueCatUI */; };
 		D402B97D2EF265330039F8DA /* OneSignalNotificationServiceExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D402B9762EF265330039F8DA /* OneSignalNotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -24,6 +25,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		D0B686902DC7A4B1FB45E3F3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4A39E852EE29C04007FF4D8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4A39E8C2EE29C04007FF4D8;
+			remoteInfo = "Khutbah Notes AI";
+		};
 		D402B97B2EF265330039F8DA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D4A39E852EE29C04007FF4D8 /* Project object */;
@@ -56,6 +64,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		40B741C18E818A6063500304 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
+		9AA10D0DA792CB0DB5C50106 /* Khutbah Notes AITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Khutbah Notes AITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D402B9762EF265330039F8DA /* OneSignalNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneSignalNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D402B99B2EF67EC20039F8DA /* OneSignalWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneSignalWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D402B99D2EF67EC20039F8DA /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -85,9 +95,24 @@
 			);
 			target = D4A39E8C2EE29C04007FF4D8 /* Khutbah Notes AI */;
 		};
+		31898BBA20D53F899716E4ED /* Exceptions for "Khutbah Notes AITests" folder in "Khutbah Notes AITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E725B57AB79B85C0DF63E394 /* Khutbah Notes AITests */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		C87D92F25F2FDC6D2A447BC2 /* Khutbah Notes AITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				31898BBA20D53F899716E4ED /* Exceptions for "Khutbah Notes AITests" folder in "Khutbah Notes AITests" target */,
+			);
+			path = "Khutbah Notes AITests";
+			sourceTree = "<group>";
+		};
 		D402B9772EF265330039F8DA /* OneSignalNotificationServiceExtension */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -113,6 +138,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		0391CFB22EB14930BF3AFA38 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				73F3F4792329D6803F763811 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D402B9732EF265330039F8DA /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -154,6 +187,7 @@
 			children = (
 				D402B99D2EF67EC20039F8DA /* WidgetKit.framework */,
 				D402B99F2EF67EC20039F8DA /* SwiftUI.framework */,
+				40B741C18E818A6063500304 /* XCTest.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -162,6 +196,7 @@
 			isa = PBXGroup;
 			children = (
 				D4A39E8F2EE29C04007FF4D8 /* Khutbah Notes AI */,
+				C87D92F25F2FDC6D2A447BC2 /* Khutbah Notes AITests */,
 				D402B9772EF265330039F8DA /* OneSignalNotificationServiceExtension */,
 				D402B9A12EF67EC20039F8DA /* OneSignalWidget */,
 				D402B99C2EF67EC20039F8DA /* Frameworks */,
@@ -175,6 +210,7 @@
 				D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */,
 				D402B9762EF265330039F8DA /* OneSignalNotificationServiceExtension.appex */,
 				D402B99B2EF67EC20039F8DA /* OneSignalWidgetExtension.appex */,
+				9AA10D0DA792CB0DB5C50106 /* Khutbah Notes AITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -261,6 +297,27 @@
 			productReference = D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */;
 			productType = "com.apple.product-type.application";
 		};
+		E725B57AB79B85C0DF63E394 /* Khutbah Notes AITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9933BFF48867D86CD0417B30 /* Build configuration list for PBXNativeTarget "Khutbah Notes AITests" */;
+			buildPhases = (
+				C4DBE326863CCBFBC0A6ABBA /* Sources */,
+				0391CFB22EB14930BF3AFA38 /* Frameworks */,
+				B4735CEF6FE761B5C32D7683 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9DF5F52AFF60200CA9C4A3D3 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C87D92F25F2FDC6D2A447BC2 /* Khutbah Notes AITests */,
+			);
+			name = "Khutbah Notes AITests";
+			productName = "Khutbah Notes AITests";
+			productReference = 9AA10D0DA792CB0DB5C50106 /* Khutbah Notes AITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -278,6 +335,9 @@
 						CreatedOnToolsVersion = 26.0.1;
 					};
 					D4A39E8C2EE29C04007FF4D8 = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
+					E725B57AB79B85C0DF63E394 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
 				};
@@ -302,6 +362,7 @@
 			projectRoot = "";
 			targets = (
 				D4A39E8C2EE29C04007FF4D8 /* Khutbah Notes AI */,
+				E725B57AB79B85C0DF63E394 /* Khutbah Notes AITests */,
 				D402B9752EF265330039F8DA /* OneSignalNotificationServiceExtension */,
 				D402B99A2EF67EC20039F8DA /* OneSignalWidgetExtension */,
 			);
@@ -309,6 +370,13 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		B4735CEF6FE761B5C32D7683 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D402B9742EF265330039F8DA /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -333,6 +401,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		C4DBE326863CCBFBC0A6ABBA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D402B9722EF265330039F8DA /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -357,6 +432,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		9DF5F52AFF60200CA9C4A3D3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D4A39E8C2EE29C04007FF4D8 /* Khutbah Notes AI */;
+			targetProxy = D0B686902DC7A4B1FB45E3F3 /* PBXContainerItemProxy */;
+		};
 		D402B97C2EF265330039F8DA /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D402B9752EF265330039F8DA /* OneSignalNotificationServiceExtension */;
@@ -370,6 +450,56 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		087701DD6E8E532CB1DDB011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5JSRN468B7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Khutbah Notes AITests/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Khutbah Notes AI.app/Khutbah Notes AI";
+			};
+			name = Debug;
+		};
+		CA6CAB6238D03F6B26919409 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5JSRN468B7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Khutbah Notes AITests/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Khutbah Notes AI.app/Khutbah Notes AI";
+			};
+			name = Release;
+		};
 		D402B9802EF265330039F8DA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -717,6 +847,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		9933BFF48867D86CD0417B30 /* Build configuration list for PBXNativeTarget "Khutbah Notes AITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				087701DD6E8E532CB1DDB011 /* Debug */,
+				CA6CAB6238D03F6B26919409 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		D402B97F2EF265330039F8DA /* Build configuration list for PBXNativeTarget "OneSignalNotificationServiceExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
