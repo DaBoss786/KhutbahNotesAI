@@ -74,6 +74,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		31898BBA20D53F899716E4ED /* Exceptions for "Khutbah Notes AITests" folder in "Khutbah Notes AITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E725B57AB79B85C0DF63E394 /* Khutbah Notes AITests */;
+		};
 		D402B97E2EF265330039F8DA /* Exceptions for "OneSignalNotificationServiceExtension" folder in "OneSignalNotificationServiceExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -94,13 +101,6 @@
 				OneSignalWidgetLiveActivity.swift,
 			);
 			target = D4A39E8C2EE29C04007FF4D8 /* Khutbah Notes AI */;
-		};
-		31898BBA20D53F899716E4ED /* Exceptions for "Khutbah Notes AITests" folder in "Khutbah Notes AITests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = E725B57AB79B85C0DF63E394 /* Khutbah Notes AITests */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 

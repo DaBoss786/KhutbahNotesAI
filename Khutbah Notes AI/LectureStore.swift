@@ -1440,15 +1440,29 @@ final class LectureStore: ObservableObject {
         return false
     }
 
-    private func validatePickedAudioFile(at url: URL) -> AudioUploadPreparationError? {
-        let ext = url.pathExtension.lowercased()
-        guard supportedAudioExtensions.contains(ext) else {
+    nonisolated static func audioUploadValidationError(
+        fileExtension: String,
+        fileSizeBytes: Int64?,
+        supportedExtensions: Set<String>,
+        maxFileSizeBytes: Int64
+    ) -> AudioUploadPreparationError? {
+        let normalizedExtension = fileExtension.lowercased()
+        guard supportedExtensions.contains(normalizedExtension) else {
             return .unsupportedFileType
         }
-        if let sizeBytes = fileSizeBytes(at: url), sizeBytes > maxUploadFileSizeBytes {
+        if let sizeBytes = fileSizeBytes, sizeBytes > maxFileSizeBytes {
             return .fileTooLarge
         }
         return nil
+    }
+
+    private func validatePickedAudioFile(at url: URL) -> AudioUploadPreparationError? {
+        Self.audioUploadValidationError(
+            fileExtension: url.pathExtension,
+            fileSizeBytes: fileSizeBytes(at: url),
+            supportedExtensions: supportedAudioExtensions,
+            maxFileSizeBytes: maxUploadFileSizeBytes
+        )
     }
 
     private func fileSizeBytes(at url: URL) -> Int64? {
@@ -1525,7 +1539,7 @@ final class LectureStore: ObservableObject {
         let durationMinutes: Int?
     }
 
-    private enum AudioUploadPreparationError: Error {
+    enum AudioUploadPreparationError: Error {
         case unsupportedFileType
         case fileTooLarge
         case unreadable
@@ -1545,8 +1559,13 @@ final class LectureStore: ObservableObject {
             defer { if accessGranted { sourceURL.stopAccessingSecurityScopedResource() } }
             
             let sourceExtension = sourceURL.pathExtension.lowercased()
-            guard allowedExtensions.contains(sourceExtension) else {
-                throw AudioUploadPreparationError.unsupportedFileType
+            if let error = LectureStore.audioUploadValidationError(
+                fileExtension: sourceExtension,
+                fileSizeBytes: nil,
+                supportedExtensions: allowedExtensions,
+                maxFileSizeBytes: maxBytes
+            ) {
+                throw error
             }
             
             let resourceValues = try sourceURL.resourceValues(forKeys: [
@@ -1557,8 +1576,14 @@ final class LectureStore: ObservableObject {
             guard resourceValues.isReadable == true, resourceValues.isRegularFile == true else {
                 throw AudioUploadPreparationError.unreadable
             }
-            if let fileSize = resourceValues.fileSize, Int64(fileSize) > maxBytes {
-                throw AudioUploadPreparationError.fileTooLarge
+            let sourceFileSizeBytes = resourceValues.fileSize.map { Int64($0) }
+            if let error = LectureStore.audioUploadValidationError(
+                fileExtension: sourceExtension,
+                fileSizeBytes: sourceFileSizeBytes,
+                supportedExtensions: allowedExtensions,
+                maxFileSizeBytes: maxBytes
+            ) {
+                throw error
             }
             
             let tempDirectory = fileManager.temporaryDirectory
@@ -1931,15 +1956,15 @@ struct LectureSummaryParser {
 }
 
 // MARK: - Duration helpers
-private extension LectureStore {
-    func durationMinutes(for recordingURL: URL) -> Int? {
+extension LectureStore {
+    private func durationMinutes(for recordingURL: URL) -> Int? {
         let asset = AVURLAsset(url: recordingURL, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: true
         ])
         return Self.durationMinutes(fromSeconds: CMTimeGetSeconds(asset.duration))
     }
 
-    func fileDurationSeconds(for recordingURL: URL) -> Int? {
+    private func fileDurationSeconds(for recordingURL: URL) -> Int? {
         let asset = AVURLAsset(url: recordingURL, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: true
         ])
@@ -1954,7 +1979,7 @@ private extension LectureStore {
         return max(1, minutes)
     }
     
-    func fillMissingDurationsIfNeeded(for lectures: [Lecture]) {
+    private func fillMissingDurationsIfNeeded(for lectures: [Lecture]) {
         for lecture in lectures {
             guard lecture.durationMinutes == nil,
                   let audioPath = lecture.audioPath,
