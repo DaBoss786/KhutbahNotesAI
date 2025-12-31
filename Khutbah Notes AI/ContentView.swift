@@ -2069,12 +2069,16 @@ struct SummaryView<Actions: View>: View {
                 if let summary {
                     VStack(alignment: sectionAlignment, spacing: 18) {
                         summarySection(title: "Main Theme", content: [summary.mainTheme])
-                        summarySection(title: "Key Points", content: summary.keyPoints)
+                        summarySection(title: "Key Points",
+                                       content: summary.keyPoints,
+                                       showsDividers: true)
                         summarySection(title: "Explicit Ayat or Hadith",
                                        content: summary.explicitAyatOrHadith,
-                                       hideWhenEmpty: true)
+                                       hideWhenEmpty: true,
+                                       showsDividers: true)
                         summarySection(title: "Weekly Actions",
-                                       content: summary.weeklyActions)
+                                       content: summary.weeklyActions,
+                                       showsDividers: true)
                     }
                 } else if !isBaseSummaryReady {
                     VStack(alignment: sectionAlignment, spacing: 12) {
@@ -2158,7 +2162,12 @@ struct SummaryView<Actions: View>: View {
     }
     
     @ViewBuilder
-    private func summarySection(title: String, content: [String], hideWhenEmpty: Bool = false) -> some View {
+    private func summarySection(
+        title: String,
+        content: [String],
+        hideWhenEmpty: Bool = false,
+        showsDividers: Bool = false
+    ) -> some View {
         Group {
             if hideWhenEmpty && content.isEmpty {
                 EmptyView()
@@ -2195,8 +2204,11 @@ struct SummaryView<Actions: View>: View {
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         VStack(alignment: sectionAlignment, spacing: 4) {
-                            ForEach(content, id: \.self) { item in
-                                bulletRow(for: item)
+                            ForEach(content.indices, id: \.self) { index in
+                                bulletRow(for: content[index])
+                                if showsDividers && index < content.count - 1 {
+                                    summarySeparator
+                                }
                             }
                         }
                     }
@@ -2212,6 +2224,14 @@ struct SummaryView<Actions: View>: View {
                 .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
             }
         }
+    }
+
+    private var summarySeparator: some View {
+        Rectangle()
+            .fill(Theme.mutedText.opacity(0.35))
+            .frame(height: 0.5)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
     }
     
     @ViewBuilder
