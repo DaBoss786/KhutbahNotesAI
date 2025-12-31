@@ -2632,7 +2632,7 @@ struct ShareCardView: View {
                         .stroke(Theme.primaryGreen.opacity(0.12), lineWidth: 2)
                 )
 
-            VStack {
+            VStack(spacing: 0) {
                 Spacer(minLength: 0)
 
                 VStack(alignment: .center, spacing: 28) {
@@ -2668,7 +2668,12 @@ struct ShareCardView: View {
                             .frame(maxWidth: .infinity)
                         }
                     }
+                }
+                .frame(maxWidth: .infinity)
 
+                Spacer(minLength: 0)
+
+                VStack(spacing: 10) {
                     if let attribution, !attribution.isEmpty {
                         Text(attribution)
                             .font(.system(size: attributionFontSize, weight: .medium, design: .rounded))
@@ -2677,16 +2682,20 @@ struct ShareCardView: View {
                             .frame(maxWidth: .infinity)
                     }
 
-                    Text("Khutbah Notes")
-                        .font(.system(size: footerFontSize, weight: .semibold, design: .rounded))
-                        .foregroundColor(Theme.primaryGreen)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 8) {
+                        Image("KhutbahNotesLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 26, height: 26)
+                        Text("Khutbah Notes")
+                            .font(.system(size: footerFontSize, weight: .semibold, design: .rounded))
+                            .foregroundColor(Theme.primaryGreen)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-
-                Spacer(minLength: 0)
             }
             .padding(contentPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 }
