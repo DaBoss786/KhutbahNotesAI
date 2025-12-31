@@ -1407,48 +1407,66 @@ struct LectureDetailView: View {
                         }
                     } else {
                         let transcriptText = displayLecture.transcriptFormatted ?? displayLecture.transcript
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .center) {
-                                Text("Transcript")
-                                    .font(Theme.titleFont)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .center, spacing: 10) {
                                 Spacer()
-                                TextSizeToggle(selection: $selectedTextSize)
+                                TextSizeToggle(selection: $selectedTextSize, showsBackground: false)
                                 ExportIconButtons(
                                     onCopy: {
-                                    guard let text = exportableTranscriptText() else { return }
-                                    copyToClipboard(text)
-                                },
-                                onShare: {
-                                    guard let text = exportableTranscriptText() else { return }
-                                    presentShareSheet(with: text)
-                                },
-                                isDisabled: (transcriptText ?? "")
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                    .isEmpty
-                            )
-                        }
-                        if isTranscriptProcessing {
-                            HStack(alignment: .center, spacing: 8) {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                Text(transcriptStatusMessage)
-                                    .font(transcriptBodyFont)
-                                    .foregroundColor(Theme.mutedText)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                        guard let text = exportableTranscriptText() else { return }
+                                        copyToClipboard(text)
+                                    },
+                                    onShare: {
+                                        guard let text = exportableTranscriptText() else { return }
+                                        presentShareSheet(with: text)
+                                    },
+                                    isDisabled: (transcriptText ?? "")
+                                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                                        .isEmpty
+                                )
                             }
-                        } else {
-                            Text(transcriptText ?? "Transcript will appear here once ready.")
-                                .font(transcriptBodyFont)
-                                .foregroundColor(Theme.mutedText)
-                                .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .padding(.vertical, 1)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Transcript")
+                                    .font(Theme.titleFont)
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        LinearGradient(
+                                            colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                
+                                if isTranscriptProcessing {
+                                    HStack(alignment: .center, spacing: 8) {
+                                        ProgressView()
+                                            .progressViewStyle(.circular)
+                                        Text(transcriptStatusMessage)
+                                            .font(transcriptBodyFont)
+                                            .foregroundColor(.black)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                } else {
+                                    Text(transcriptText ?? "Transcript will appear here once ready.")
+                                        .font(transcriptBodyFont)
+                                        .foregroundColor(.black)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Theme.cardBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
+                            .padding(.vertical, 4)
                         }
-                        }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.cardBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
-                        .padding(.vertical, 4)
                     }
                 }
                 .padding()
@@ -2038,31 +2056,26 @@ struct SummaryView<Actions: View>: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .center, spacing: 10) {
-                    Text("Summary")
-                        .font(Theme.titleFont)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                    Spacer()
-                    TextSizeToggle(selection: $textSize)
-                    actions
-                }
-
-                HStack(alignment: .center, spacing: 10) {
-                    Spacer()
-                    languageMenu
-                }
+            HStack(alignment: .center, spacing: 12) {
+                Spacer()
+                TextSizeToggle(selection: $textSize, showsBackground: false)
+                languageMenu
+                actions
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 1)
             
             Group {
                 if let summary {
-                    summarySection(title: "Main Theme", content: [summary.mainTheme])
-                    summarySection(title: "Key Points", content: summary.keyPoints)
-                    summarySection(title: "Explicit Ayat or Hadith",
-                                   content: summary.explicitAyatOrHadith)
-                    summarySection(title: "Weekly Actions",
-                                   content: summary.weeklyActions)
+                    VStack(alignment: sectionAlignment, spacing: 18) {
+                        summarySection(title: "Main Theme", content: [summary.mainTheme])
+                        summarySection(title: "Key Points", content: summary.keyPoints)
+                        summarySection(title: "Explicit Ayat or Hadith",
+                                       content: summary.explicitAyatOrHadith,
+                                       hideWhenEmpty: true)
+                        summarySection(title: "Weekly Actions",
+                                       content: summary.weeklyActions)
+                    }
                 } else if !isBaseSummaryReady {
                     VStack(alignment: sectionAlignment, spacing: 12) {
                         HStack(spacing: 10) {
@@ -2105,16 +2118,7 @@ struct SummaryView<Actions: View>: View {
                 }
             }
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Theme.primaryGreen.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
-        .padding(.vertical, 4)
     }
     
     private var languageMenu: some View {
@@ -2138,14 +2142,8 @@ struct SummaryView<Actions: View>: View {
             }
             .font(.system(size: 13, weight: .semibold))
             .foregroundColor(.black)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Theme.cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Theme.primaryGreen.opacity(0.18), lineWidth: 1)
-            )
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
         }
         .disabled(!isBaseSummaryReady)
         .opacity(isBaseSummaryReady ? 1 : 0.5)
@@ -2160,33 +2158,58 @@ struct SummaryView<Actions: View>: View {
     }
     
     @ViewBuilder
-    private func summarySection(title: String, content: [String]) -> some View {
-        VStack(alignment: sectionAlignment, spacing: 6) {
-            Text(title)
-                .font(summaryHeadingFont)
-                .foregroundColor(.black)
-                .multilineTextAlignment(textAlignment)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-            
-            if content.isEmpty {
-                Text("None mentioned")
-                    .font(summaryBodyFont)
-                    .foregroundColor(Theme.mutedText)
-                    .multilineTextAlignment(textAlignment)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-            } else if content.count == 1 {
-                Text(content[0])
-                    .font(summaryBodyFont)
-                    .foregroundColor(Theme.mutedText)
-                    .multilineTextAlignment(textAlignment)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .fixedSize(horizontal: false, vertical: true)
+    private func summarySection(title: String, content: [String], hideWhenEmpty: Bool = false) -> some View {
+        Group {
+            if hideWhenEmpty && content.isEmpty {
+                EmptyView()
             } else {
-                VStack(alignment: sectionAlignment, spacing: 4) {
-                    ForEach(content, id: \.self) { item in
-                        bulletRow(for: item)
+                VStack(alignment: sectionAlignment, spacing: 12) {
+                    Text(title)
+                        .font(summaryHeadingFont)
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            LinearGradient(
+                                colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    
+                    if content.isEmpty {
+                        Text("None mentioned")
+                            .font(summaryBodyFont)
+                            .foregroundColor(.black)
+                            .multilineTextAlignment(textAlignment)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    } else if content.count == 1 {
+                        Text(content[0])
+                            .font(summaryBodyFont)
+                            .foregroundColor(.black)
+                            .multilineTextAlignment(textAlignment)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        VStack(alignment: sectionAlignment, spacing: 4) {
+                            ForEach(content, id: \.self) { item in
+                                bulletRow(for: item)
+                            }
+                        }
                     }
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .background(Theme.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Theme.primaryGreen.opacity(0.08), lineWidth: 1)
+                )
+                .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
             }
         }
     }
@@ -2197,22 +2220,22 @@ struct SummaryView<Actions: View>: View {
             HStack(alignment: .top, spacing: 8) {
                 Text(item)
                     .font(summaryBodyFont)
-                    .foregroundColor(Theme.mutedText)
+                    .foregroundColor(.black)
                     .multilineTextAlignment(textAlignment)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("•")
                     .font(summaryBodyFont)
-                    .foregroundColor(Theme.mutedText)
+                    .foregroundColor(.black)
             }
             .frame(maxWidth: .infinity, alignment: frameAlignment)
         } else {
             HStack(alignment: .top, spacing: 8) {
                 Text("•")
                     .font(summaryBodyFont)
-                    .foregroundColor(Theme.mutedText)
+                    .foregroundColor(.black)
                 Text(item)
                     .font(summaryBodyFont)
-                    .foregroundColor(Theme.mutedText)
+                    .foregroundColor(.black)
                     .multilineTextAlignment(textAlignment)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2223,6 +2246,7 @@ struct SummaryView<Actions: View>: View {
 
 struct TextSizeToggle: View {
     @Binding var selection: TextSizeOption
+    var showsBackground: Bool = true
     
     private var indicator: String {
         switch selection {
@@ -2250,13 +2274,17 @@ struct TextSizeToggle: View {
                     .foregroundColor(Theme.mutedText)
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Theme.cardBackground)
+            .padding(.vertical, showsBackground ? 6 : 2)
+            .background(showsBackground ? Theme.cardBackground : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Theme.primaryGreen.opacity(0.18), lineWidth: 1)
-                )
+            .overlay(
+                Group {
+                    if showsBackground {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Theme.primaryGreen.opacity(0.18), lineWidth: 1)
+                    }
+                }
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Text size")
