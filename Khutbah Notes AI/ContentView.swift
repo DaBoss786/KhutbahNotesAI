@@ -1348,6 +1348,7 @@ struct LectureDetailView: View {
                         failedContentCard
                     } else if selectedContentTab == 0 {
                         SummaryView(
+                            lectureId: displayLecture.id,
                             summary: selectedSummary,
                             isBaseSummaryReady: displayLecture.summary != nil,
                             isTranslationLoading: isTranslationLoading,
@@ -1999,6 +2000,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
 }
 
 struct SummaryView<Actions: View>: View {
+    let lectureId: String?
     let summary: LectureSummary?
     let isBaseSummaryReady: Bool
     let isTranslationLoading: Bool
@@ -2009,8 +2011,10 @@ struct SummaryView<Actions: View>: View {
     @Binding var selectedLanguage: SummaryTranslationLanguage
     @Binding var textSize: TextSizeOption
     let actions: Actions
+    @State private var shareComposerData: ShareComposerData? = nil
     
     init(
+        lectureId: String? = nil,
         summary: LectureSummary?,
         isBaseSummaryReady: Bool,
         isTranslationLoading: Bool,
@@ -2022,6 +2026,7 @@ struct SummaryView<Actions: View>: View {
         textSize: Binding<TextSizeOption>,
         @ViewBuilder actions: () -> Actions = { EmptyView() }
     ) {
+        self.lectureId = lectureId
         self.summary = summary
         self.isBaseSummaryReady = isBaseSummaryReady
         self.isTranslationLoading = isTranslationLoading
@@ -2071,14 +2076,16 @@ struct SummaryView<Actions: View>: View {
                         summarySection(title: "Main Theme", content: [summary.mainTheme])
                         summarySection(title: "Key Points",
                                        content: summary.keyPoints,
-                                       showsDividers: true)
+                                       showsDividers: true,
+                                       shareSection: .keyPoints)
                         summarySection(title: "Explicit Ayat or Hadith",
                                        content: summary.explicitAyatOrHadith,
                                        hideWhenEmpty: true,
                                        showsDividers: true)
                         summarySection(title: "Weekly Actions",
                                        content: summary.weeklyActions,
-                                       showsDividers: true)
+                                       showsDividers: true,
+                                       shareSection: .weeklyActions)
                     }
                 } else if !isBaseSummaryReady {
                     VStack(alignment: sectionAlignment, spacing: 12) {
@@ -2123,6 +2130,13 @@ struct SummaryView<Actions: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(item: $shareComposerData) { data in
+            ShareComposerView(
+                section: data.section,
+                items: data.items,
+                lockedId: data.lockedId
+            )
+        }
     }
     
     private var languageMenu: some View {
@@ -2166,7 +2180,8 @@ struct SummaryView<Actions: View>: View {
         title: String,
         content: [String],
         hideWhenEmpty: Bool = false,
-        showsDividers: Bool = false
+        showsDividers: Bool = false,
+        shareSection: ShareSection? = nil
     ) -> some View {
         Group {
             if hideWhenEmpty && content.isEmpty {
@@ -2195,7 +2210,7 @@ struct SummaryView<Actions: View>: View {
                             .foregroundColor(.black)
                             .multilineTextAlignment(textAlignment)
                             .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    } else if content.count == 1 {
+                    } else if content.count == 1 && shareSection == nil {
                         Text(content[0])
                             .font(summaryBodyFont)
                             .foregroundColor(.black)
@@ -2205,7 +2220,12 @@ struct SummaryView<Actions: View>: View {
                     } else {
                         VStack(alignment: sectionAlignment, spacing: 4) {
                             ForEach(content.indices, id: \.self) { index in
-                                bulletRow(for: content[index])
+                                bulletRow(
+                                    for: content[index],
+                                    index: index,
+                                    content: content,
+                                    shareSection: shareSection
+                                )
                                 if showsDividers && index < content.count - 1 {
                                     summarySeparator
                                 }
@@ -2235,8 +2255,43 @@ struct SummaryView<Actions: View>: View {
     }
     
     @ViewBuilder
-    private func bulletRow(for item: String) -> some View {
-        if isRTL {
+    private func bulletRow(
+        for item: String,
+        index: Int,
+        content: [String],
+        shareSection: ShareSection?
+    ) -> some View {
+        if let shareSection {
+            if isRTL {
+                HStack(alignment: .top, spacing: 8) {
+                    shareButton(for: shareSection, content: content, index: index)
+                    Spacer(minLength: 8)
+                    Text(item)
+                        .font(summaryBodyFont)
+                        .foregroundColor(.black)
+                        .multilineTextAlignment(textAlignment)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("•")
+                        .font(summaryBodyFont)
+                        .foregroundColor(.black)
+                }
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    Text("•")
+                        .font(summaryBodyFont)
+                        .foregroundColor(.black)
+                    Text(item)
+                        .font(summaryBodyFont)
+                        .foregroundColor(.black)
+                        .multilineTextAlignment(textAlignment)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    shareButton(for: shareSection, content: content, index: index)
+                }
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+            }
+        } else if isRTL {
             HStack(alignment: .top, spacing: 8) {
                 Text(item)
                     .font(summaryBodyFont)
@@ -2260,6 +2315,378 @@ struct SummaryView<Actions: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: frameAlignment)
+        }
+    }
+    
+    private func shareButton(
+        for section: ShareSection,
+        content: [String],
+        index: Int
+    ) -> some View {
+        Button {
+            presentShareComposer(section: section, content: content, index: index)
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(Theme.primaryGreen)
+                .frame(width: 28, height: 28)
+                .background(Theme.primaryGreen.opacity(0.12))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Share")
+    }
+    
+    private func presentShareComposer(
+        section: ShareSection,
+        content: [String],
+        index: Int
+    ) {
+        let items = shareItems(for: section, content: content)
+        guard items.indices.contains(index) else { return }
+        let lockedId = items[index].id
+        shareComposerData = ShareComposerData(
+            section: section,
+            items: items,
+            lockedId: lockedId
+        )
+    }
+    
+    private func shareItems(
+        for section: ShareSection,
+        content: [String]
+    ) -> [ShareItem] {
+        content.enumerated().map { index, text in
+            let id: String
+            if let lectureId, !lectureId.isEmpty {
+                id = "\(lectureId)_\(section.rawValue)_\(index)"
+            } else {
+                id = "\(section.rawValue)_\(index)"
+            }
+            return ShareItem(id: id, section: section, text: text, index: index)
+        }
+    }
+}
+
+enum ShareSection: String, Hashable {
+    case keyPoints
+    case weeklyActions
+
+    var cardTitle: String {
+        switch self {
+        case .keyPoints:
+            return "Takeaways"
+        case .weeklyActions:
+            return "This Week"
+        }
+    }
+}
+
+struct ShareItem: Identifiable, Hashable {
+    let id: String
+    let section: ShareSection
+    let text: String
+    let index: Int
+}
+
+struct ShareComposerData: Identifiable {
+    let id = UUID()
+    let section: ShareSection
+    let items: [ShareItem]
+    let lockedId: String
+}
+
+struct ShareComposerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let section: ShareSection
+    let items: [ShareItem]
+    let lockedId: String
+    @State private var selectedIds: Set<String>
+    @State private var includeAttribution = false
+    @State private var attributionText = ""
+    @State private var isShareSheetPresented = false
+    @State private var renderedImage: UIImage? = nil
+
+    init(section: ShareSection, items: [ShareItem], lockedId: String) {
+        self.section = section
+        self.items = items
+        self.lockedId = lockedId
+        _selectedIds = State(initialValue: [lockedId])
+    }
+
+    private var selectedItems: [ShareItem] {
+        items
+            .filter { selectedIds.contains($0.id) }
+            .sorted(by: { $0.index < $1.index })
+    }
+
+    private var attributionLine: String? {
+        guard includeAttribution else { return nil }
+        let trimmed = attributionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 16) {
+                    previewCard
+
+                    selectionCard
+                    attributionCard
+
+                    Button(action: shareImage) {
+                        Text("Share")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                LinearGradient(
+                                    colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedIds.isEmpty)
+                    .opacity(selectedIds.isEmpty ? 0.5 : 1)
+                }
+                .padding()
+            }
+            .background(Theme.background.ignoresSafeArea())
+            .navigationTitle("Share")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .sheet(isPresented: $isShareSheetPresented) {
+            if let renderedImage {
+                ShareSheet(activityItems: [renderedImage])
+            }
+        }
+    }
+
+    private var selectionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Selected (\(selectedItems.count)/3)")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundColor(Theme.mutedText)
+
+            ForEach(items) { item in
+                Button {
+                    toggleSelection(item)
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: selectedIds.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(selectedIds.contains(item.id) ? Theme.primaryGreen : Theme.mutedText)
+                        Text("\(item.index + 1).")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(Theme.mutedText)
+                        Text(item.text)
+                            .font(Theme.bodyFont)
+                            .foregroundColor(.black)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+            }
+        }
+        .padding(14)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
+    }
+
+    private var previewCard: some View {
+        ShareCardView(
+            section: section,
+            selectedItems: selectedItems,
+            dateText: nil,
+            attribution: attributionLine
+        )
+        .frame(width: 1080, height: 1080)
+        .scaleEffect(previewScale)
+        .frame(width: previewSide, height: previewSide)
+        .frame(maxWidth: .infinity)
+        .shadow(color: Theme.shadow, radius: 6, x: 0, y: 4)
+    }
+
+    private var previewSide: CGFloat {
+        let width = UIScreen.main.bounds.width - 32
+        return min(max(width, 240), 420)
+    }
+
+    private var previewScale: CGFloat {
+        previewSide / 1080
+    }
+
+    private var attributionCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Include attribution", isOn: $includeAttribution)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+
+            if includeAttribution {
+                TextField("Masjid • Speaker", text: $attributionText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(Theme.bodyFont)
+            }
+        }
+        .padding(14)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
+    }
+
+    private func toggleSelection(_ item: ShareItem) {
+        if selectedIds.contains(item.id) {
+            selectedIds.remove(item.id)
+        } else if selectedIds.count < 3 {
+            selectedIds.insert(item.id)
+        }
+    }
+
+    private func shareImage() {
+        guard let uiImage = renderShareImage() else { return }
+        renderedImage = uiImage
+        isShareSheetPresented = true
+    }
+
+    private func renderShareImage() -> UIImage? {
+        let card = ShareCardView(
+            section: section,
+            selectedItems: selectedItems,
+            dateText: nil,
+            attribution: attributionLine
+        )
+        .frame(width: 1080, height: 1080)
+        if #available(iOS 16.0, *) {
+            let renderer = ImageRenderer(content: card)
+            renderer.scale = 1
+            return renderer.uiImage
+        }
+
+        let controller = UIHostingController(rootView: card)
+        let size = CGSize(width: 1080, height: 1080)
+        guard let view = controller.view else { return nil }
+        view.bounds = CGRect(origin: .zero, size: size)
+        view.backgroundColor = .clear
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
+        }
+    }
+}
+
+struct ShareCardView: View {
+    let section: ShareSection
+    let selectedItems: [ShareItem]
+    let dateText: String?
+    let attribution: String?
+    
+    private var itemCount: Int {
+        max(selectedItems.count, 1)
+    }
+    
+    private var headerFontSize: CGFloat {
+        itemCount == 1 ? 72 : 64
+    }
+    
+    private var bodyFontSize: CGFloat {
+        switch itemCount {
+        case 1:
+            return 46
+        case 2:
+            return 40
+        default:
+            return 34
+        }
+    }
+    
+    private var numberFontSize: CGFloat {
+        bodyFontSize - 6
+    }
+    
+    private var footerFontSize: CGFloat { 28 }
+    private var attributionFontSize: CGFloat { 26 }
+    private var contentPadding: CGFloat { 72 }
+    private var itemSpacing: CGFloat { 22 }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 48, style: .continuous)
+                .fill(Theme.cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 48, style: .continuous)
+                        .stroke(Theme.primaryGreen.opacity(0.12), lineWidth: 2)
+                )
+
+            VStack {
+                Spacer(minLength: 0)
+
+                VStack(alignment: .center, spacing: 28) {
+                    Text(section.cardTitle)
+                        .font(.system(size: headerFontSize, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 30)
+                        .padding(.vertical, 20)
+                        .background(
+                            LinearGradient(
+                                colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                    VStack(alignment: .center, spacing: itemSpacing) {
+                        ForEach(selectedItems.indices, id: \.self) { index in
+                            (Text("\(index + 1). ")
+                                .font(.system(size: numberFontSize, weight: .semibold, design: .rounded))
+                                .foregroundColor(Theme.primaryGreen)
+                             + Text(selectedItems[index].text)
+                                .font(.system(size: bodyFontSize, weight: .regular, design: .rounded))
+                                .foregroundColor(.black)
+                            )
+                            .lineLimit(3)
+                            .lineSpacing(6)
+                            .minimumScaleFactor(0.85)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+
+                    if let attribution, !attribution.isEmpty {
+                        Text(attribution)
+                            .font(.system(size: attributionFontSize, weight: .medium, design: .rounded))
+                            .foregroundColor(Theme.mutedText)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    Text("Khutbah Notes")
+                        .font(.system(size: footerFontSize, weight: .semibold, design: .rounded))
+                        .foregroundColor(Theme.primaryGreen)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(contentPadding)
         }
     }
 }
