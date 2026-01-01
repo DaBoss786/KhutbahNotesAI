@@ -2078,14 +2078,14 @@ struct SummaryView<Actions: View>: View {
                                        content: summary.keyPoints,
                                        showsDividers: true,
                                        shareSection: .keyPoints)
-                        summarySection(title: "Explicit Ayat or Hadith",
-                                       content: summary.explicitAyatOrHadith,
-                                       hideWhenEmpty: true,
-                                       showsDividers: true)
                         summarySection(title: "Weekly Actions",
                                        content: summary.weeklyActions,
                                        showsDividers: true,
                                        shareSection: .weeklyActions)
+                        summarySection(title: "Explicit Ayat or Hadith",
+                                       content: summary.explicitAyatOrHadith,
+                                       hideWhenEmpty: true,
+                                       showsDividers: true)
                     }
                 } else if !isBaseSummaryReady {
                     VStack(alignment: sectionAlignment, spacing: 12) {
@@ -2375,9 +2375,9 @@ enum ShareSection: String, Hashable {
     var cardTitle: String {
         switch self {
         case .keyPoints:
-            return "Takeaways"
+            return "Key Takeaways"
         case .weeklyActions:
-            return "This Week"
+            return "Weekly Actions"
         }
     }
 }
@@ -2600,7 +2600,7 @@ struct ShareCardView: View {
     }
     
     private var headerFontSize: CGFloat {
-        itemCount == 1 ? 72 : 64
+        itemCount == 1 ? 56 : 50
     }
     
     private var bodyFontSize: CGFloat {
@@ -2617,6 +2617,10 @@ struct ShareCardView: View {
     private var numberFontSize: CGFloat {
         bodyFontSize - 6
     }
+
+    private var numberColumnWidth: CGFloat {
+        max(numberFontSize * 1.1, 30)
+    }
     
     private var footerFontSize: CGFloat { 28 }
     private var attributionFontSize: CGFloat { 26 }
@@ -2626,7 +2630,16 @@ struct ShareCardView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 48, style: .continuous)
-                .fill(Theme.cardBackground)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Theme.cardBackground,
+                            Theme.background.opacity(0.45)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 48, style: .continuous)
                         .stroke(Theme.primaryGreen.opacity(0.12), lineWidth: 2)
@@ -2637,12 +2650,12 @@ struct ShareCardView: View {
 
                 VStack(alignment: .center, spacing: 28) {
                     Text(section.cardTitle)
-                        .font(.system(size: headerFontSize, weight: .bold, design: .rounded))
+                        .font(.system(size: headerFontSize, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
-                        .padding(.vertical, 20)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
                         .background(
                             LinearGradient(
                                 colors: [Theme.primaryGreen, Theme.secondaryGreen],
@@ -2652,31 +2665,40 @@ struct ShareCardView: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                    VStack(alignment: .center, spacing: itemSpacing) {
-                        ForEach(selectedItems.indices, id: \.self) { index in
-                            (Text("\(index + 1). ")
+                VStack(alignment: .center, spacing: itemSpacing) {
+                    ForEach(selectedItems.indices, id: \.self) { index in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text("\(index + 1).")
                                 .font(.system(size: numberFontSize, weight: .semibold, design: .rounded))
-                                .foregroundColor(Theme.primaryGreen)
-                             + Text(selectedItems[index].text)
-                                .font(.system(size: bodyFontSize, weight: .regular, design: .rounded))
+                                .foregroundColor(Theme.primaryGreen.opacity(0.75))
+                                .frame(width: numberColumnWidth, alignment: .trailing)
+                            Text(selectedItems[index].text)
+                                .font(.system(size: bodyFontSize, weight: .regular, design: .serif))
                                 .foregroundColor(.black)
-                            )
-                            .lineLimit(3)
-                            .lineSpacing(6)
-                            .minimumScaleFactor(0.85)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
+                                .lineLimit(3)
+                                .lineSpacing(6)
+                                .minimumScaleFactor(0.85)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .frame(maxWidth: 820)
+                        .frame(maxWidth: .infinity, alignment: .center)
                     }
+                }
                 }
                 .frame(maxWidth: .infinity)
 
                 Spacer(minLength: 0)
 
                 VStack(spacing: 10) {
+                    Rectangle()
+                        .fill(Theme.primaryGreen.opacity(0.12))
+                        .frame(width: 120, height: 1)
+                        .padding(.bottom, 6)
+
                     if let attribution, !attribution.isEmpty {
                         Text(attribution)
-                            .font(.system(size: attributionFontSize, weight: .medium, design: .rounded))
+                            .font(.system(size: attributionFontSize, weight: .medium, design: .serif))
                             .foregroundColor(Theme.mutedText)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
