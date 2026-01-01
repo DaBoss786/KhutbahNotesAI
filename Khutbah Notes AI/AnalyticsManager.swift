@@ -14,6 +14,10 @@ enum AnalyticsEvent: String {
     case summarizationRequestSent = "summarization_request_sent"
     case summarizationFailed = "summarization_failed"
     case summarizationSuccess = "summarization_success"
+    case onboardingStepViewed = "onboarding_step_viewed"
+    case onboardingCompleted = "onboarding_completed"
+    case onboardingNotificationsChoice = "onboarding_notifications_choice"
+    case onboardingPaywallResult = "onboarding_paywall_result"
 }
 
 enum AudioUploadTrigger: String {
@@ -91,6 +95,28 @@ enum SummarizationErrorCode: String {
     case unknown
 }
 
+enum OnboardingStep: String {
+    case welcome
+    case remember
+    case integrity
+    case howItWorks = "how_it_works"
+    case jumuahReminder = "jumuah_reminder"
+    case notificationsPrePrompt = "notifications_pre_prompt"
+    case paywall
+}
+
+enum OnboardingNotificationsChoice: String {
+    case push
+    case provisional
+    case no
+}
+
+enum OnboardingPaywallResult: String {
+    case purchased
+    case dismissed
+    case restored
+}
+
 enum AnalyticsParameterKey {
     static let uploadId = "upload_id"
     static let transcriptionId = "transcription_id"
@@ -117,6 +143,17 @@ enum AnalyticsParameterKey {
     static let transcriptChars = "transcript_chars"
     static let summaryChars = "summary_chars"
     static let reason = "reason"
+    static let step = "step"
+    static let totalSteps = "total_steps"
+    static let choice = "choice"
+    static let source = "source"
+    static let result = "result"
+    static let jumuahTime = "jumuah_time"
+    static let timezone = "timezone"
+    static let planId = "plan_id"
+    static let productId = "product_id"
+    static let price = "price"
+    static let currency = "currency"
 }
 
 struct AnalyticsManager {
@@ -326,6 +363,59 @@ struct AnalyticsManager {
             AnalyticsParameterKey.summaryChars: summaryChars,
             AnalyticsParameterKey.processingMs: processingMs,
             AnalyticsParameterKey.retriesCount: retriesCount
+        ])
+    }
+
+    static func logOnboardingStepViewed(
+        step: OnboardingStep,
+        totalSteps: Int?,
+        jumuahTime: String? = nil,
+        timezone: String? = nil,
+        source: String? = nil
+    ) {
+        log(.onboardingStepViewed, parameters: [
+            AnalyticsParameterKey.step: step.rawValue,
+            AnalyticsParameterKey.totalSteps: totalSteps,
+            AnalyticsParameterKey.jumuahTime: jumuahTime,
+            AnalyticsParameterKey.timezone: timezone,
+            AnalyticsParameterKey.source: source
+        ])
+    }
+
+    static func logOnboardingCompleted(step: OnboardingStep, totalSteps: Int?) {
+        log(.onboardingCompleted, parameters: [
+            AnalyticsParameterKey.step: step.rawValue,
+            AnalyticsParameterKey.totalSteps: totalSteps
+        ])
+    }
+
+    static func logOnboardingNotificationsChoice(
+        choice: OnboardingNotificationsChoice,
+        step: OnboardingStep,
+        totalSteps: Int?
+    ) {
+        log(.onboardingNotificationsChoice, parameters: [
+            AnalyticsParameterKey.choice: choice.rawValue,
+            AnalyticsParameterKey.step: step.rawValue,
+            AnalyticsParameterKey.totalSteps: totalSteps
+        ])
+    }
+
+    static func logOnboardingPaywallResult(
+        result: OnboardingPaywallResult,
+        step: OnboardingStep,
+        planId: String? = nil,
+        productId: String? = nil,
+        price: Double? = nil,
+        currency: String? = nil
+    ) {
+        log(.onboardingPaywallResult, parameters: [
+            AnalyticsParameterKey.result: result.rawValue,
+            AnalyticsParameterKey.step: step.rawValue,
+            AnalyticsParameterKey.planId: planId,
+            AnalyticsParameterKey.productId: productId,
+            AnalyticsParameterKey.price: price,
+            AnalyticsParameterKey.currency: currency
         ])
     }
     

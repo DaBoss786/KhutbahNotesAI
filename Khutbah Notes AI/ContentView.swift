@@ -2630,16 +2630,7 @@ struct ShareCardView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 48, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Theme.cardBackground,
-                            Theme.background.opacity(0.45)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Theme.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 48, style: .continuous)
                         .stroke(Theme.primaryGreen.opacity(0.12), lineWidth: 2)

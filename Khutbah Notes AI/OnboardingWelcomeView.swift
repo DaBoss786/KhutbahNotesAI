@@ -9,9 +9,17 @@ import SwiftUI
 import UIKit
 import OneSignalFramework
 
+// Analytics: log onboarding_step_viewed on appear/step change (with total count), add Jumu'ah timing details to the next step, and log onboarding_completed on finish.
 struct OnboardingFlowView: View {
     @Binding var hasCompletedOnboarding: Bool
     @State private var step: Step = .welcome
+    @State private var hasLoggedInitialStep = false
+    @State private var pendingStepDetails: PendingStepDetails?
+
+    private struct PendingStepDetails {
+        let jumuahTime: String
+        let timezone: String
+    }
     
     private enum Step: CaseIterable {
         case welcome
@@ -31,6 +39,25 @@ struct OnboardingFlowView: View {
             case .jumuahReminder: return 5
             case .notificationsPrePrompt: return 6
             case .paywall: return 7
+            }
+        }
+
+        var analyticsStep: OnboardingStep {
+            switch self {
+            case .welcome:
+                return .welcome
+            case .rememberEveryKhutbah:
+                return .remember
+            case .integrity:
+                return .integrity
+            case .howItWorks:
+                return .howItWorks
+            case .jumuahReminder:
+                return .jumuahReminder
+            case .notificationsPrePrompt:
+                return .notificationsPrePrompt
+            case .paywall:
+                return .paywall
             }
         }
     }
@@ -69,8 +96,9 @@ struct OnboardingFlowView: View {
                 }
                 .transition(.opacity)
             case .jumuahReminder:
-                OnboardingJumuahReminderView(progress: progress(for: .jumuahReminder)) {
+                OnboardingJumuahReminderView(progress: progress(for: .jumuahReminder)) { selection, timezone in
                     withAnimation(.easeInOut(duration: 0.3)) {
+                        pendingStepDetails = PendingStepDetails(jumuahTime: selection, timezone: timezone)
                         step = .notificationsPrePrompt
                     }
                 }
@@ -82,20 +110,45 @@ struct OnboardingFlowView: View {
                     }
                 }
                 .transition(.opacity)
-case .paywall:
-    OnboardingPaywallView {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            hasCompletedOnboarding = true
-        }
-    }
-    .transition(.opacity)
+            case .paywall:
+                OnboardingPaywallView {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        hasCompletedOnboarding = true
+                    }
+                }
+                .transition(.opacity)
             }
+        }
+        .onAppear {
+            guard !hasLoggedInitialStep else { return }
+            hasLoggedInitialStep = true
+            logStepViewed(step)
+        }
+        .onChange(of: step) { newStep in
+            logStepViewed(newStep)
+        }
+        .onChange(of: hasCompletedOnboarding) { value in
+            guard value else { return }
+            AnalyticsManager.logOnboardingCompleted(step: step.analyticsStep, totalSteps: totalSteps)
         }
     }
     
     private func progress(for step: Step) -> OnboardingProgress {
         let currentIndex = step.index
         return OnboardingProgress(current: currentIndex, total: totalSteps)
+    }
+
+    private func logStepViewed(_ step: Step) {
+        let details = step == .notificationsPrePrompt ? pendingStepDetails : nil
+        AnalyticsManager.logOnboardingStepViewed(
+            step: step.analyticsStep,
+            totalSteps: totalSteps,
+            jumuahTime: details?.jumuahTime,
+            timezone: details?.timezone
+        )
+        if step == .notificationsPrePrompt {
+            pendingStepDetails = nil
+        }
     }
 }
 
@@ -388,7 +441,7 @@ struct HowItWorksRow: View {
 
 struct OnboardingJumuahReminderView: View {
     let progress: OnboardingProgress
-    var onContinue: () -> Void
+    var onContinue: (_ selectedTime: String, _ timezone: String) -> Void
     
     @EnvironmentObject private var store: LectureStore
     @AppStorage("jumuahStartTime") private var storedJumuahStartTime: String?
@@ -469,7 +522,7 @@ struct OnboardingJumuahReminderView: View {
         Task {
             await store.saveJumuahStartTime(selection, timezoneIdentifier: timezone)
             await MainActor.run {
-                onContinue()
+                onContinue(selection, timezone)
             }
         }
     }
@@ -581,6 +634,12 @@ struct OnboardingNotificationsPrePromptView: View {
         OneSignal.Notifications.requestPermission({ accepted in
             Task {
                 let preference = accepted ? "push" : "no"
+                let choice: OnboardingNotificationsChoice = accepted ? .push : .no
+                AnalyticsManager.logOnboardingNotificationsChoice(
+                    choice: choice,
+                    step: .notificationsPrePrompt,
+                    totalSteps: progress.total
+                )
                 storedNotificationChoice = preference
                 if accepted {
                     OneSignalIntegration.linkCurrentUser()
@@ -599,6 +658,11 @@ struct OnboardingNotificationsPrePromptView: View {
         guard !isRequestingPermission else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         let preference = "provisional"
+        AnalyticsManager.logOnboardingNotificationsChoice(
+            choice: .provisional,
+            step: .notificationsPrePrompt,
+            totalSteps: progress.total
+        )
         storedNotificationChoice = preference
         
         Task {

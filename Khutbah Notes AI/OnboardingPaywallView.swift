@@ -3,6 +3,7 @@
 //  Khutbah Notes AI
 //
 
+import Foundation
 import SwiftUI
 import RevenueCat
 import RevenueCatUI
@@ -32,14 +33,17 @@ struct OnboardingPaywallView: View {
             } else if let offering = offering {
                 PaywallView(offering: offering)
                     .onRequestedDismissal {
+                        logPaywallResult(.dismissed)
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onComplete()   // <-- this takes the user to the dashboard in your app
                     }
                     .onPurchaseCompleted {
+                        logPaywallResult(.purchased)
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         handleEntitlementConfirmation(from: $0)
                     }
                     .onRestoreCompleted {
+                        logPaywallResult(.restored)
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         handleEntitlementConfirmation(from: $0)
                     }
@@ -107,7 +111,10 @@ struct OnboardingPaywallView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 
-                Button(action: { onComplete() }) {
+                Button(action: {
+                    logPaywallResult(.dismissed)
+                    onComplete()
+                }) {
                     Text("Continue without subscribing")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(BrandPalette.cream.opacity(0.8))
@@ -134,6 +141,7 @@ struct OnboardingPaywallView: View {
                 .multilineTextAlignment(.center)
             
             Button(action: {
+                logPaywallResult(.dismissed)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 onComplete()
             }) {
@@ -251,5 +259,18 @@ struct OnboardingPaywallView: View {
         }
         
         await MainActor.run { self.isLoading = false }
+    }
+
+    private func logPaywallResult(_ result: OnboardingPaywallResult) {
+        let package = offering?.availablePackages.first
+        let product = package?.storeProduct
+        let price = product.map { NSDecimalNumber(decimal: $0.price).doubleValue }
+        AnalyticsManager.logOnboardingPaywallResult(
+            result: result,
+            step: .paywall,
+            planId: package?.identifier,
+            productId: product?.productIdentifier,
+            price: price
+        )
     }
 }
