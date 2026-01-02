@@ -53,6 +53,7 @@ final class LectureStore: ObservableObject {
     @Published var lectures: [Lecture] = []
     @Published var folders: [Folder] = []
     @Published var userUsage: UserUsage?
+    @Published private(set) var hasLoadedLectures = false
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
     private var listener: ListenerRegistration?
@@ -932,6 +933,7 @@ final class LectureStore: ObservableObject {
     
     func start(for userId: String) {
         self.userId = userId
+        hasLoadedLectures = false
         
         // Stop any previous listener
         listener?.remove()
@@ -952,6 +954,7 @@ final class LectureStore: ObservableObject {
                 
                 guard let documents = snapshot?.documents else {
                     self.lectures = []
+                    self.hasLoadedLectures = true
                     return
                 }
                 
@@ -1050,6 +1053,7 @@ final class LectureStore: ObservableObject {
                 )
                 self.lectures = updatedLectures
                 self.fillMissingDurationsIfNeeded(for: updatedLectures)
+                self.hasLoadedLectures = true
             }
         
         userListener = db.collection("users")

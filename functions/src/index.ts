@@ -3826,6 +3826,7 @@ async function sendSummaryReadyNotification(
   const body = trimmedTitle.length > 0 ?
     `Your summary for "${trimmedTitle}" is ready.` :
     "Your khutbah summary is ready.";
+  const deepLinkUrl = `khutbahnotesai://lecture?lectureId=${encodeURIComponent(lectureId)}`;
 
   const payload = {
     app_id: ONESIGNAL_APP_ID,
@@ -3843,6 +3844,7 @@ async function sendSummaryReadyNotification(
       type: "summary_ready",
       lectureId,
     },
+    url: deepLinkUrl,
     collapse_id: `summary-ready-${lectureId}`,
     ttl: 86400,
     ios_interruption_level: preference === "provisional" ? "passive" : "active",

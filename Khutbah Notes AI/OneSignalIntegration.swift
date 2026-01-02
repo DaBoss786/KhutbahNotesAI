@@ -18,6 +18,8 @@ enum OneSignalIntegration {
     private static var pendingExternalId: String?
     private static var lastLinkedExternalId: String?
     private static var isConfigured = false
+    private static var hasRegisteredClickListener = false
+    private static var clickListener: SummaryReadyClickListener?
     
     static func configureIfNeeded() {
         guard !appId.isEmpty, !isConfigured else { return }
@@ -59,6 +61,14 @@ enum OneSignalIntegration {
         
         persistIdentifiersWhenAvailable(for: userId, attempt: 0)
     }
+
+    static func registerNotificationClickHandler() {
+        guard !hasRegisteredClickListener else { return }
+        hasRegisteredClickListener = true
+        let listener = SummaryReadyClickListener()
+        clickListener = listener
+        OneSignal.Notifications.addClickListener(listener)
+    }
     
     private static func persistIdentifiersWhenAvailable(for userId: String, attempt: Int) {
         let onesignalId = OneSignal.User.onesignalId
@@ -81,6 +91,19 @@ enum OneSignalIntegration {
             persistIdentifiersWhenAvailable(for: userId, attempt: attempt + 1)
         }
     }
+
+    fileprivate static func lectureId(from additionalData: [AnyHashable: Any]?) -> String? {
+        guard let additionalData else { return nil }
+        if let lectureId = additionalData["lectureId"] as? String,
+           !lectureId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return lectureId
+        }
+        if let lectureId = additionalData["lectureId"] as? NSNumber {
+            let stringValue = lectureId.stringValue
+            return stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : stringValue
+        }
+        return nil
+    }
     
     private static func persistOneSignalIdentifiers(userId: String, subscriptionId: String?, onesignalId: String?) {
         var oneSignalData: [String: Any] = [:]
@@ -101,6 +124,20 @@ enum OneSignalIntegration {
             } else {
                 print("Saved OneSignal identifiers for user \(userId)")
             }
+        }
+    }
+}
+
+private final class SummaryReadyClickListener: NSObject, OSNotificationClickListener {
+    func onClick(event: OSNotificationClickEvent) {
+        let additionalData = event.notification.additionalData
+        if let type = additionalData?["type"] as? String,
+           type != "summary_ready" {
+            return
+        }
+        guard let lectureId = OneSignalIntegration.lectureId(from: additionalData) else { return }
+        DispatchQueue.main.async {
+            LectureDeepLinkStore.setPendingLectureId(lectureId)
         }
     }
 }

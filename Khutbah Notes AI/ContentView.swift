@@ -112,6 +112,10 @@ struct MainTabView: View {
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
     @AppStorage(RecordingUserDefaultsKeys.controlAction, store: RecordingDefaults.shared) private var pendingControlActionRaw = ""
     @AppStorage(RecordingUserDefaultsKeys.routeAction, store: RecordingDefaults.shared) private var pendingRouteActionRaw = ""
+    @AppStorage(
+        LectureDeepLinkUserDefaultsKeys.pendingLectureId,
+        store: LectureDeepLinkDefaults.shared
+    ) private var pendingLectureDeepLinkIdRaw = ""
     
     private var shouldShowRecordPrompt: Bool {
         !hasSavedRecording && selectedTab == 0 && dashboardNavigationDepth == 0
@@ -122,7 +126,10 @@ struct MainTabView: View {
             TabView(selection: $selectedTab) {
                 NotesView(
                     selectedTab: $selectedTab,
-                    dashboardNavigationDepth: $dashboardNavigationDepth
+                    dashboardNavigationDepth: $dashboardNavigationDepth,
+                    onShowToast: { message in
+                        showToast(message)
+                    }
                 )
                     .tabItem {
                         Image(systemName: "book.closed.fill")
@@ -215,11 +222,15 @@ struct MainTabView: View {
         .onChange(of: pendingRouteActionRaw) { _ in
             handlePendingRouteAction()
         }
+        .onChange(of: pendingLectureDeepLinkIdRaw) { _ in
+            handlePendingLectureDeepLinkTabSwitch()
+        }
     }
 
     private func handlePendingActions() {
         handlePendingControlAction()
         handlePendingRouteAction()
+        handlePendingLectureDeepLinkTabSwitch()
     }
 
     private func handlePendingControlAction() {
@@ -236,12 +247,35 @@ struct MainTabView: View {
         pendingRecordingRouteAction = action
         pendingRouteActionRaw = ""
     }
+
+    private func handlePendingLectureDeepLinkTabSwitch() {
+        let trimmed = pendingLectureDeepLinkIdRaw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        selectedTab = 0
+    }
+
+    private func showToast(_ message: String) {
+        withAnimation {
+            toastMessage = message
+            toastActionTitle = nil
+            toastAction = nil
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            withAnimation {
+                toastMessage = nil
+                toastActionTitle = nil
+                toastAction = nil
+            }
+        }
+    }
 }
 
 struct NotesView: View {
     @EnvironmentObject var store: LectureStore
     @Binding var selectedTab: Int
     @Binding var dashboardNavigationDepth: Int
+    let onShowToast: ((String) -> Void)?
     @State private var selectedSegment = 0
     @State private var showRenameSheet = false
     @State private var showMoveSheet = false
@@ -263,6 +297,22 @@ struct NotesView: View {
     @State private var searchQuery = ""
     @State private var activeSearchQuery = ""
     @State private var showSearchResults = false
+    @State private var deepLinkLecture: Lecture?
+    @State private var showDeepLinkLecture = false
+    @AppStorage(
+        LectureDeepLinkUserDefaultsKeys.pendingLectureId,
+        store: LectureDeepLinkDefaults.shared
+    ) private var pendingLectureDeepLinkIdRaw = ""
+
+    init(
+        selectedTab: Binding<Int>,
+        dashboardNavigationDepth: Binding<Int>,
+        onShowToast: ((String) -> Void)? = nil
+    ) {
+        _selectedTab = selectedTab
+        _dashboardNavigationDepth = dashboardNavigationDepth
+        self.onShowToast = onShowToast
+    }
     
     private let segments = ["All Notes", "Folders"]
     
@@ -350,6 +400,18 @@ struct NotesView: View {
                 showPaywall = false
             }
         }
+        .onAppear {
+            handlePendingLectureDeepLink()
+        }
+        .onChange(of: pendingLectureDeepLinkIdRaw) { _ in
+            handlePendingLectureDeepLink()
+        }
+        .onChange(of: store.lectures) { _ in
+            handlePendingLectureDeepLink()
+        }
+        .onChange(of: store.hasLoadedLectures) { _ in
+            handlePendingLectureDeepLink()
+        }
         .alert("Delete lecture?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {
                 if let lecture = pendingDeleteLecture {
@@ -370,6 +432,14 @@ struct NotesView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 header
+                NavigationLink(
+                    destination: deepLinkLectureDestination,
+                    isActive: $showDeepLinkLecture
+                ) {
+                    EmptyView()
+                }
+                .frame(width: 0, height: 0)
+                .hidden()
                 NavigationLink(
                     destination: NavigationDepthTracker(depth: $dashboardNavigationDepth) {
                         SearchResultsView(
@@ -401,6 +471,20 @@ struct NotesView: View {
             .padding(.vertical, 24)
         }
         .background(Theme.backgroundGradient.ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private var deepLinkLectureDestination: some View {
+        if let lecture = deepLinkLecture {
+            NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                LectureDetailView(
+                    lecture: lecture,
+                    selectedRootTab: $selectedTab
+                )
+            }
+        } else {
+            EmptyView()
+        }
     }
     
     private var header: some View {
@@ -726,6 +810,24 @@ struct NotesView: View {
         guard !trimmed.isEmpty else { return }
         activeSearchQuery = trimmed
         showSearchResults = true
+    }
+
+    private func handlePendingLectureDeepLink() {
+        let trimmed = pendingLectureDeepLinkIdRaw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if let lecture = store.lectures.first(where: { $0.id == trimmed }) {
+            selectedTab = 0
+            deepLinkLecture = lecture
+            showDeepLinkLecture = true
+            pendingLectureDeepLinkIdRaw = ""
+            return
+        }
+
+        guard store.hasLoadedLectures else { return }
+        pendingLectureDeepLinkIdRaw = ""
+        onShowToast?("We couldn't find that lecture. It may have been deleted.")
     }
     
     private func startMove(for lecture: Lecture) {

@@ -53,6 +53,10 @@ struct Khutbah_Notes_AIApp: App {
             }
             .environmentObject(store)
             .onOpenURL { url in
+                if let lectureId = LectureDeepLink.lectureId(from: url) {
+                    LectureDeepLinkStore.setPendingLectureId(lectureId)
+                    return
+                }
                 if let action = RecordingDeepLink.action(from: url) {
                     RecordingActionStore.setRouteAction(action)
                 }
@@ -105,6 +109,7 @@ struct Khutbah_Notes_AIApp: App {
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         OneSignalIntegration.configureIfNeeded()
+        OneSignalIntegration.registerNotificationClickHandler()
         if #available(iOS 16.1, *) {
             OneSignal.LiveActivities.setup(OneSignalWidgetAttributes.self)
         }
