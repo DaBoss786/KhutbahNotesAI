@@ -376,7 +376,7 @@ struct StaticContentView: View {
             .padding(.vertical, 24)
         }
         .navigationTitle(title)
-        .background(Theme.background.ignoresSafeArea())
+        .background(Theme.backgroundGradient.ignoresSafeArea())
     }
 
     @ViewBuilder

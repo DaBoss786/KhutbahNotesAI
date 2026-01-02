@@ -27,6 +27,12 @@ struct Theme {
     static let primaryGreen = Color(red: 0.12, green: 0.52, blue: 0.35)
     static let secondaryGreen = Color(red: 0.16, green: 0.63, blue: 0.40)
     static let background = Color(red: 0.95, green: 0.98, blue: 0.95)
+    static let backgroundHighlight = Color(red: 0.99, green: 1.0, blue: 0.99)
+    static let backgroundGradient = LinearGradient(
+        colors: [background, backgroundHighlight],
+        startPoint: .top,
+        endPoint: .bottom
+    )
     static let cardBackground = Color.white
     static let mutedText = Color(red: 0.43, green: 0.49, blue: 0.46)
     static let shadow = Color.black.opacity(0.08)
@@ -394,7 +400,7 @@ struct NotesView: View {
             .padding(.horizontal)
             .padding(.vertical, 24)
         }
-        .background(Theme.background.ignoresSafeArea())
+        .background(Theme.backgroundGradient.ignoresSafeArea())
     }
     
     private var header: some View {
@@ -547,7 +553,7 @@ struct NotesView: View {
             Spacer()
         }
         .padding(24)
-        .background(Theme.background.ignoresSafeArea())
+        .background(Theme.backgroundGradient.ignoresSafeArea())
     }
     
     private var segmentPicker: some View {
@@ -1472,7 +1478,7 @@ struct LectureDetailView: View {
                 }
                 .padding()
             }
-            .background(Theme.background.ignoresSafeArea())
+            .background(Theme.backgroundGradient.ignoresSafeArea())
             .navigationTitle("Lecture")
             .navigationBarTitleDisplayMode(.inline)
             
@@ -2456,7 +2462,7 @@ struct ShareComposerView: View {
                 }
                 .padding()
             }
-            .background(Theme.background.ignoresSafeArea())
+            .background(Theme.backgroundGradient.ignoresSafeArea())
             .navigationTitle("Share")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -42,9 +42,7 @@ struct RecordLectureView: View {
     
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Theme.background, Color.white],
-                           startPoint: .topLeading,
-                           endPoint: .bottomTrailing)
+            Theme.backgroundGradient
                 .ignoresSafeArea()
             
             VStack(alignment: .center, spacing: 24) {

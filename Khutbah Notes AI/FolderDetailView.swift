@@ -79,7 +79,7 @@ struct FolderDetailView: View {
             }
             .padding()
         }
-        .background(Theme.background.ignoresSafeArea())
+        .background(Theme.backgroundGradient.ignoresSafeArea())
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -59,7 +59,7 @@ struct SearchResultsView: View {
             }
             .padding()
         }
-        .background(Theme.background.ignoresSafeArea())
+        .background(Theme.backgroundGradient.ignoresSafeArea())
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
     }
