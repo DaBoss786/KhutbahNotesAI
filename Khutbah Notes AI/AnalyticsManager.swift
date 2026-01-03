@@ -20,7 +20,7 @@ enum AnalyticsEvent: String {
     case onboardingPaywallResult = "onboarding_paywall_result"
 }
 
-enum AudioUploadTrigger: String {
+enum AudioUploadTrigger: String, Codable {
     case recording
     case retake
     case manual

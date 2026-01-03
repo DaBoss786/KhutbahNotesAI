@@ -796,18 +796,17 @@ struct RecordingWaveformView: View {
     let level: Double
     
     // Slightly varied pattern to make the line feel alive without randomness each frame.
-    private let pattern: [Double] = [0.35, 0.6, 0.9, 0.55, 0.75, 1, 0.72, 0.48, 0.3]
+    private let pattern: [Double] = [0.35, 0.7, 1, 0.65, 0.4]
     
     var body: some View {
         let mirrored = pattern + pattern.dropLast().reversed()
-        let heightScale = max(8, level * 90)
+        let heightScale = max(6, level * 70)
         
         return HStack(alignment: .center, spacing: 5) {
             ForEach(Array(mirrored.enumerated()), id: \.offset) { item in
                 Capsule()
                     .fill(Theme.secondaryGreen)
                     .frame(width: 4, height: max(6, CGFloat(item.element) * CGFloat(heightScale)))
-                    .animation(.easeOut(duration: 0.12), value: level)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)

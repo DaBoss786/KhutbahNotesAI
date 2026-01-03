@@ -14,12 +14,15 @@ final class RecordingManager: NSObject, ObservableObject {
     private let audioSession = AVAudioSession.sharedInstance()
     private var audioRecorder: AVAudioRecorder?
     private var meterTimer: Timer?
+    private var elapsedTimer: Timer?
     private var startDate: Date?
     private var accumulatedTime: TimeInterval = 0
     private var lastRecordingURL: URL?
     private var notificationObservers: [NSObjectProtocol] = []
     private var shouldResumeAfterInterruption = false
     private var liveActivityController: Any?
+    private let meterInterval: TimeInterval = 0.25
+    private let elapsedInterval: TimeInterval = 1
     
     enum RecordingError: Error {
         case permissionDenied
@@ -67,14 +70,21 @@ final class RecordingManager: NSObject, ObservableObject {
         try configureSession()
         lastRecordingURL = nil
         
-        let fileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("m4a")
+        let fileURL: URL
+        do {
+            fileURL = try RecordingStorage.newRecordingURL()
+        } catch {
+            fileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("m4a")
+            print("Failed to create persistent recording URL: \(error)")
+        }
         
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 44_100,
             AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 96_000,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
         
@@ -95,7 +105,7 @@ final class RecordingManager: NSObject, ObservableObject {
         startDate = Date()
         elapsedTime = 0
         accumulatedTime = 0
-        startMeteringTimer()
+        startTimers()
         startLiveActivityIfAvailable(isPaused: false)
     }
     
@@ -114,7 +124,7 @@ final class RecordingManager: NSObject, ObservableObject {
         recorder.stop()
         isRecording = false
         isPaused = false
-        stopMeteringTimer()
+        stopTimers()
         endLiveActivityIfAvailable()
         resetTiming()
         let recordedURL = recorder.url
@@ -140,6 +150,7 @@ final class RecordingManager: NSObject, ObservableObject {
         }
         self.startDate = nil
         elapsedTime = accumulatedTime
+        stopTimers()
         startLiveActivityIfAvailable(isPaused: true)
     }
 
@@ -154,6 +165,8 @@ final class RecordingManager: NSObject, ObservableObject {
         if resumed {
             isPaused = false
             startDate = Date()
+            startTimers()
+            updateElapsedTime()
             startLiveActivityIfAvailable(isPaused: false)
         } else {
             print("Failed to resume recording.")
@@ -161,8 +174,21 @@ final class RecordingManager: NSObject, ObservableObject {
     }
 
     private func configureSession() throws {
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try audioSession.setCategory(.record, mode: .measurement, options: [])
+        try? audioSession.setPreferredSampleRate(44_100)
         try audioSession.setActive(true)
+        setPreferredInput()
+    }
+    
+    private func setPreferredInput() {
+        guard let inputs = audioSession.availableInputs else { return }
+        if let builtIn = inputs.first(where: { $0.portType == .builtInMic }) {
+            do {
+                try audioSession.setPreferredInput(builtIn)
+            } catch {
+                print("Failed to set preferred microphone: \(error)")
+            }
+        }
     }
     
     private func addAudioSessionObservers() {
@@ -232,12 +258,16 @@ final class RecordingManager: NSObject, ObservableObject {
     
     private func handleMediaServicesReset(_ notification: Notification) {
         guard isRecording else { return }
+        let recordedURL = audioRecorder?.url
         audioRecorder?.stop()
+        if let recordedURL {
+            lastRecordingURL = recordedURL
+        }
         audioRecorder = nil
         shouldResumeAfterInterruption = false
         isRecording = false
         isPaused = false
-        stopMeteringTimer()
+        stopTimers()
         endLiveActivityIfAvailable()
         resetTiming()
         do {
@@ -247,17 +277,27 @@ final class RecordingManager: NSObject, ObservableObject {
         }
     }
     
-    private func startMeteringTimer() {
-        stopMeteringTimer()
-        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
-            self?.updateMetersAndTime()
+    private func startTimers() {
+        stopTimers()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: meterInterval, repeats: true) { [weak self] _ in
+            self?.updateMeters()
         }
-        RunLoop.current.add(meterTimer!, forMode: .common)
+        elapsedTimer = Timer.scheduledTimer(withTimeInterval: elapsedInterval, repeats: true) { [weak self] _ in
+            self?.updateElapsedTime()
+        }
+        if let meterTimer {
+            RunLoop.current.add(meterTimer, forMode: .common)
+        }
+        if let elapsedTimer {
+            RunLoop.current.add(elapsedTimer, forMode: .common)
+        }
     }
 
-    private func stopMeteringTimer() {
+    private func stopTimers() {
         meterTimer?.invalidate()
         meterTimer = nil
+        elapsedTimer?.invalidate()
+        elapsedTimer = nil
     }
 
     private func resetTiming() {
@@ -267,15 +307,12 @@ final class RecordingManager: NSObject, ObservableObject {
         level = 0
     }
 
-    private func updateMetersAndTime() {
+    private func updateMeters() {
         guard isRecording else { return }
-        if !isPaused, let startDate {
-            elapsedTime = accumulatedTime + Date().timeIntervalSince(startDate)
-        } else if isPaused {
+        guard !isPaused else {
             level = 0
             return
         }
-
         audioRecorder?.updateMeters()
         guard let power = audioRecorder?.averagePower(forChannel: 0) else {
             level = 0
@@ -287,6 +324,11 @@ final class RecordingManager: NSObject, ObservableObject {
         let clamped = max(minDb, power)
         let normalized = pow(10, clamped / 20)
         level = Double(normalized)
+    }
+    
+    private func updateElapsedTime() {
+        guard isRecording else { return }
+        elapsedTime = currentElapsed
     }
 
     private var currentElapsed: TimeInterval {
@@ -333,16 +375,22 @@ final class RecordingManager: NSObject, ObservableObject {
 
 extension RecordingManager: AVAudioRecorderDelegate {
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        guard recorder == audioRecorder else { return }
+        let isCurrent = recorder == audioRecorder
         if isRecording {
             isRecording = false
             isPaused = false
-            stopMeteringTimer()
+            stopTimers()
             endLiveActivityIfAvailable()
             resetTiming()
         }
         if !flag {
             print("Audio recorder finished unsuccessfully.")
+        }
+        if lastRecordingURL == nil {
+            lastRecordingURL = recorder.url
+        }
+        if isCurrent {
+            audioRecorder = nil
         }
     }
     
@@ -352,9 +400,12 @@ extension RecordingManager: AVAudioRecorderDelegate {
         if isRecording {
             isRecording = false
             isPaused = false
-            stopMeteringTimer()
+            stopTimers()
             endLiveActivityIfAvailable()
             resetTiming()
+        }
+        if lastRecordingURL == nil {
+            lastRecordingURL = recorder.url
         }
     }
 }
