@@ -80,15 +80,9 @@ final class RecordingManager: NSObject, ObservableObject {
             print("Failed to create persistent recording URL: \(error)")
         }
         
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 44_100,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 96_000,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
+        let profile = RecordingProfile.speech
         
-        audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
+        audioRecorder = try AVAudioRecorder(url: fileURL, settings: profile.settings)
         audioRecorder?.delegate = self
         audioRecorder?.isMeteringEnabled = true
         audioRecorder?.prepareToRecord()
@@ -174,8 +168,9 @@ final class RecordingManager: NSObject, ObservableObject {
     }
 
     private func configureSession() throws {
+        let profile = RecordingProfile.speech
         try audioSession.setCategory(.record, mode: .measurement, options: [])
-        try? audioSession.setPreferredSampleRate(44_100)
+        try? audioSession.setPreferredSampleRate(profile.sampleRate)
         try audioSession.setActive(true)
         setPreferredInput()
     }

@@ -15,59 +15,115 @@ struct PendingRecording: Codable, Identifiable {
     }
 }
 
-final class PendingRecordingStore {
+protocol PendingRecordingStorage {
+    func loadAll() -> [PendingRecording]
+    func saveAll(_ recordings: [PendingRecording])
+}
+
+final class FilePendingRecordingStorage: PendingRecordingStorage {
     private let fileURL: URL
-    private let queue = DispatchQueue(label: "PendingRecordingStore")
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+    
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+    }
+    
+    func loadAll() -> [PendingRecording] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        guard let decoded = try? decoder.decode([PendingRecording].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+    
+    func saveAll(_ recordings: [PendingRecording]) {
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .secondsSince1970
+            let data = try encoder.encode(recordings)
+            try data.write(to: fileURL, options: [.atomic])
+        } catch {
+            print("Failed to save pending recordings: \(error)")
+        }
+    }
+}
+
+final class MemoryPendingRecordingStorage: PendingRecordingStorage {
+    private var recordings: [PendingRecording] = []
+    
+    func loadAll() -> [PendingRecording] {
+        recordings
+    }
+    
+    func saveAll(_ recordings: [PendingRecording]) {
+        self.recordings = recordings
+    }
+}
+
+final class PendingRecordingStore {
+    private let storage: PendingRecordingStorage
+    private let accessLock = NSLock()
     
     init(fileURL: URL? = nil) {
         if let fileURL {
-            self.fileURL = fileURL
+            self.storage = FilePendingRecordingStorage(fileURL: fileURL)
         } else if let defaultURL = try? RecordingStorage.pendingRecordingsURL() {
-            self.fileURL = defaultURL
+            self.storage = FilePendingRecordingStorage(fileURL: defaultURL)
         } else {
-            self.fileURL = FileManager.default.temporaryDirectory
+            let fallbackURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("pending_recordings.json")
+            self.storage = FilePendingRecordingStorage(fileURL: fallbackURL)
         }
-        encoder.dateEncodingStrategy = .iso8601
-        decoder.dateDecodingStrategy = .iso8601
+    }
+    
+    init(storage: PendingRecordingStorage) {
+        self.storage = storage
     }
     
     func load(for userId: String) -> [PendingRecording] {
-        queue.sync {
-            guard let data = try? Data(contentsOf: fileURL) else { return [] }
-            guard let decoded = try? decoder.decode([PendingRecording].self, from: data) else {
-                return []
-            }
-            return decoded.filter { $0.userId == userId }
+        withLock {
+            storage.loadAll().filter { $0.userId == userId }
         }
     }
     
-    func replace(with recordings: [PendingRecording]) {
-        queue.sync {
-            do {
-                let data = try encoder.encode(recordings)
-                try data.write(to: fileURL, options: [.atomic])
-            } catch {
-                print("Failed to save pending recordings: \(error)")
+    func replace(with recordings: [PendingRecording], for userId: String? = nil) {
+        withLock {
+            var updated = storage.loadAll()
+            if let userId {
+                updated.removeAll { $0.userId == userId }
+                updated.append(contentsOf: recordings)
+            } else {
+                updated = recordings
             }
+            storage.saveAll(updated)
         }
     }
     
     func upsert(_ recording: PendingRecording) {
-        var recordings = load(for: recording.userId)
-        if let index = recordings.firstIndex(where: { $0.id == recording.id }) {
-            recordings[index] = recording
-        } else {
-            recordings.append(recording)
+        withLock {
+            var recordings = storage.loadAll()
+            if let index = recordings.firstIndex(where: { $0.id == recording.id }) {
+                recordings[index] = recording
+            } else {
+                recordings.append(recording)
+            }
+            storage.saveAll(recordings)
         }
-        replace(with: recordings)
     }
     
     func remove(id: String, userId: String) {
-        var recordings = load(for: userId)
-        recordings.removeAll { $0.id == id }
-        replace(with: recordings)
+        withLock {
+            var recordings = storage.loadAll()
+            recordings.removeAll { $0.id == id && $0.userId == userId }
+            storage.saveAll(recordings)
+        }
     }
+    
+    private func withLock<T>(_ work: () -> T) -> T {
+        accessLock.lock()
+        defer { accessLock.unlock() }
+        return work()
+    }
+    
 }

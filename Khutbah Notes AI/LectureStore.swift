@@ -70,10 +70,8 @@ final class LectureStore: ObservableObject {
     private let supportedAudioExtensions: Set<String> = [
         "m4a", "mp3", "wav", "aac", "m4b", "aif", "aiff", "caf"
     ]
-    private var pendingUploadURLs: [String: URL] = [:]
-    private var pendingUploadSources: [String: URL] = [:]
     private let pendingRecordingStore = PendingRecordingStore()
-    private var pendingRecordings: [String: PendingRecording] = [:]
+    private var pendingUploads: [String: PendingUpload] = [:]
     private var uploadAnalytics: [String: UploadAnalyticsContext] = [:]
     private var transcriptionAnalytics: [String: TranscriptionAnalyticsContext] = [:]
     private var summarizationAnalytics: [String: SummarizationAnalyticsContext] = [:]
@@ -1153,7 +1151,12 @@ final class LectureStore: ObservableObject {
             filePath: recordingURL.path,
             trigger: .recording
         )
-        pendingRecordings[lectureId] = pending
+        pendingUploads[lectureId] = PendingUpload(
+            lectureId: lectureId,
+            recording: pending,
+            sourceURL: nil,
+            preparedURL: recordingURL
+        )
         pendingRecordingStore.upsert(pending)
         
         // Optimistically insert a local lecture while upload happens
@@ -1176,7 +1179,6 @@ final class LectureStore: ObservableObject {
         
         // Insert at top so UI feels instant; Firestore listener will overwrite as needed
         lectures.insert(newLecture, at: 0)
-        pendingUploadURLs[lectureId] = recordingURL
         startUploadAnalytics(
             lectureId: lectureId,
             trigger: .recording,
@@ -1251,7 +1253,12 @@ final class LectureStore: ObservableObject {
         )
         
         lectures.insert(newLecture, at: 0)
-        pendingUploadSources[lectureId] = fileURL
+        pendingUploads[lectureId] = PendingUpload(
+            lectureId: lectureId,
+            recording: nil,
+            sourceURL: fileURL,
+            preparedURL: nil
+        )
         Task { [weak self] in
             await self?.uploadLectureFromFileWithRetry(
                 lectureId: lectureId,
@@ -1283,56 +1290,83 @@ final class LectureStore: ObservableObject {
             return
         }
 
-        if let recordingURL = pendingUploadURLs[lectureId] {
-            if FileManager.default.fileExists(atPath: recordingURL.path) {
-                startUploadAnalytics(
-                    lectureId: lectureId,
-                    trigger: .recording,
-                    fileURL: recordingURL
-                )
-                Task { [weak self] in
-                    await self?.uploadLectureAudioWithRetry(
+        if let pending = pendingUploads[lectureId] {
+            if let recording = pending.recording {
+                let recordingURL = pending.preparedURL ?? recording.fileURL
+                if FileManager.default.fileExists(atPath: recordingURL.path) {
+                    startUploadAnalytics(
                         lectureId: lectureId,
-                        title: lecture.title,
-                        recordingURL: recordingURL,
-                        audioPath: audioPath,
-                        date: lecture.date,
-                        durationMinutes: lecture.durationMinutes,
-                        trigger: .recording,
-                        resume: true,
-                        onError: onError
+                        trigger: recording.trigger,
+                        fileURL: recordingURL
                     )
+                    Task { [weak self] in
+                        await self?.uploadLectureAudioWithRetry(
+                            lectureId: lectureId,
+                            title: lecture.title,
+                            recordingURL: recordingURL,
+                            audioPath: audioPath,
+                            date: lecture.date,
+                            durationMinutes: lecture.durationMinutes,
+                            trigger: recording.trigger,
+                            resume: true,
+                            onError: onError
+                        )
+                    }
+                    return
                 }
-                return
-            } else {
-                pendingUploadURLs.removeValue(forKey: lectureId)
-                clearPendingRecording(lectureId: lectureId)
+                clearPendingUpload(lectureId: lectureId)
+            }
+            
+            if let preparedURL = pending.preparedURL {
+                if FileManager.default.fileExists(atPath: preparedURL.path) {
+                    startUploadAnalytics(
+                        lectureId: lectureId,
+                        trigger: .manual,
+                        fileURL: preparedURL
+                    )
+                    Task { [weak self] in
+                        await self?.uploadLectureAudioWithRetry(
+                            lectureId: lectureId,
+                            title: lecture.title,
+                            recordingURL: preparedURL,
+                            audioPath: audioPath,
+                            date: lecture.date,
+                            durationMinutes: lecture.durationMinutes,
+                            trigger: .manual,
+                            resume: true,
+                            onError: onError
+                        )
+                    }
+                    return
+                }
+            }
+            
+            if let sourceURL = pending.sourceURL {
+                if FileManager.default.fileExists(atPath: sourceURL.path) {
+                    startUploadAnalytics(
+                        lectureId: lectureId,
+                        trigger: .manual,
+                        fileURL: sourceURL
+                    )
+                    Task { [weak self] in
+                        await self?.uploadLectureFromFileWithRetry(
+                            lectureId: lectureId,
+                            title: lecture.title,
+                            sourceURL: sourceURL,
+                            audioPath: audioPath,
+                            date: lecture.date,
+                            durationMinutes: lecture.durationMinutes,
+                            trigger: .manual,
+                            resume: true,
+                            onError: onError
+                        )
+                    }
+                    return
+                }
             }
         }
-
-        guard let sourceURL = pendingUploadSources[lectureId] else {
-            print("No pending recording URL found for lecture \(lectureId); cannot retry upload.")
-            return
-        }
-
-        startUploadAnalytics(
-            lectureId: lectureId,
-            trigger: .manual,
-            fileURL: sourceURL
-        )
-        Task { [weak self] in
-            await self?.uploadLectureFromFileWithRetry(
-                lectureId: lectureId,
-                title: lecture.title,
-                sourceURL: sourceURL,
-                audioPath: audioPath,
-                date: lecture.date,
-                durationMinutes: lecture.durationMinutes,
-                trigger: .manual,
-                resume: true,
-                onError: onError
-            )
-        }
+        
+        print("No pending recording URL found for lecture \(lectureId); cannot retry upload.")
     }
 
     private func uploadLectureFromFileWithRetry(
@@ -1369,7 +1403,15 @@ final class LectureStore: ObservableObject {
         
         do {
             let prepared = try await prepareAudioFileForUpload(from: sourceURL, lectureId: lectureId)
-            pendingUploadURLs[lectureId] = prepared.url
+            var pending = pendingUploads[lectureId] ?? PendingUpload(
+                lectureId: lectureId,
+                recording: nil,
+                sourceURL: sourceURL,
+                preparedURL: nil
+            )
+            pending.preparedURL = prepared.url
+            pending.sourceURL = sourceURL
+            pendingUploads[lectureId] = pending
             
             let resolvedDuration = prepared.durationMinutes ?? durationMinutes
             if let preparedDuration = prepared.durationMinutes, preparedDuration != durationMinutes {
@@ -1392,7 +1434,7 @@ final class LectureStore: ObservableObject {
             let shouldKeepSource = message == uploadFailureMessage
             
             if !shouldKeepSource {
-                pendingUploadSources.removeValue(forKey: lectureId)
+                clearPendingUpload(lectureId: lectureId)
             }
             
             markUploadFailed(
@@ -1442,6 +1484,17 @@ final class LectureStore: ObservableObject {
         }
         guard FileManager.default.fileExists(atPath: recordingURL.path) else {
             print("Recording file missing for lecture \(lectureId) at \(recordingURL.path).")
+            if let pending = pendingUploads[lectureId] {
+                if pending.recording != nil {
+                    clearPendingUpload(lectureId: lectureId)
+                } else if pending.sourceURL != nil {
+                    var updated = pending
+                    updated.preparedURL = nil
+                    pendingUploads[lectureId] = updated
+                } else {
+                    clearPendingUpload(lectureId: lectureId)
+                }
+            }
             markUploadFailed(
                 userId: userId,
                 lectureId: lectureId,
@@ -1480,9 +1533,7 @@ final class LectureStore: ObservableObject {
             print("Uploading audio for lecture \(lectureId) (attempt \(attempt)/\(maxUploadAttempts))")
             do {
                 _ = try await putFileAsync(from: recordingURL, to: audioRef, metadata: uploadMetadata)
-                pendingUploadURLs.removeValue(forKey: lectureId)
-                pendingUploadSources.removeValue(forKey: lectureId)
-                clearPendingRecording(lectureId: lectureId)
+                clearPendingUpload(lectureId: lectureId)
                 print("Upload succeeded for lecture \(lectureId).")
                 updateLocalLectureStatus(lectureId: lectureId, status: .processing, errorMessage: nil)
                 _ = startTranscriptionAnalytics(
@@ -1765,6 +1816,13 @@ final class LectureStore: ObservableObject {
         "That file is too large. Please choose an audio file under 100 MB."
     }
 
+    private struct PendingUpload {
+        let lectureId: String
+        var recording: PendingRecording?
+        var sourceURL: URL?
+        var preparedURL: URL?
+    }
+
     private struct UploadAnalyticsContext {
         let uploadId: String
         let trigger: AudioUploadTrigger
@@ -2030,7 +2088,7 @@ final class LectureStore: ObservableObject {
         
         // Optimistically remove locally
         lectures.removeAll { $0.id == lecture.id }
-        clearPendingRecording(lectureId: lecture.id)
+        clearPendingUpload(lectureId: lecture.id)
         
         let docRef = db.collection("users")
             .document(userId)
@@ -2107,34 +2165,40 @@ private extension LectureStore {
     func restorePendingRecordings(for userId: String) {
         let stored = pendingRecordingStore.load(for: userId)
         guard !stored.isEmpty else {
-            pendingRecordings = [:]
+            pendingUploads = [:]
             return
         }
         
         var valid: [PendingRecording] = []
         valid.reserveCapacity(stored.count)
+        var restoredUploads: [String: PendingUpload] = [:]
+        restoredUploads.reserveCapacity(stored.count)
         for recording in stored {
             if FileManager.default.fileExists(atPath: recording.filePath) {
                 valid.append(recording)
-                pendingUploadURLs[recording.id] = recording.fileURL
+                restoredUploads[recording.id] = PendingUpload(
+                    lectureId: recording.id,
+                    recording: recording,
+                    sourceURL: nil,
+                    preparedURL: recording.fileURL
+                )
             } else {
                 print("Pending recording missing on disk: \(recording.filePath)")
             }
         }
         
-        pendingRecordings = Dictionary(
-            uniqueKeysWithValues: valid.map { ($0.id, $0) }
-        )
+        pendingUploads = restoredUploads
         
         if valid.count != stored.count {
-            pendingRecordingStore.replace(with: valid)
+            pendingRecordingStore.replace(with: valid, for: userId)
         }
     }
     
     func resumePendingUploads() {
-        guard !pendingRecordings.isEmpty else { return }
+        guard !pendingUploads.isEmpty else { return }
         
-        for recording in pendingRecordings.values {
+        for pending in pendingUploads.values {
+            guard let recording = pending.recording else { continue }
             guard !activeUploads.contains(recording.id) else { continue }
             Task { [weak self] in
                 await self?.uploadLectureAudioWithRetry(
@@ -2153,18 +2217,19 @@ private extension LectureStore {
     }
     
     func mergePendingLectures(into remoteLectures: [Lecture]) -> [Lecture] {
-        guard !pendingRecordings.isEmpty else { return remoteLectures }
+        let pending = pendingUploads.values.compactMap { $0.recording }
+        guard !pending.isEmpty else { return remoteLectures }
         
         let remoteIds = Set(remoteLectures.map { $0.id })
         var merged = remoteLectures
         
-        for pending in pendingRecordings.values where !remoteIds.contains(pending.id) {
+        for recording in pending where !remoteIds.contains(recording.id) {
             merged.append(
                 Lecture(
-                    id: pending.id,
-                    title: pending.title,
-                    date: pending.date,
-                    durationMinutes: pending.durationMinutes,
+                    id: recording.id,
+                    title: recording.title,
+                    date: recording.date,
+                    durationMinutes: recording.durationMinutes,
                     chargedMinutes: nil,
                     isFavorite: false,
                     status: .processing,
@@ -2178,7 +2243,7 @@ private extension LectureStore {
                     summaryTranslationRequests: [],
                     summaryTranslationInProgress: [],
                     summaryTranslationErrors: nil,
-                    audioPath: pending.audioPath,
+                    audioPath: recording.audioPath,
                     folderId: nil,
                     folderName: nil
                 )
@@ -2188,14 +2253,14 @@ private extension LectureStore {
         return merged.sorted { $0.date > $1.date }
     }
     
-    func clearPendingRecording(lectureId: String) {
-        guard let userId else { return }
-        if let pending = pendingRecordings.removeValue(forKey: lectureId) {
-            pendingRecordingStore.remove(id: lectureId, userId: userId)
-            RecordingStorage.removeFileIfExists(at: pending.fileURL)
+    func clearPendingUpload(lectureId: String) {
+        guard let pending = pendingUploads.removeValue(forKey: lectureId) else { return }
+        if let recording = pending.recording {
+            pendingRecordingStore.remove(id: lectureId, userId: recording.userId)
+            RecordingStorage.removeFileIfExists(at: recording.fileURL)
+        } else if let preparedURL = pending.preparedURL {
+            RecordingStorage.removeFileIfExists(at: preparedURL)
         }
-        pendingUploadURLs.removeValue(forKey: lectureId)
-        pendingUploadSources.removeValue(forKey: lectureId)
     }
     
     func seedDemoLectureIfNeeded(for userId: String) async {
