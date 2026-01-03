@@ -23,6 +23,20 @@ import {
   type UserData,
 } from "./quota";
 import {
+  RateLimitError,
+  TRANSLATION_RATE_LIMIT_FIELDS,
+  TRANSLATION_RATE_LIMITS,
+  TRANSCRIBE_RATE_LIMIT_FIELDS,
+  TRANSCRIBE_RATE_LIMITS,
+  SUMMARY_RATE_LIMIT_FIELDS,
+  SUMMARY_RATE_LIMITS,
+  clampCounter,
+  evaluateRateLimit,
+  getRateLimitTier,
+  type RateLimitFields,
+  type RateLimitReason,
+} from "./rateLimit";
+import {
   isEntitlementActive,
   isRevenueCatEventStale,
   resolveMonthlyMinutesUsed,
@@ -199,6 +213,9 @@ const ULTRA_COMPACT_INSTRUCTIONS = [
   "- explicitAyatOrHadith: include up to 2 verbatim quotes, prioritizing the",
   "  most central; avoid duplicates.",
 ].join("\n");
+
+const RATE_LIMIT_ERROR_MESSAGE =
+  "Rate limit exceeded. Please retry in a minute.";
 
 
 /**
@@ -678,6 +695,38 @@ async function refundChargedMinutes(
   }
 }
 
+/**
+ * Release a per-user in-flight rate-limit slot.
+ *
+ * @param {FirebaseFirestore.DocumentReference} userRef User document ref.
+ * @param {RateLimitFields} fields Field names to update.
+ * @param {Date} now Current time.
+ * @return {Promise<void>} Resolves when update completes.
+ */
+async function releaseRateLimitSlot(
+  userRef: FirebaseFirestore.DocumentReference,
+  fields: RateLimitFields,
+  now: Date = new Date()
+): Promise<void> {
+  try {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists) {
+        return;
+      }
+      const data = snap.data() as Record<string, unknown>;
+      const currentInFlight = clampCounter(data[fields.inFlight]);
+      const nextInFlight = Math.max(0, currentInFlight - 1);
+      tx.update(userRef, {
+        [fields.inFlight]: nextInFlight,
+        [fields.inFlightUpdatedAt]: admin.firestore.Timestamp.fromDate(now),
+      });
+    });
+  } catch (err: unknown) {
+    logger.warn("Failed to release rate limit slot.", err);
+  }
+}
+
 export const onAudioUpload = onObjectFinalized(
   {
     bucket: storageBucketName,
@@ -768,6 +817,7 @@ export const onAudioUpload = onObjectFinalized(
     let durationMinutes = 0;
     let chargedMinutes = 0;
     let chunkPaths: string[] = [];
+    let transcribeRateLimitReserved = false;
 
     const openai = new OpenAI({
       apiKey: openaiKey.value(),
@@ -801,6 +851,26 @@ export const onAudioUpload = onObjectFinalized(
           );
         }
 
+        const rateLimitTier = getRateLimitTier(userData);
+        const rateLimitDecision = evaluateRateLimit(
+          userData,
+          now,
+          TRANSCRIBE_RATE_LIMITS[rateLimitTier],
+          TRANSCRIBE_RATE_LIMIT_FIELDS
+        );
+
+        if (!rateLimitDecision.allowed) {
+          throw new RateLimitError(
+            "Transcription rate limit exceeded.",
+            rateLimitDecision.reason ?? "per_minute",
+            rateLimitDecision.retryAfterMs
+          );
+        }
+
+        if (rateLimitDecision.updates) {
+          tx.set(userRef, rateLimitDecision.updates, {merge: true});
+        }
+
         chargedMinutes = checkAndDebitQuota(
           tx,
           userRef,
@@ -820,6 +890,7 @@ export const onAudioUpload = onObjectFinalized(
           {merge: true}
         );
       });
+      transcribeRateLimitReserved = true;
 
       console.log(
         "Sending audio to OpenAI for transcription:",
@@ -1177,6 +1248,20 @@ export const onAudioUpload = onObjectFinalized(
     } catch (err: unknown) {
       console.error("Error in onAudioUpload:", err);
 
+      if (err instanceof RateLimitError) {
+        await lectureRef.set(
+          {
+            status: "failed",
+            errorMessage: RATE_LIMIT_ERROR_MESSAGE,
+            durationMinutes,
+            chargedMinutes: 0,
+            quotaReason: admin.firestore.FieldValue.delete(),
+          },
+          {merge: true}
+        );
+        return;
+      }
+
       if (err instanceof QuotaError) {
         await lectureRef.set(
           {
@@ -1206,6 +1291,12 @@ export const onAudioUpload = onObjectFinalized(
       );
     } finally {
       try {
+        if (transcribeRateLimitReserved) {
+          await releaseRateLimitSlot(
+            userRef,
+            TRANSCRIBE_RATE_LIMIT_FIELDS
+          );
+        }
         if (fs.existsSync(tempFilePath)) {
           fs.unlinkSync(tempFilePath);
         }
@@ -1327,7 +1418,16 @@ type SummaryInProgressValue =
 type SummaryLockResult = {
   acquired: boolean;
   reclaimed?: boolean;
-  reason?: "missing" | "not_ready" | "in_progress";
+  reason?: "missing" | "not_ready" | "in_progress" | "rate_limited";
+  rateLimitReason?: RateLimitReason;
+  retryAfterMs?: number;
+};
+
+type TranslationLockResult = {
+  acquired: boolean;
+  rateLimited?: boolean;
+  rateLimitReason?: RateLimitReason;
+  retryAfterMs?: number;
 };
 
 /**
@@ -1585,6 +1685,11 @@ export const summarizeKhutbah = onDocumentWritten(
     }
 
     const docRef = afterSnap.ref;
+    const userRef = docRef.parent.parent;
+    if (!userRef) {
+      return;
+    }
+    let summaryRateLimitReserved = false;
     const nowMs = Date.now();
     const hasInProgress = isSummaryInProgressSet(lecture.summaryInProgress);
     const updateTimeMs = getTimestampMillis(afterSnap.updateTime);
@@ -1664,6 +1769,27 @@ export const summarizeKhutbah = onDocumentWritten(
           return {acquired: false, reason: "in_progress"};
         }
 
+        const userSnap = await tx.get(userRef);
+        const userData = (userSnap.data() as UserData) ?? {};
+        const rateLimitTier = getRateLimitTier(userData);
+        const rateLimitDecision = evaluateRateLimit(
+          userData,
+          new Date(lockNowMs),
+          SUMMARY_RATE_LIMITS[rateLimitTier],
+          SUMMARY_RATE_LIMIT_FIELDS
+        );
+        if (!rateLimitDecision.allowed) {
+          return {
+            acquired: false,
+            reason: "rate_limited",
+            rateLimitReason: rateLimitDecision.reason,
+            retryAfterMs: rateLimitDecision.retryAfterMs,
+          };
+        }
+        if (rateLimitDecision.updates) {
+          tx.set(userRef, rateLimitDecision.updates, {merge: true});
+        }
+
         tx.update(docRef, {
           summaryInProgress: buildSummaryInProgress(lockNowMs),
           status: "summarizing",
@@ -1685,9 +1811,16 @@ export const summarizeKhutbah = onDocumentWritten(
             path: docRef.path,
           }
         );
+      } else if (lockResult.reason === "rate_limited") {
+        await docRef.update({
+          status: "failed",
+          errorMessage: RATE_LIMIT_ERROR_MESSAGE,
+          summaryInProgress: admin.firestore.FieldValue.delete(),
+        });
       }
       return;
     }
+    summaryRateLimitReserved = true;
 
     if (lockResult.reclaimed) {
       console.warn(
@@ -1755,6 +1888,13 @@ export const summarizeKhutbah = onDocumentWritten(
         errorMessage: message,
         summaryInProgress: admin.firestore.FieldValue.delete(),
       });
+    } finally {
+      if (summaryRateLimitReserved) {
+        await releaseRateLimitSlot(
+          userRef,
+          SUMMARY_RATE_LIMIT_FIELDS
+        );
+      }
     }
   }
 );
@@ -1835,6 +1975,11 @@ export const translateSummary = onDocumentWritten(
     const languageCode = pendingLanguages[0];
     const languageName = SUMMARY_TRANSLATION_LANGUAGES[languageCode];
     const docRef = afterSnap.ref;
+    const userRef = docRef.parent.parent;
+    if (!userRef) {
+      return;
+    }
+    let translationRateLimitReserved = false;
     if (!languageName) {
       await docRef.update({
         [`summaryTranslationRequests.${languageCode}`]:
@@ -1845,39 +1990,74 @@ export const translateSummary = onDocumentWritten(
       return;
     }
 
-    const lockAcquired = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(docRef);
-      const current = snap.data();
-      if (!snap.exists || !current?.summary) {
-        return false;
+    const lockResult = await db.runTransaction<TranslationLockResult>(
+      async (tx) => {
+        const snap = await tx.get(docRef);
+        const current = snap.data();
+        if (!snap.exists || !current?.summary) {
+          return {acquired: false};
+        }
+
+        if (
+          !hasTranslationFlag(current.summaryTranslationRequests, languageCode)
+        ) {
+          return {acquired: false};
+        }
+
+        if (hasTranslationEntry(current.summaryTranslations, languageCode)) {
+          return {acquired: false};
+        }
+
+        if (
+          hasTranslationFlag(current.summaryTranslationInProgress, languageCode)
+        ) {
+          return {acquired: false};
+        }
+
+        const userSnap = await tx.get(userRef);
+        const userData = (userSnap.data() as UserData) ?? {};
+        const rateLimitTier = getRateLimitTier(userData);
+        const rateLimitDecision = evaluateRateLimit(
+          userData,
+          new Date(),
+          TRANSLATION_RATE_LIMITS[rateLimitTier],
+          TRANSLATION_RATE_LIMIT_FIELDS
+        );
+        if (!rateLimitDecision.allowed) {
+          return {
+            acquired: false,
+            rateLimited: true,
+            rateLimitReason: rateLimitDecision.reason,
+            retryAfterMs: rateLimitDecision.retryAfterMs,
+          };
+        }
+
+        if (rateLimitDecision.updates) {
+          tx.set(userRef, rateLimitDecision.updates, {merge: true});
+        }
+
+        tx.update(docRef, {
+          [`summaryTranslationInProgress.${languageCode}`]: true,
+        });
+
+        return {acquired: true};
       }
+    );
 
-      if (
-        !hasTranslationFlag(current.summaryTranslationRequests, languageCode)
-      ) {
-        return false;
+    if (!lockResult.acquired) {
+      if (lockResult.rateLimited) {
+        await docRef.update({
+          [`summaryTranslationInProgress.${languageCode}`]:
+            admin.firestore.FieldValue.delete(),
+          [`summaryTranslationRequests.${languageCode}`]:
+            admin.firestore.FieldValue.delete(),
+          [`summaryTranslationErrors.${languageCode}`]:
+            RATE_LIMIT_ERROR_MESSAGE,
+        });
       }
-
-      if (hasTranslationEntry(current.summaryTranslations, languageCode)) {
-        return false;
-      }
-
-      if (
-        hasTranslationFlag(current.summaryTranslationInProgress, languageCode)
-      ) {
-        return false;
-      }
-
-      tx.update(docRef, {
-        [`summaryTranslationInProgress.${languageCode}`]: true,
-      });
-
-      return true;
-    });
-
-    if (!lockAcquired) {
       return;
     }
+    translationRateLimitReserved = true;
 
     try {
       const sourceSummary = coerceSummaryForTranslation(lecture.summary);
@@ -1926,6 +2106,13 @@ export const translateSummary = onDocumentWritten(
           admin.firestore.FieldValue.delete(),
         [`summaryTranslationErrors.${languageCode}`]: message,
       });
+    } finally {
+      if (translationRateLimitReserved) {
+        await releaseRateLimitSlot(
+          userRef,
+          TRANSLATION_RATE_LIMIT_FIELDS
+        );
+      }
     }
   }
 );

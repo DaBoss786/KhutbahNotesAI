@@ -7,6 +7,24 @@ export type UserData = {
   freeLifetimeMinutesUsed?: number;
   periodStart?: admin.firestore.Timestamp | admin.firestore.FieldValue;
   renewsAt?: admin.firestore.Timestamp | admin.firestore.FieldValue;
+  transcribeMinuteKey?: string;
+  transcribeMinuteCount?: number;
+  transcribeInFlight?: number;
+  transcribeInFlightUpdatedAt?:
+    | admin.firestore.Timestamp
+    | admin.firestore.FieldValue;
+  summaryMinuteKey?: string;
+  summaryMinuteCount?: number;
+  summaryInFlight?: number;
+  summaryInFlightUpdatedAt?:
+    | admin.firestore.Timestamp
+    | admin.firestore.FieldValue;
+  translationMinuteKey?: string;
+  translationMinuteCount?: number;
+  translationInFlight?: number;
+  translationInFlightUpdatedAt?:
+    | admin.firestore.Timestamp
+    | admin.firestore.FieldValue;
 };
 
 /**
