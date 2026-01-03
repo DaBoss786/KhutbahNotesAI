@@ -141,7 +141,10 @@ const CHUNK_OUTPUT_TOKENS = 2000;
 const SUMMARY_MODEL = "gpt-5-mini";
 const SUMMARY_IN_PROGRESS_TTL_MS = 15 * 60 * 1000;
 const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = 2000;
-const TRANSCRIBE_CHUNK_SECONDS = 1200; // keep under model ~1400s limit
+const TRANSCRIBE_CHUNK_SECONDS = 240; // shorter chunks improve code-switching
+const TRANSCRIBE_MULTILINGUAL_PROMPT =
+  "Audio may include multiple languages. Transcribe each segment " +
+  "in its original language as spoken. Do not translate.";
 const MIN_WORDS_PER_MINUTE = 50;
 const MIN_CHARS_PER_MINUTE = 200;
 const MIN_AUDIO_SAMPLE_RATE = 16000;
@@ -853,6 +856,7 @@ export const onAudioUpload = onObjectFinalized(
             return await openai.audio.transcriptions.create({
               file: fs.createReadStream(chunkPath),
               model,
+              prompt: TRANSCRIBE_MULTILINGUAL_PROMPT,
             });
           } catch (error: unknown) {
             const errorMessage =
