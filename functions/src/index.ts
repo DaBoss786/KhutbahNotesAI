@@ -4106,7 +4106,7 @@ async function sendWeeklyActionNotification(
     },
     target_channel: "push",
     headings: {
-      en: "Weekly Action",
+      en: "Weekly Action 💡",
     },
     contents: {
       en: trimmedAction,

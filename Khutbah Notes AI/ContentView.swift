@@ -429,48 +429,56 @@ struct NotesView: View {
     
     @ViewBuilder
     private var content: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                NavigationLink(
-                    destination: deepLinkLectureDestination,
-                    isActive: $showDeepLinkLecture
-                ) {
-                    EmptyView()
-                }
-                .frame(width: 0, height: 0)
-                .hidden()
-                NavigationLink(
-                    destination: NavigationDepthTracker(depth: $dashboardNavigationDepth) {
-                        SearchResultsView(
-                            query: activeSearchQuery,
-                            selectedTab: $selectedTab,
-                            dashboardNavigationDepth: $dashboardNavigationDepth
-                        )
-                    },
-                    isActive: $showSearchResults
-                ) {
-                    EmptyView()
-                }
-                .frame(width: 0, height: 0)
-                .hidden()
-                if (store.userUsage?.plan ?? "free") != "premium" {
-                    PromoBannerView {
-                        showPaywall = true
+        ZStack(alignment: .topLeading) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    if (store.userUsage?.plan ?? "free") != "premium" {
+                        PromoBannerView {
+                            showPaywall = true
+                        }
+                    }
+                    searchBar
+                    segmentPicker
+                    if selectedSegment == 0 {
+                        lectureList
+                    } else {
+                        foldersList
                     }
                 }
-                searchBar
-                segmentPicker
-                if selectedSegment == 0 {
-                    lectureList
-                } else {
-                    foldersList
-                }
+                .padding(.horizontal)
+                .padding(.vertical, 24)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 24)
+            hiddenNavigationLinks
         }
         .background(Theme.backgroundGradient.ignoresSafeArea())
+    }
+
+    private var hiddenNavigationLinks: some View {
+        Group {
+            NavigationLink(
+                destination: deepLinkLectureDestination,
+                isActive: $showDeepLinkLecture
+            ) {
+                EmptyView()
+            }
+            .frame(width: 0, height: 0)
+            .hidden()
+            NavigationLink(
+                destination: NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                    SearchResultsView(
+                        query: activeSearchQuery,
+                        selectedTab: $selectedTab,
+                        dashboardNavigationDepth: $dashboardNavigationDepth
+                    )
+                },
+                isActive: $showSearchResults
+            ) {
+                EmptyView()
+            }
+            .frame(width: 0, height: 0)
+            .hidden()
+        }
     }
 
     @ViewBuilder
