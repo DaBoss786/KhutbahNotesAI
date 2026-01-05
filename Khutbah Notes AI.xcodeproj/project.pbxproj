@@ -18,6 +18,10 @@
 		D402B9A02EF67EC20039F8DA /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D402B99F2EF67EC20039F8DA /* SwiftUI.framework */; };
 		D402B9B12EF67EC30039F8DA /* OneSignalWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D402B99B2EF67EC20039F8DA /* OneSignalWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D402B9B72EF67FDB0039F8DA /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = D402B9B62EF67FDB0039F8DA /* OneSignalFramework */; };
+		D402C57D2F0B78FD0039F8DA /* quran_ar.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C57C2F0B78FD0039F8DA /* quran_ar.sqlite */; };
+		D402C57F2F0B790D0039F8DA /* quran_en_sahih.db in Resources */ = {isa = PBXBuildFile; fileRef = D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */; };
+		D402C5822F0B7DDC0039F8DA /* translations.txt in Resources */ = {isa = PBXBuildFile; fileRef = D402C5812F0B7DCD0039F8DA /* translations.txt */; };
+		D402C5842F0B86500039F8DA /* quran-metadata-surah-name.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */; };
 		D4A39EA72EE3EBED007FF4D8 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA62EE3EBED007FF4D8 /* FirebaseAnalytics */; };
 		D4A39EA92EE3EBED007FF4D8 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA82EE3EBED007FF4D8 /* FirebaseAuth */; };
 		D4A39EAB2EE3EBED007FF4D8 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EAA2EE3EBED007FF4D8 /* FirebaseFirestore */; };
@@ -70,6 +74,10 @@
 		D402B99B2EF67EC20039F8DA /* OneSignalWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneSignalWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D402B99D2EF67EC20039F8DA /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		D402B99F2EF67EC20039F8DA /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		D402C57C2F0B78FD0039F8DA /* quran_ar.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = quran_ar.sqlite; sourceTree = "<group>"; };
+		D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */ = {isa = PBXFileReference; lastKnownFileType = file; path = quran_en_sahih.db; sourceTree = "<group>"; };
+		D402C5812F0B7DCD0039F8DA /* translations.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = translations.txt; sourceTree = "<group>"; };
+		D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = "quran-metadata-surah-name.sqlite"; sourceTree = "<group>"; };
 		D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Khutbah Notes AI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -192,9 +200,21 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		D402C5802F0B7B340039F8DA /* QuranData */ = {
+			isa = PBXGroup;
+			children = (
+				D402C5812F0B7DCD0039F8DA /* translations.txt */,
+				D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */,
+				D402C57C2F0B78FD0039F8DA /* quran_ar.sqlite */,
+				D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */,
+			);
+			path = QuranData;
+			sourceTree = "<group>";
+		};
 		D4A39E842EE29C04007FF4D8 = {
 			isa = PBXGroup;
 			children = (
+				D402C5802F0B7B340039F8DA /* QuranData */,
 				D4A39E8F2EE29C04007FF4D8 /* Khutbah Notes AI */,
 				C87D92F25F2FDC6D2A447BC2 /* Khutbah Notes AITests */,
 				D402B9772EF265330039F8DA /* OneSignalNotificationServiceExtension */,
@@ -395,6 +415,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D402C5822F0B7DDC0039F8DA /* translations.txt in Resources */,
+				D402C57F2F0B790D0039F8DA /* quran_en_sahih.db in Resources */,
+				D402C5842F0B86500039F8DA /* quran-metadata-surah-name.sqlite in Resources */,
+				D402C57D2F0B78FD0039F8DA /* quran_ar.sqlite in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

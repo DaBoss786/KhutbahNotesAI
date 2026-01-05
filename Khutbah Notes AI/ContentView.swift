@@ -163,11 +163,11 @@ struct MainTabView: View {
                         .opacity(0) // Hidden; replaced by floating button
                 }
                 .tag(1)
-                
-                SettingsView()
+
+                QuranView()
                     .tabItem {
-                        Image(systemName: "gearshape.fill")
-                        Text("Settings")
+                        Image(systemName: "book.closed.fill")
+                        Text("Quran")
                     }
                     .tag(2)
             }
@@ -292,8 +292,7 @@ struct NotesView: View {
     @State private var addToFolderTarget: Folder?
     @State private var addToFolderSelections: Set<String> = []
     @State private var showPaywall = false
-    @State private var showAccountSheet = false
-    @State private var showPaywallFromAccount = false
+    @State private var showSettings = false
     @State private var searchQuery = ""
     @State private var activeSearchQuery = ""
     @State private var showSearchResults = false
@@ -320,34 +319,6 @@ struct NotesView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMM d"
         return formatter.string(from: Date()).uppercased()
-    }
-
-    private var isPremiumPlan: Bool {
-        (store.userUsage?.plan ?? "free") == "premium"
-    }
-
-    private var planName: String {
-        isPremiumPlan ? "Premium" : "Free"
-    }
-
-    private var monthlyMinutesRemaining: Int {
-        max(0, store.userUsage?.minutesRemaining ?? 0)
-    }
-
-    private var freeLifetimeMinutesRemaining: Int {
-        if let remaining = store.userUsage?.freeLifetimeMinutesRemaining {
-            return max(0, remaining)
-        }
-        let used = store.userUsage?.freeLifetimeMinutesUsed ?? 0
-        return max(0, 60 - used)
-    }
-
-    private var userIdText: String {
-        store.userId ?? "Not available"
-    }
-
-    private var canCopyUserId: Bool {
-        store.userId != nil
     }
 
     private var trimmedSearchQuery: String {
@@ -386,14 +357,6 @@ struct NotesView: View {
             addToFolderTarget = nil
         }) {
             addToFolderSheet
-        }
-        .sheet(isPresented: $showAccountSheet, onDismiss: {
-            if showPaywallFromAccount {
-                showPaywallFromAccount = false
-                showPaywall = true
-            }
-        }) {
-            accountSheet
         }
         .sheet(isPresented: $showPaywall) {
             OnboardingPaywallView {
@@ -478,6 +441,16 @@ struct NotesView: View {
             }
             .frame(width: 0, height: 0)
             .hidden()
+            NavigationLink(
+                destination: NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                    SettingsView()
+                },
+                isActive: $showSettings
+            ) {
+                EmptyView()
+            }
+            .frame(width: 0, height: 0)
+            .hidden()
         }
     }
 
@@ -507,9 +480,9 @@ struct NotesView: View {
                     .foregroundColor(.black)
                 Spacer()
                 Button {
-                    showAccountSheet = true
+                    showSettings = true
                 } label: {
-                    Image(systemName: "person.crop.circle")
+                    Image(systemName: "gearshape.fill")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(Theme.primaryGreen)
                         .frame(width: 38, height: 38)
@@ -521,7 +494,7 @@ struct NotesView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Account and plan")
+                .accessibilityLabel("Settings")
             }
             Text("As-salamu alaikum")
                 .font(.subheadline)
@@ -529,124 +502,7 @@ struct NotesView: View {
         }
     }
 
-    private var accountSheet: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text("Account")
-                    .font(.title2.bold())
-                Spacer()
-                Button {
-                    showAccountSheet = false
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Theme.mutedText)
-                        .padding(8)
-                        .background(Theme.cardBackground)
-                        .clipShape(Circle())
-                        .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close account sheet")
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Current plan")
-                    .font(.caption)
-                    .foregroundColor(Theme.mutedText)
-                HStack(alignment: .center, spacing: 12) {
-                    Text(planName)
-                        .font(.title2.bold())
-                        .foregroundColor(.black)
-                    Spacer()
-                    Image(systemName: isPremiumPlan ? "crown.fill" : "leaf.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Theme.primaryGreen)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.cardBackground)
-            .cornerRadius(18)
-            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 5)
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text(isPremiumPlan ? "Monthly minutes remaining" : "Lifetime minutes remaining")
-                    .font(.caption)
-                    .foregroundColor(Theme.mutedText)
-                Text("\(isPremiumPlan ? monthlyMinutesRemaining : freeLifetimeMinutesRemaining) min")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(Theme.primaryGreen)
-                if !isPremiumPlan {
-                    Text("Free plan includes 60 lifetime minutes.")
-                        .font(.footnote)
-                        .foregroundColor(Theme.mutedText)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.cardBackground)
-            .cornerRadius(18)
-            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 5)
-
-            if !isPremiumPlan {
-                Button {
-                    showPaywallFromAccount = true
-                    showAccountSheet = false
-                } label: {
-                    Text("Upgrade")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Theme.primaryGreen)
-                        .foregroundColor(.white)
-                        .clipShape(Capsule())
-                        .shadow(color: Theme.primaryGreen.opacity(0.25), radius: 8, x: 0, y: 6)
-                }
-                .buttonStyle(.plain)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("UID")
-                    .font(.caption)
-                    .foregroundColor(Theme.mutedText)
-                HStack(alignment: .top, spacing: 12) {
-                    Text(userIdText)
-                        .font(.footnote)
-                        .foregroundColor(.black)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button {
-                        if let userId = store.userId {
-                            UIPasteboard.general.string = userId
-                        }
-                    } label: {
-                        Text("Copy")
-                            .font(.caption.bold())
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Theme.primaryGreen.opacity(0.12))
-                            .foregroundColor(Theme.primaryGreen)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canCopyUserId)
-                    .opacity(canCopyUserId ? 1 : 0.5)
-                    .accessibilityLabel("Copy UID")
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.cardBackground)
-            .cornerRadius(18)
-            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 5)
-
-            Spacer()
-        }
-        .padding(24)
-        .background(Theme.backgroundGradient.ignoresSafeArea())
-    }
+    
     
     private var segmentPicker: some View {
         Picker("Filter", selection: $selectedSegment) {
@@ -2965,9 +2821,19 @@ struct SettingsView: View {
     @EnvironmentObject private var store: LectureStore
     @State private var showPaywall = false
     @State private var showFeedback = false
+    @State private var showAccountSheet = false
+    @State private var showPaywallFromAccount = false
 
     private var shouldShowUpgrade: Bool {
         (store.userUsage?.plan ?? "free") != "premium"
+    }
+
+    private var isPremiumPlan: Bool {
+        (store.userUsage?.plan ?? "free") == "premium"
+    }
+
+    private var planName: String {
+        isPremiumPlan ? "Premium" : "Free"
     }
 
     var body: some View {
@@ -2980,6 +2846,14 @@ struct SettingsView: View {
                         } label: {
                             Label("Upgrade to Premium", systemImage: "sparkles")
                         }
+                    }
+                }
+
+                Section {
+                    Button {
+                        showAccountSheet = true
+                    } label: {
+                        Label("Plan: \(planName)", systemImage: isPremiumPlan ? "crown.fill" : "leaf.fill")
                     }
                 }
 
@@ -3028,6 +2902,19 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+        }
+        .sheet(isPresented: $showAccountSheet, onDismiss: {
+            if showPaywallFromAccount {
+                showPaywallFromAccount = false
+                showPaywall = true
+            }
+        }) {
+            AccountSheetView(onClose: {
+                showAccountSheet = false
+            }, onUpgrade: {
+                showPaywallFromAccount = true
+                showAccountSheet = false
+            })
         }
         .sheet(isPresented: $showPaywall) {
             OnboardingPaywallView {

@@ -1,0 +1,2 @@
+ ar | Arabic | quran_ar.sqlite
+ en | Sahih International | quran_en_sahih.sqlite
