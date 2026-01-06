@@ -3,6 +3,7 @@ import SwiftUI
 struct QuranView: View {
     @StateObject private var viewModel = QuranViewModel()
     @State private var showSurahPicker = false
+    @State private var selectedTextSize: TextSizeOption = .medium
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,6 +30,7 @@ struct QuranView: View {
             HStack {
                 translationMenu
                 Spacer()
+                TextSizeToggle(selection: $selectedTextSize, showsBackground: true)
             }
             surahButton
         }
@@ -104,7 +106,8 @@ struct QuranView: View {
                     ForEach(viewModel.verses) { verse in
                         QuranVerseRow(
                             verse: verse,
-                            showsTranslation: viewModel.translationOption != .off
+                            showsTranslation: viewModel.translationOption != .off,
+                            textSize: selectedTextSize
                         )
                     }
                 }
@@ -118,6 +121,33 @@ struct QuranView: View {
 private struct QuranVerseRow: View {
     let verse: QuranVerse
     let showsTranslation: Bool
+    let textSize: TextSizeOption
+
+    private var arabicFontSize: CGFloat {
+        switch textSize {
+        case .small:
+            return 22
+        case .medium:
+            return 24
+        case .large:
+            return 26
+        case .extraLarge:
+            return 28
+        }
+    }
+
+    private var arabicLineSpacing: CGFloat {
+        switch textSize {
+        case .small:
+            return 4
+        case .medium:
+            return 6
+        case .large:
+            return 7
+        case .extraLarge:
+            return 8
+        }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -131,8 +161,8 @@ private struct QuranVerseRow: View {
 
             VStack(alignment: .trailing, spacing: 8) {
                 Text(verse.arabicText)
-                    .font(.custom("Geeza Pro", size: 24))
-                    .lineSpacing(6)
+                    .font(.custom("Geeza Pro", size: arabicFontSize))
+                    .lineSpacing(arabicLineSpacing)
                     .foregroundColor(.black)
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -141,7 +171,7 @@ private struct QuranVerseRow: View {
 
                 if showsTranslation, let translation = verse.translationText {
                     Text(translation)
-                        .font(Theme.bodyFont)
+                        .font(.system(size: textSize.bodySize, weight: .regular, design: .rounded))
                         .foregroundColor(Theme.mutedText)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
