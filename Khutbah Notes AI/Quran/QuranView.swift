@@ -2,8 +2,11 @@ import SwiftUI
 
 struct QuranView: View {
     @StateObject private var viewModel = QuranViewModel()
+    @EnvironmentObject private var quranNavigator: QuranNavigationCoordinator
     @State private var showSurahPicker = false
     @State private var selectedTextSize: TextSizeOption = .medium
+    @State private var highlightedVerseId: String? = nil
+    @State private var pendingScrollTarget: QuranCitationTarget? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -101,18 +104,90 @@ struct QuranView: View {
             ProgressView("Loading Quran")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 14) {
-                    ForEach(viewModel.verses) { verse in
-                        QuranVerseRow(
-                            verse: verse,
-                            showsTranslation: viewModel.translationOption != .off,
-                            textSize: selectedTextSize
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 14) {
+                        ForEach(viewModel.verses) { verse in
+                            QuranVerseRow(
+                                verse: verse,
+                                showsTranslation: viewModel.translationOption != .off,
+                                textSize: selectedTextSize,
+                                isHighlighted: verse.id == highlightedVerseId
+                            )
+                            .id(verse.id)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 24)
+                }
+                .onAppear {
+                    handleNavigationTarget(quranNavigator.pendingTarget, proxy: proxy)
+                }
+                .onChange(of: quranNavigator.pendingTarget) { target in
+                    handleNavigationTarget(target, proxy: proxy)
+                }
+                .onChange(of: viewModel.surahs) { _ in
+                    if pendingScrollTarget != nil || quranNavigator.pendingTarget != nil {
+                        handleNavigationTarget(
+                            pendingScrollTarget ?? quranNavigator.pendingTarget,
+                            proxy: proxy
                         )
                     }
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 24)
+                .onChange(of: viewModel.verses) { _ in
+                    scrollToPendingTarget(using: proxy)
+                }
+            }
+        }
+    }
+
+    private func handleNavigationTarget(
+        _ target: QuranCitationTarget?,
+        proxy: ScrollViewProxy
+    ) {
+        guard let target else { return }
+        pendingScrollTarget = target
+
+        guard !viewModel.surahs.isEmpty else { return }
+        if viewModel.selectedSurah?.id != target.surahId {
+            guard viewModel.selectSurah(id: target.surahId) else {
+                pendingScrollTarget = nil
+                quranNavigator.clearPendingTarget()
+                return
+            }
+            return
+        }
+
+        scrollToPendingTarget(using: proxy)
+    }
+
+    private func scrollToPendingTarget(using proxy: ScrollViewProxy) {
+        guard let target = pendingScrollTarget else { return }
+        guard !viewModel.isLoading else { return }
+        guard viewModel.selectedSurah?.id == target.surahId else { return }
+
+        let verseId = target.verseId
+        guard viewModel.verses.contains(where: { $0.id == verseId }) else {
+            pendingScrollTarget = nil
+            quranNavigator.clearPendingTarget()
+            return
+        }
+
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                proxy.scrollTo(verseId, anchor: .center)
+            }
+        }
+        highlightVerse(verseId)
+        pendingScrollTarget = nil
+        quranNavigator.clearPendingTarget()
+    }
+
+    private func highlightVerse(_ verseId: String) {
+        highlightedVerseId = verseId
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            if highlightedVerseId == verseId {
+                highlightedVerseId = nil
             }
         }
     }
@@ -122,6 +197,7 @@ private struct QuranVerseRow: View {
     let verse: QuranVerse
     let showsTranslation: Bool
     let textSize: TextSizeOption
+    let isHighlighted: Bool
 
     private var arabicFontSize: CGFloat {
         switch textSize {
@@ -182,6 +258,23 @@ private struct QuranVerseRow: View {
         }
         .padding(16)
         .background(Theme.cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Theme.secondaryGreen.opacity(isHighlighted ? 0.12 : 0))
+                .animation(
+                    .easeInOut(duration: 0.5).repeatCount(2, autoreverses: true),
+                    value: isHighlighted
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Theme.secondaryGreen.opacity(isHighlighted ? 0.9 : 0), lineWidth: 2)
+                .scaleEffect(isHighlighted ? 1.01 : 1)
+                .animation(
+                    .easeInOut(duration: 0.5).repeatCount(2, autoreverses: true),
+                    value: isHighlighted
+                )
+        )
         .cornerRadius(16)
         .shadow(color: Theme.shadow, radius: 8, x: 0, y: 5)
     }

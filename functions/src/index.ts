@@ -68,12 +68,15 @@ const SUMMARY_SYSTEM_PROMPT = [
   "",
   "Your ONLY source of information is the khutbah material provided below.",
   "Do NOT rely on prior knowledge.",
+  "Exception: You may use Qur'an knowledge ONLY to map Arabic recitations",
+  "to verse citations; do not add any verse text or interpretation.",
   "",
   "Rules about content:",
   "- Use ONLY information that appears in the provided material.",
   "- Do NOT interpret, explain, infer, or add new religious meaning.",
   "- Do NOT add Qur'an verses, hadith, rulings, stories, or advice unless",
   "  they are explicitly stated in the provided text.",
+  "- Do NOT include Qur'an verse text in any field; use citations instead.",
   "- Do NOT use phrases such as \"Islam teaches\" or \"Muslims should\" unless",
   "  those exact words appear in the provided text.",
   "- If information is missing or unclear, say that it was not mentioned.",
@@ -107,9 +110,15 @@ const SUMMARY_SYSTEM_PROMPT = [
   "  - If fewer points are clear, return what is available (at least 1).",
   "",
   "- explicitAyatOrHadith:",
-  "  - Include at most 2 explicit Qur'an verses or hadith that are clearly",
-  "    quoted in the provided text and most central to the khutbah's message.",
-  "  - Copy each quote verbatim without paraphrasing or truncating it.",
+  "  - Include ONLY Qur'an citations for any verse explicitly referenced",
+  "    or recited, formatted like \"Al-Baqarah 2:201\" (Surah name + S:A).",
+  "  - Ignore hadiths for now; do NOT include them in this field.",
+  "  - Do NOT include Qur'an verse text; citations only.",
+  "  - If Arabic recitation appears without a citation, identify the ayah",
+  "    and include its citation ONLY when confident; otherwise omit.",
+  "  - Treat phrases like \"Allah says\", \"the Quran says\", or similar as",
+  "    cues to look for the referenced ayah in the transcript.",
+  "  - Include every confidently matched ayah; do NOT cap the list.",
   "  - If none are mentioned, return an empty array: [].",
   "",
   "- weeklyActions:",
@@ -135,6 +144,8 @@ const SUMMARY_TRANSLATION_SYSTEM_PROMPT = [
   "Translate each list item and keep the same ordering.",
   "If the input contains \"Not mentioned\" or \"No action mentioned\",",
   "translate those phrases into the target language.",
+  "Do NOT translate Qur'an citations in explicitAyatOrHadith; keep them",
+  "verbatim.",
   "If a quote is already written in Arabic script, keep it verbatim.",
   "",
   "Output format:",
@@ -197,8 +208,8 @@ const COMPACT_RETRY_INSTRUCTIONS = [
   "- mainTheme: max 200 words (2–3 short sentences).",
   "- keyPoints: max 6 sentences, each under ~22 words.",
   "- weeklyActions: max 3 sentences, each under ~16 words.",
-  "- explicitAyatOrHadith: include up to 2 verbatim quotes most central to",
-  "  the khutbah; no paraphrasing.",
+  "- explicitAyatOrHadith: keep all citations; citations only (no verse",
+  "  text). If needed to fit the budget, shorten other fields first.",
 ].join("\n");
 
 const ULTRA_COMPACT_INSTRUCTIONS = [
@@ -210,8 +221,8 @@ const ULTRA_COMPACT_INSTRUCTIONS = [
   "- mainTheme: max 120 words (1–2 sentences).",
   "- keyPoints: max 4 sentences, each under ~18 words.",
   "- weeklyActions: max 2 sentences, each under ~12 words.",
-  "- explicitAyatOrHadith: include up to 2 verbatim quotes, prioritizing the",
-  "  most central; avoid duplicates.",
+  "- explicitAyatOrHadith: keep all citations; citations only (no verse",
+  "  text). Avoid duplicates.",
 ].join("\n");
 
 const RATE_LIMIT_ERROR_MESSAGE =
@@ -2282,9 +2293,8 @@ async function summarizeChunk(
     "Keep the output brief to conserve tokens:",
     "- mainTheme: up to ~200 words (3–4 sentences).",
     "- keyPoints: up to 5 complete sentences, each kept concise.",
-    "- explicitAyatOrHadith: include a maximum of 2 explicit quotes",
-    "  verbatim from this chunk, prioritizing the most central to the",
-    "  khutbah's message.",
+    "- explicitAyatOrHadith: include all Qur'an citations from this chunk;",
+    "  citations only (no verse text).",
     "- weeklyActions: up to 2 explicit actions or \"No action mentioned\".",
   ].join("\n");
 
@@ -2369,11 +2379,10 @@ async function aggregateChunkSummaries(
     "",
     "Rules for combining:",
     "- Merge overlapping ideas and remove duplicates.",
-    "- Keep explicitAyatOrHadith verbatim; include up to 2 unique quotes that",
-    "  are most central across chunks.",
+    "- Keep explicitAyatOrHadith verbatim; include all unique citations from",
+    "  the chunks; do not add verse text.",
     "- Keep the final limits: mainTheme <= 400 words, keyPoints <= 7 complete",
-    "  sentences, weeklyActions <= 3 complete sentences, explicitAyatOrHadith",
-    "  <= 2 quotes.",
+    "  sentences, weeklyActions <= 3 complete sentences.",
     "- Prefer concise wording to stay within the output token limit.",
   ].join("\n");
 
@@ -2635,6 +2644,7 @@ async function translateSummaryContent(
     `Translate the khutbah summary into ${languageName}.`,
     "Keep the meaning, tone, and religious content unchanged.",
     "Do not add, remove, or infer any information.",
+    "Leave Qur'an citations in explicitAyatOrHadith unchanged.",
     "Return only valid JSON with the required keys.",
   ].join("\n");
 
@@ -2818,7 +2828,7 @@ function enforceSummaryLimits(summaryObj: SummaryShape): {
 
   const dedupedKeyPoints = dedupeStrings(keyPoints).slice(0, 7);
   const dedupedWeekly = dedupeStrings(weeklyActions).slice(0, 3);
-  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith).slice(0, 2);
+  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith);
 
   const trimmedTheme = truncateWords(mainTheme, 400).trim();
 
@@ -2871,7 +2881,7 @@ function enforceTranslatedSummaryLimits(summaryObj: SummaryShape): {
 
   const dedupedKeyPoints = dedupeStrings(keyPoints).slice(0, 7);
   const dedupedWeekly = dedupeStrings(weeklyActions).slice(0, 3);
-  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith).slice(0, 2);
+  const dedupedQuotes = dedupeStrings(explicitAyatOrHadith);
 
   const trimmedTheme = truncateWords(mainTheme, 400).trim();
   if (!trimmedTheme) {

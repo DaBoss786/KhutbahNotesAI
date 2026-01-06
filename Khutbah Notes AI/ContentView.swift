@@ -109,6 +109,7 @@ struct MainTabView: View {
     @State private var showPaywall = false
     @State private var dashboardNavigationDepth = 0
     @State private var pendingRecordingRouteAction: RecordingRouteAction? = nil
+    @StateObject private var quranNavigator = QuranNavigationCoordinator()
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
     @AppStorage(RecordingUserDefaultsKeys.controlAction, store: RecordingDefaults.shared) private var pendingControlActionRaw = ""
     @AppStorage(RecordingUserDefaultsKeys.routeAction, store: RecordingDefaults.shared) private var pendingRouteActionRaw = ""
@@ -213,8 +214,13 @@ struct MainTabView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .environmentObject(quranNavigator)
         .onAppear {
             handlePendingActions()
+        }
+        .onChange(of: quranNavigator.pendingTarget) { target in
+            guard target != nil else { return }
+            selectedTab = 2
         }
         .onChange(of: pendingControlActionRaw) { _ in
             handlePendingControlAction()
@@ -1553,10 +1559,11 @@ struct LectureDetailView: View {
             lines.append(contentsOf: summary.keyPoints.map { "- \($0)" })
         }
         
-        if !summary.explicitAyatOrHadith.isEmpty {
+        let explicitAyahItems = explicitAyahCitations(from: summary.explicitAyatOrHadith)
+        if !explicitAyahItems.isEmpty {
             lines.append("")
-            lines.append("Explicit Ayat or Hadith:")
-            lines.append(contentsOf: summary.explicitAyatOrHadith.map { "- \($0)" })
+            lines.append("Explicit Ayahs Mentioned:")
+            lines.append(contentsOf: explicitAyahItems.map { "- \($0)" })
         }
         
         if !summary.weeklyActions.isEmpty {
@@ -1566,6 +1573,12 @@ struct LectureDetailView: View {
         }
         
         return lines.joined(separator: "\n") + brandFooter
+    }
+
+    private func explicitAyahCitations(from items: [String]) -> [String] {
+        items
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && QuranCitationParser.parse($0) != nil }
     }
     
     private func exportableTranscriptText() -> String? {
@@ -1984,6 +1997,7 @@ struct SummaryView<Actions: View>: View {
     @Binding var textSize: TextSizeOption
     let actions: Actions
     @State private var shareComposerData: ShareComposerData? = nil
+    @EnvironmentObject private var quranNavigator: QuranNavigationCoordinator
     
     init(
         lectureId: String? = nil,
@@ -2044,6 +2058,9 @@ struct SummaryView<Actions: View>: View {
             
             Group {
                 if let summary {
+                    let explicitAyahItems = summary.explicitAyatOrHadith
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty && QuranCitationParser.parse($0) != nil }
                     VStack(alignment: sectionAlignment, spacing: 18) {
                         summarySection(title: "Main Theme", content: [summary.mainTheme])
                         summarySection(title: "Key Points",
@@ -2054,10 +2071,13 @@ struct SummaryView<Actions: View>: View {
                                        content: summary.weeklyActions,
                                        showsDividers: true,
                                        shareSection: .weeklyActions)
-                        summarySection(title: "Explicit Ayat or Hadith",
-                                       content: summary.explicitAyatOrHadith,
+                        summarySection(title: "Explicit Ayahs Mentioned",
+                                       content: explicitAyahItems,
                                        hideWhenEmpty: true,
-                                       showsDividers: true)
+                                       showsDividers: true,
+                                       customContent: { items in
+                                           AnyView(explicitAyatOrHadithContent(items))
+                                       })
                     }
                 } else if !isBaseSummaryReady {
                     VStack(alignment: sectionAlignment, spacing: 12) {
@@ -2153,7 +2173,8 @@ struct SummaryView<Actions: View>: View {
         content: [String],
         hideWhenEmpty: Bool = false,
         showsDividers: Bool = false,
-        shareSection: ShareSection? = nil
+        shareSection: ShareSection? = nil,
+        customContent: (([String]) -> AnyView)? = nil
     ) -> some View {
         Group {
             if hideWhenEmpty && content.isEmpty {
@@ -2176,7 +2197,9 @@ struct SummaryView<Actions: View>: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     
-                    if content.isEmpty {
+                    if let customContent {
+                        customContent(content)
+                    } else if content.isEmpty {
                         Text("None mentioned")
                             .font(summaryBodyFont)
                             .foregroundColor(.black)
@@ -2224,6 +2247,43 @@ struct SummaryView<Actions: View>: View {
             .frame(height: 0.5)
             .padding(.vertical, 3)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
+    }
+
+    @ViewBuilder
+    private func explicitAyatOrHadithContent(_ content: [String]) -> some View {
+        let citations = content.compactMap { item -> (String, QuranCitation)? in
+            let trimmed = item.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, let citation = QuranCitationParser.parse(trimmed) else {
+                return nil
+            }
+            return (trimmed, citation)
+        }
+        VStack(alignment: sectionAlignment, spacing: 6) {
+            ForEach(citations.indices, id: \.self) { index in
+                let item = citations[index]
+                citationButton(label: item.0, citation: item.1)
+            }
+        }
+    }
+
+    private func citationButton(label: String, citation: QuranCitation) -> some View {
+        Button {
+            quranNavigator.requestNavigation(
+                to: QuranCitationTarget(surahId: citation.surahId, ayah: citation.ayah)
+            )
+        } label: {
+            Text(label)
+                .font(summaryBodyFont)
+                .foregroundColor(Theme.primaryGreen)
+                .multilineTextAlignment(textAlignment)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Theme.primaryGreen.opacity(0.12))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: frameAlignment)
+        .accessibilityLabel("Open \(label)")
     }
     
     @ViewBuilder

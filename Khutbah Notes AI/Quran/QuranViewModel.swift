@@ -52,6 +52,15 @@ final class QuranViewModel: ObservableObject {
         reloadVerses()
     }
 
+    @discardableResult
+    func selectSurah(id surahId: Int) -> Bool {
+        guard let surah = surahs.first(where: { $0.id == surahId }) else {
+            return false
+        }
+        selectSurah(surah)
+        return true
+    }
+
     func reloadVerses() {
         guard let repository, let selectedSurah else { return }
 
