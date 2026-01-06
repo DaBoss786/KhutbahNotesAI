@@ -10,6 +10,7 @@ final class QuranRepository {
     private let arabicDigits = CharacterSet(charactersIn: "٠١٢٣٤٥٦٧٨٩")
 
     init?(
+        bundle: Bundle = .main,
         arabicFilename: String = "quran_ar",
         arabicExtension: String = "sqlite",
         translationFilename: String = "quran_en_sahih",
@@ -18,9 +19,9 @@ final class QuranRepository {
         surahExtension: String = "sqlite"
     ) {
         guard
-            let arabicPath = Bundle.main.path(forResource: arabicFilename, ofType: arabicExtension),
-            let translationPath = Bundle.main.path(forResource: translationFilename, ofType: translationExtension),
-            let surahPath = Bundle.main.path(forResource: surahFilename, ofType: surahExtension)
+            let arabicPath = bundle.path(forResource: arabicFilename, ofType: arabicExtension),
+            let translationPath = bundle.path(forResource: translationFilename, ofType: translationExtension),
+            let surahPath = bundle.path(forResource: surahFilename, ofType: surahExtension)
         else {
             arabicDatabase = nil
             translationDatabase = nil
