@@ -2272,14 +2272,19 @@ struct SummaryView<Actions: View>: View {
                 to: QuranCitationTarget(surahId: citation.surahId, ayah: citation.ayah)
             )
         } label: {
-            Text(label)
-                .font(summaryBodyFont)
-                .foregroundColor(Theme.primaryGreen)
-                .multilineTextAlignment(textAlignment)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Theme.primaryGreen.opacity(0.12))
-                .clipShape(Capsule())
+            HStack(spacing: 8) {
+                Text(label)
+                    .font(summaryBodyFont)
+                    .foregroundColor(Theme.primaryGreen)
+                    .multilineTextAlignment(textAlignment)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.primaryGreen)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Theme.primaryGreen.opacity(0.12))
+            .clipShape(Capsule())
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: frameAlignment)
