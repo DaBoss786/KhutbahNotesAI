@@ -262,7 +262,7 @@ private struct QuranVerseRow: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Theme.secondaryGreen.opacity(isHighlighted ? 0.12 : 0))
                 .animation(
-                    .easeInOut(duration: 0.5).repeatCount(2, autoreverses: true),
+                    .easeInOut(duration: 0.5).repeatCount(1, autoreverses: true),
                     value: isHighlighted
                 )
         )
@@ -271,7 +271,7 @@ private struct QuranVerseRow: View {
                 .stroke(Theme.secondaryGreen.opacity(isHighlighted ? 0.9 : 0), lineWidth: 2)
                 .scaleEffect(isHighlighted ? 1.01 : 1)
                 .animation(
-                    .easeInOut(duration: 0.5).repeatCount(2, autoreverses: true),
+                    .easeInOut(duration: 0.5).repeatCount(1, autoreverses: true),
                     value: isHighlighted
                 )
         )
