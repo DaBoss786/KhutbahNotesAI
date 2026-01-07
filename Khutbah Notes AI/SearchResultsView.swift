@@ -23,8 +23,13 @@ struct SearchResultsView: View {
         let normalizedQuery = normalized(trimmed)
         return store.lectures.filter { lecture in
             guard lecture.status == .ready, let summary = lecture.summary else { return false }
-            let fields = [lecture.title, summary.mainTheme] + summary.keyPoints +
+            var fields = [lecture.title, summary.mainTheme] + summary.keyPoints +
                 summary.explicitAyatOrHadith + summary.weeklyActions
+            if let transcriptText = (lecture.transcriptFormatted ?? lecture.transcript)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !transcriptText.isEmpty {
+                fields.append(transcriptText)
+            }
             return fields.contains { normalized($0).contains(normalizedQuery) }
         }
     }
@@ -37,7 +42,7 @@ struct SearchResultsView: View {
                     .foregroundColor(.black)
 
                 if trimmedQuery.isEmpty {
-                    Text("Enter a search term on the dashboard to find summaries.")
+                    Text("Enter a search term on the dashboard to find summaries and transcripts.")
                         .font(Theme.bodyFont)
                         .foregroundColor(Theme.mutedText)
                 } else {
@@ -72,7 +77,7 @@ struct SearchResultsView: View {
                 .background(Theme.primaryGreen.opacity(0.12))
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 6) {
-                Text("No summaries matched your search.")
+                Text("No summaries or transcripts matched your search.")
                     .font(Theme.titleFont)
                     .foregroundColor(.black)
                 Text("Try a different keyword or phrase.")

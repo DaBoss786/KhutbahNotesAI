@@ -524,7 +524,7 @@ struct NotesView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(Theme.mutedText)
-            TextField("Search saved summaries", text: $searchQuery)
+            TextField("Search saved summaries and transcripts", text: $searchQuery)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .submitLabel(.search)
@@ -559,7 +559,7 @@ struct NotesView: View {
         .background(Theme.cardBackground)
         .cornerRadius(14)
         .shadow(color: Theme.shadow, radius: 6, x: 0, y: 4)
-        .accessibilityLabel("Search summaries")
+        .accessibilityLabel("Search summaries and transcripts")
     }
     
     private var lectureList: some View {
