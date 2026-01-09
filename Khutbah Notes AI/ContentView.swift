@@ -38,8 +38,8 @@ struct Theme {
     static let shadow = Color.black.opacity(0.08)
     
     static let largeTitleFont = Font.system(size: 32, weight: .bold, design: .rounded)
-    static let titleFont = Font.system(size: 18, weight: .semibold, design: .rounded)
-    static let bodyFont = Font.system(size: 15, weight: .regular, design: .rounded)
+    static let titleFont = Font.system(.headline, design: .rounded).weight(.semibold)
+    static let bodyFont = Font.system(.body, design: .rounded)
 }
 
 enum TextSizeOption: CaseIterable {
