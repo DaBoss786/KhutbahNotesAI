@@ -70,6 +70,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "Do NOT rely on prior knowledge.",
   "Exception: You may use Qur'an knowledge ONLY to map Arabic recitations",
   "to verse citations; do not add any verse text or interpretation.",
+  "Always respond in English, regardless of the transcript language.",
   "",
   "Rules about content:",
   "- Use ONLY information that appears in the provided material.",

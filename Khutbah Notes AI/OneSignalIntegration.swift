@@ -132,7 +132,7 @@ private final class SummaryReadyClickListener: NSObject, OSNotificationClickList
     func onClick(event: OSNotificationClickEvent) {
         let additionalData = event.notification.additionalData
         if let type = additionalData?["type"] as? String,
-           type != "summary_ready" {
+           !["summary_ready", "weekly_action"].contains(type) {
             return
         }
         guard let lectureId = OneSignalIntegration.lectureId(from: additionalData) else { return }
