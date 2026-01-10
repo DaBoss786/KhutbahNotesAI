@@ -1781,12 +1781,14 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     private let missingAudioMessage = "The audio file does not exist or was deleted after 30 days"
     
     private var player: AVPlayer?
+    private let audioSession = AVAudioSession.sharedInstance()
     private var endObserver: Any?
     private var timeObserverToken: Any?
     private var currentPath: String?
     private var loadFailed = false
     private var hasAudioPath = false
     private var isScrubbing = false
+    private var isAudioSessionActive = false
     
     func prepareIfNeeded(with audioPath: String?) {
         guard audioPath != currentPath || player == nil else { return }
@@ -1841,7 +1843,9 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         if isPlaying {
             player.pause()
             isPlaying = false
+            deactivateAudioSessionIfNeeded()
         } else {
+            activateAudioSessionForPlayback()
             player.play()
             player.rate = playbackRate
             isPlaying = true
@@ -1873,6 +1877,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     
     func cleanup() {
         player?.pause()
+        deactivateAudioSessionIfNeeded()
         removeEndObserver()
         removeTimeObserver()
         player = nil
@@ -1891,6 +1896,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         removeEndObserver()
         removeTimeObserver()
         player?.pause()
+        deactivateAudioSessionIfNeeded()
         player = nil
         canPlay = false
         isPlaying = false
@@ -1913,6 +1919,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
                 self.isPlaying = false
                 self.statusText = ""
                 self.player?.seek(to: .zero)
+                self.deactivateAudioSessionIfNeeded()
             }
         }
     }
@@ -1948,6 +1955,26 @@ final class LectureAudioPlayerViewModel: ObservableObject {
             player.removeTimeObserver(token)
         }
         timeObserverToken = nil
+    }
+
+    private func activateAudioSessionForPlayback() {
+        do {
+            try audioSession.setCategory(.playback, mode: .spokenAudio, options: [])
+            try audioSession.setActive(true, options: [])
+            isAudioSessionActive = true
+        } catch {
+            print("Failed to activate audio session for playback: \(error)")
+        }
+    }
+
+    private func deactivateAudioSessionIfNeeded() {
+        guard isAudioSessionActive else { return }
+        do {
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            isAudioSessionActive = false
+        } catch {
+            print("Failed to deactivate audio session after playback: \(error)")
+        }
     }
     
     private func updateSlider(to currentSeconds: Double) {
