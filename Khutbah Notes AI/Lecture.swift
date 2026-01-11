@@ -35,6 +35,7 @@ struct Lecture: Identifiable, Hashable, Codable {
     var errorMessage: String? = nil
     var transcript: String?
     var transcriptFormatted: String?
+    var notes: String? = nil
     var summary: LectureSummary?
     var summaryInProgress: SummaryInProgressState? = nil
     var summaryTranslations: [SummaryTranslation]? = nil

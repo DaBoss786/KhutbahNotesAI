@@ -1156,6 +1156,7 @@ struct LectureDetailView: View {
     @State private var selectedContentTab = 0
     @State private var selectedSummaryLanguage: SummaryTranslationLanguage = .english
     @State private var selectedTextSize: TextSizeOption = .medium
+    @State private var notesText: String = ""
     @State private var shareItems: [Any]? = nil
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
@@ -1165,8 +1166,9 @@ struct LectureDetailView: View {
     @AppStorage("didRequestDemoReview") private var didRequestDemoReview = false
     @AppStorage("realSummaryReviewCountedLectureIDs") private var realSummaryReviewCountedLectureIDs = StoredLectureIDSet()
     @AppStorage("didRequestRealSummaryReview") private var didRequestRealSummaryReview = false
+    @FocusState private var isNotesFocused: Bool
     
-    private let tabs = ["Summary", "Transcript"]
+    private let tabs = ["Summary", "Transcript", "Notes"]
     private let failureMessage =
         "Transcription failed. Try recording in a quieter space or closer to the speaker."
     private let refundMessage = "Any charged minutes were refunded."
@@ -1292,6 +1294,57 @@ struct LectureDetailView: View {
         .cornerRadius(16)
         .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
     }
+
+    private var notesCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                Spacer()
+                TextSizeToggle(selection: $selectedTextSize, showsBackground: false)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 1)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Notes")
+                    .font(Theme.titleFont)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        LinearGradient(
+                            colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                ZStack(alignment: .topLeading) {
+                    if notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Add your notes...")
+                            .font(transcriptBodyFont)
+                            .foregroundColor(Theme.mutedText)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: $notesText)
+                        .font(transcriptBodyFont)
+                        .foregroundColor(.black)
+                        .focused($isNotesFocused)
+                        .textInputAutocapitalization(.sentences)
+                        .frame(minHeight: 220)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
+            .padding(.vertical, 4)
+        }
+    }
     
     var body: some View {
         ZStack(alignment: .top) {
@@ -1313,16 +1366,14 @@ struct LectureDetailView: View {
                     
                     Divider()
                     
-                    if !isTranscriptionFailed {
-                        Picker("Content", selection: $selectedContentTab) {
-                            ForEach(0..<tabs.count, id: \.self) { index in
-                                Text(tabs[index]).tag(index)
-                            }
+                    Picker("Content", selection: $selectedContentTab) {
+                        ForEach(0..<tabs.count, id: \.self) { index in
+                            Text(tabs[index]).tag(index)
                         }
-                        .pickerStyle(.segmented)
                     }
+                    .pickerStyle(.segmented)
 
-                    if isTranscriptionFailed {
+                    if isTranscriptionFailed && selectedContentTab != 2 {
                         failedContentCard
                     } else if selectedContentTab == 0 {
                         SummaryView(
@@ -1384,7 +1435,7 @@ struct LectureDetailView: View {
                         .onChange(of: selectedSummaryLanguage) { newLanguage in
                             requestTranslationIfNeeded(for: newLanguage)
                         }
-                    } else {
+                    } else if selectedContentTab == 1 {
                         let transcriptText = displayLecture.transcriptFormatted ?? displayLecture.transcript
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .center, spacing: 10) {
@@ -1446,6 +1497,8 @@ struct LectureDetailView: View {
                             .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
                             .padding(.vertical, 4)
                         }
+                    } else {
+                        notesCard
                     }
                 }
                 .padding()
@@ -1462,6 +1515,19 @@ struct LectureDetailView: View {
         }
         .onReceive(summaryRetryTimer) { date in
             summaryRetryNow = date
+        }
+        .onAppear {
+            notesText = displayLecture.notes ?? ""
+        }
+        .onChange(of: displayLecture.notes ?? "") { newValue in
+            guard !isNotesFocused else { return }
+            if notesText != newValue {
+                notesText = newValue
+            }
+        }
+        .onChange(of: notesText) { newValue in
+            guard isNotesFocused else { return }
+            store.updateNotes(for: displayLecture.id, notes: newValue)
         }
         .sheet(isPresented: $isShareSheetPresented) {
             if let items = shareItems {

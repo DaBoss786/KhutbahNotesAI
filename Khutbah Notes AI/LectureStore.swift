@@ -61,6 +61,8 @@ final class LectureStore: ObservableObject {
     private var userListener: ListenerRegistration?
     private(set) var userId: String?
     private var durationFetches: Set<String> = []
+    private var notesSaveWorkItems: [String: DispatchWorkItem] = [:]
+    private let notesSaveDelay: TimeInterval = 0.6
     private let uploadFailureMessage = "Upload failed - tap to retry"
     private let uploadRetryDelays: [TimeInterval] = [1, 3, 9]
     private let maxUploadAttempts = 3
@@ -981,6 +983,7 @@ final class LectureStore: ObservableObject {
                     let isFavorite = data["isFavorite"] as? Bool ?? false
                     let transcript = data["transcript"] as? String
                     let transcriptFormatted = data["transcriptFormatted"] as? String
+                    let notes = data["notes"] as? String
                     let audioPath = data["audioPath"] as? String
                     let folderId = data["folderId"] as? String
                     let folderName = data["folderName"] as? String
@@ -1030,6 +1033,7 @@ final class LectureStore: ObservableObject {
                         errorMessage: errorMessage,
                         transcript: transcript,
                         transcriptFormatted: transcriptFormatted,
+                        notes: notes,
                         summary: summary,
                         summaryInProgress: summaryInProgress,
                         summaryTranslations: summaryTranslations.isEmpty ?
@@ -1730,6 +1734,46 @@ final class LectureStore: ObservableObject {
         var updated = lectures[index]
         updated.durationMinutes = durationMinutes
         lectures[index] = updated
+    }
+
+    func updateNotes(for lectureId: String, notes: String) {
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized: String? = trimmed.isEmpty ? nil : notes
+        updateLocalLectureNotes(lectureId: lectureId, notes: normalized)
+        notesSaveWorkItems[lectureId]?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.notesSaveWorkItems[lectureId] = nil
+            self.persistNotes(lectureId: lectureId, notes: normalized)
+        }
+        notesSaveWorkItems[lectureId] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + notesSaveDelay, execute: workItem)
+    }
+
+    private func updateLocalLectureNotes(lectureId: String, notes: String?) {
+        guard let index = lectures.firstIndex(where: { $0.id == lectureId }) else { return }
+        var updated = lectures[index]
+        updated.notes = notes
+        lectures[index] = updated
+    }
+
+    private func persistNotes(lectureId: String, notes: String?) {
+        guard let userId else { return }
+        var data: [String: Any] = [:]
+        if let notes {
+            data["notes"] = notes
+        } else {
+            data["notes"] = FieldValue.delete()
+        }
+        db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lectureId)
+            .setData(data, merge: true) { error in
+                if let error {
+                    print("Error saving lecture notes: \(error)")
+                }
+            }
     }
 
     private func isTransientUploadError(_ error: Error) -> Bool {

@@ -22,9 +22,18 @@ struct SearchResultsView: View {
         guard !trimmed.isEmpty else { return [] }
         let normalizedQuery = normalized(trimmed)
         return store.lectures.filter { lecture in
+            if let notesText = lecture.notes?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !notesText.isEmpty {
+                if normalized(notesText).contains(normalizedQuery) {
+                    return true
+                }
+            }
             guard lecture.status == .ready, let summary = lecture.summary else { return false }
-            var fields = [lecture.title, summary.mainTheme] + summary.keyPoints +
-                summary.explicitAyatOrHadith + summary.weeklyActions
+            var fields = [lecture.title, summary.mainTheme]
+            fields.append(contentsOf: summary.keyPoints)
+            fields.append(contentsOf: summary.explicitAyatOrHadith)
+            fields.append(contentsOf: summary.weeklyActions)
             if let transcriptText = (lecture.transcriptFormatted ?? lecture.transcript)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                !transcriptText.isEmpty {
@@ -42,7 +51,7 @@ struct SearchResultsView: View {
                     .foregroundColor(.black)
 
                 if trimmedQuery.isEmpty {
-                    Text("Enter a search term on the dashboard to find summaries and transcripts.")
+                    Text("Enter a search term on the dashboard to find summaries, transcripts, and notes.")
                         .font(Theme.bodyFont)
                         .foregroundColor(Theme.mutedText)
                 } else {
@@ -77,7 +86,7 @@ struct SearchResultsView: View {
                 .background(Theme.primaryGreen.opacity(0.12))
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 6) {
-                Text("No summaries or transcripts matched your search.")
+                Text("No summaries, transcripts, or notes matched your search.")
                     .font(Theme.titleFont)
                     .foregroundColor(.black)
                 Text("Try a different keyword or phrase.")

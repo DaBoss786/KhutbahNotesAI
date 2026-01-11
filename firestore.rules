@@ -1,6 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{userId}/lectures/{lectureId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && (!("notes" in request.resource.data)
+          || request.resource.data.notes is string
+          || request.resource.data.notes == null);
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
     match /users/{userId}/{document=**} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow create: if request.auth != null && request.auth.uid == userId;
