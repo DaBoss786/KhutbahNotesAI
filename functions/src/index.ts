@@ -90,6 +90,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "",
   "The JSON object MUST have EXACTLY these keys and value types:",
   "{",
+  "  \"title\": string,",
   "  \"mainTheme\": string,",
   "  \"keyPoints\": string[],",
   "  \"explicitAyatOrHadith\": string[],",
@@ -97,6 +98,12 @@ const SUMMARY_SYSTEM_PROMPT = [
   "}",
   "",
   "Field rules:",
+  "- title:",
+  "  - A concise, neutral title based only on the provided text.",
+  "  - Do NOT add religious interpretation or new information.",
+  "  - Keep it under 100 characters.",
+  "  - If no clear title is stated, use \"Khutbah Summary\".",
+  "",
   "- mainTheme:",
   "  - Up to 500 words total (prefer 7-9 concise sentences split",
   "    into 2-3 paragraphs) describing the",
@@ -165,6 +172,8 @@ const CHUNK_CHAR_TARGET = 4000;
 const CHUNK_CHAR_OVERLAP = 300;
 const CHUNK_OUTPUT_TOKENS = 2000;
 const SUMMARY_MODEL = "gpt-5-mini";
+const AI_TITLE_MAX_CHARS = 100;
+const DEFAULT_TITLE_PREFIX = "Khutbah - ";
 const SUMMARY_IN_PROGRESS_TTL_MS = 15 * 60 * 1000;
 const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = 2000;
 const TRANSCRIBE_CHUNK_SECONDS = 240; // shorter chunks improve code-switching
@@ -206,6 +215,7 @@ const COMPACT_RETRY_INSTRUCTIONS = [
   "token budget.",
   "",
   "Hard limits:",
+  "- title: max 100 characters.",
   "- mainTheme: max 200 words (2–3 short sentences).",
   "- keyPoints: max 6 sentences, each under ~22 words.",
   "- weeklyActions: max 3 sentences, each under ~16 words.",
@@ -219,6 +229,7 @@ const ULTRA_COMPACT_INSTRUCTIONS = [
   "token budget.",
   "",
   "Hard limits:",
+  "- title: max 100 characters.",
   "- mainTheme: max 120 words (1–2 sentences).",
   "- keyPoints: max 4 sentences, each under ~18 words.",
   "- weeklyActions: max 2 sentences, each under ~12 words.",
@@ -1877,10 +1888,13 @@ export const summarizeKhutbah = onDocumentWritten(
           await aggregateChunkSummaries(openai, chunkSummaries);
 
       const normalized = normalizeSummary(combinedSummary);
+      const aiTitle = normalizeAiTitle(normalized.title);
       const safeSummary = enforceSummaryLimits(normalized);
+      const summaryWithTitle =
+        aiTitle ? {...safeSummary, title: aiTitle} : safeSummary;
 
-      await docRef.update({
-        summary: safeSummary,
+      const updates: Record<string, unknown> = {
+        summary: summaryWithTitle,
         status: "ready",
         summarizedAt: admin.firestore.FieldValue.serverTimestamp(),
         summaryInProgress: admin.firestore.FieldValue.delete(),
@@ -1888,7 +1902,13 @@ export const summarizeKhutbah = onDocumentWritten(
         durationMinutes: lecture.durationMinutes,
         chargedMinutes: lecture.chargedMinutes,
         quotaReason: admin.firestore.FieldValue.delete(),
-      });
+      };
+
+      if (aiTitle && isDefaultLectureTitle(lecture.title)) {
+        updates.title = aiTitle;
+      }
+
+      await docRef.update(updates);
     } catch (err: unknown) {
       console.error("Error in summarizeKhutbah:", err);
 
@@ -2292,6 +2312,7 @@ async function summarizeChunk(
       "Focus only on this chunk. Do not speculate about missing context." :
       "This is the full transcript.",
     "Keep the output brief to conserve tokens:",
+    "- title: up to 100 characters, concise and neutral.",
     "- mainTheme: up to ~200 words (3–4 sentences).",
     "- keyPoints: up to 5 complete sentences, each kept concise.",
     "- explicitAyatOrHadith: include all Qur'an citations from this chunk;",
@@ -2379,6 +2400,7 @@ async function aggregateChunkSummaries(
     "content.",
     "",
     "Rules for combining:",
+    "- Generate a concise, neutral title (<= 100 characters).",
     "- Merge overlapping ideas and remove duplicates.",
     "- Keep explicitAyatOrHadith verbatim; include all unique citations from",
     "  the chunks; do not add verse text.",
@@ -2790,6 +2812,54 @@ function formatTranscriptParagraphs(
 }
 
 /**
+ * Normalize and validate an AI-generated title.
+ *
+ * @param {unknown} raw Raw title value from the model.
+ * @return {string|null} Trimmed title or null if invalid.
+ */
+function normalizeAiTitle(raw: unknown): string | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length > AI_TITLE_MAX_CHARS) {
+    return null;
+  }
+  return trimmed;
+}
+
+/**
+ * Detect whether a title matches the app's default auto-title pattern.
+ *
+ * @param {unknown} rawTitle Existing lecture title.
+ * @return {boolean} True when the title appears to be the default.
+ */
+function isDefaultLectureTitle(rawTitle: unknown): boolean {
+  if (typeof rawTitle !== "string") {
+    return false;
+  }
+  const trimmed = rawTitle.trim();
+  if (!trimmed.startsWith(DEFAULT_TITLE_PREFIX)) {
+    return false;
+  }
+  const remainder = trimmed.slice(DEFAULT_TITLE_PREFIX.length).trim();
+  if (!remainder) {
+    return false;
+  }
+  const numberGroups = remainder.match(/\d+/g) ?? [];
+  if (numberGroups.length < 2) {
+    return false;
+  }
+  if (!numberGroups.some((group) => group.length === 4)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Enforce field limits and validate the final summary shape.
  *
  * @param {SummaryShape} summaryObj Summary object to enforce.
@@ -3034,6 +3104,7 @@ function safeJson(value: unknown): string {
 
 // Types used by normalization helpers
 type SummaryShape = {
+  title?: unknown;
   mainTheme: unknown;
   keyPoints: unknown;
   explicitAyatOrHadith: unknown;
@@ -3054,6 +3125,10 @@ type SummaryShape = {
  */
 function normalizeSummary(raw: SummaryShape): SummaryShape {
   const normalized = {...raw};
+
+  if (typeof normalized.title === "string") {
+    normalized.title = normalized.title.trim();
+  }
 
   if (!normalized.mainTheme && typeof raw.topic === "string") {
     normalized.mainTheme = raw.topic;
