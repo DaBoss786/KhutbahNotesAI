@@ -1026,17 +1026,17 @@ struct PromoBannerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Upgrade to Premium")
+            Text("Support Khutbah Notes")
                 .font(.headline)
                 .foregroundColor(.white)
             
-            Text("Unlock unlimited audio recordings, transcriptions, summaries and translations.")
+            Text("Your support helps keep this app running and growing.")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
             
             Button(action: onTap) {
-                Text("Upgrade Now")
+                Text("Learn More")
                     .fontWeight(.semibold)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
@@ -3002,7 +3002,7 @@ struct SettingsView: View {
                         Button {
                             showPaywall = true
                         } label: {
-                            Label("Upgrade to Premium", systemImage: "sparkles")
+                            Label("Support Khutbah Notes", systemImage: "sparkles")
                         }
                     }
                 }
