@@ -15,6 +15,8 @@ struct RecordLectureView: View {
     @State private var animatePulse = false
     @State private var blinkDot = false
     @State private var showDiscardAlert = false
+    @State private var showRecordingNotice = false
+    @State private var shouldShowRecordingNotice = false
     @State private var didShowLimitWarning = false
     @State private var didAutoStopForLimit = false
     @State private var limitReachedMessage: String? = nil
@@ -100,6 +102,10 @@ struct RecordLectureView: View {
         .onChange(of: recordingManager.isRecording) { isRecording in
             if isRecording {
                 startPulse()
+                if shouldShowRecordingNotice {
+                    showRecordingNotice = true
+                    shouldShowRecordingNotice = false
+                }
             } else {
                 stopPulse()
                 resetLimitState()
@@ -123,6 +129,11 @@ struct RecordLectureView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This will delete the current khutbah recording.")
+        }
+        .alert("Khutbah Reminder", isPresented: $showRecordingNotice) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please silence and lock your phone during the khutbah. Khutbah Notes will keep recording even when the screen is off.")
         }
         .fileImporter(
             isPresented: $showAudioPicker,
@@ -254,10 +265,16 @@ struct RecordLectureView: View {
             return
         }
         resetLimitState()
+        shouldShowRecordingNotice = true
         do {
             try recordingManager.startRecording()
             titleText = defaultTitle()
+            if recordingManager.isRecording {
+                showRecordingNotice = true
+                shouldShowRecordingNotice = false
+            }
         } catch {
+            shouldShowRecordingNotice = false
             print("Failed to start recording: \(error)")
         }
     }
