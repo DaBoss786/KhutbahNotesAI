@@ -299,6 +299,7 @@ struct NotesView: View {
     @State private var addToFolderSelections: Set<String> = []
     @State private var showPaywall = false
     @State private var showSettings = false
+    @FocusState private var isSearchFocused: Bool
     @State private var searchQuery = ""
     @State private var activeSearchQuery = ""
     @State private var showSearchResults = false
@@ -418,6 +419,7 @@ struct NotesView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 24)
             }
+            .dismissKeyboardOnScroll()
             hiddenNavigationLinks
         }
         .background(Theme.backgroundGradient.ignoresSafeArea())
@@ -527,6 +529,7 @@ struct NotesView: View {
             TextField("Search saved summaries and transcripts", text: $searchQuery)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
+                .focused($isSearchFocused)
                 .submitLabel(.search)
                 .onSubmit {
                     performSearch()
@@ -560,6 +563,14 @@ struct NotesView: View {
         .cornerRadius(14)
         .shadow(color: Theme.shadow, radius: 6, x: 0, y: 4)
         .accessibilityLabel("Search summaries and transcripts")
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    isSearchFocused = false
+                }
+            }
+        }
     }
     
     private var lectureList: some View {
@@ -1335,6 +1346,14 @@ struct LectureDetailView: View {
                         .focused($isNotesFocused)
                         .textInputAutocapitalization(.sentences)
                         .frame(minHeight: 220)
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") {
+                                    isNotesFocused = false
+                                }
+                            }
+                        }
                 }
             }
             .padding(16)
@@ -1503,6 +1522,7 @@ struct LectureDetailView: View {
                 }
                 .padding()
             }
+            .dismissKeyboardOnScroll()
             .background(Theme.backgroundGradient.ignoresSafeArea())
             .navigationTitle("Lecture")
             .navigationBarTitleDisplayMode(.inline)
@@ -1674,6 +1694,17 @@ struct LectureDetailView: View {
             withAnimation {
                 copyBannerMessage = nil
             }
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func dismissKeyboardOnScroll() -> some View {
+        if #available(iOS 16.0, *) {
+            scrollDismissesKeyboard(.interactively)
+        } else {
+            self
         }
     }
 }
