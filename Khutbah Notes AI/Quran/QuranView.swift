@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct QuranView: View {
     @StateObject private var viewModel = QuranViewModel()
@@ -285,6 +286,8 @@ private struct SurahPickerSheet: View {
     let selectedSurahId: Int?
     let onSelect: (Surah) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         Group {
@@ -315,8 +318,42 @@ private struct SurahPickerSheet: View {
         }
     }
 
+    private var filteredSurahs: [Surah] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return surahs }
+        return surahs.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+    }
+
     private var surahList: some View {
-        List(surahs) { surah in
+        Group {
+            if #available(iOS 15.0, *) {
+                listView
+                    .searchable(
+                        text: $searchText,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Search surahs"
+                    )
+            } else {
+                VStack(spacing: 12) {
+                    fallbackSearchField
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                    listView
+                }
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    dismissKeyboard()
+                }
+            }
+        }
+    }
+
+    private var listView: some View {
+        List(filteredSurahs) { surah in
             Button {
                 onSelect(surah)
                 dismiss()
@@ -337,5 +374,41 @@ private struct SurahPickerSheet: View {
             }
         }
         .listStyle(.plain)
+    }
+
+    private var fallbackSearchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(Theme.mutedText)
+            TextField("Search surahs", text: $searchText)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .focused($isSearchFocused)
+                .submitLabel(.done)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(Theme.mutedText.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .background(Theme.cardBackground)
+        .cornerRadius(14)
+        .shadow(color: Theme.shadow, radius: 6, x: 0, y: 4)
+        .accessibilityLabel("Search surahs")
+    }
+
+    private func dismissKeyboard() {
+        isSearchFocused = false
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
     }
 }
