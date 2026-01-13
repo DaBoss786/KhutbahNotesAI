@@ -103,6 +103,7 @@ enum TextSizeOption: CaseIterable {
 
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @State private var lastNonQuranTab: Int? = nil
     @State private var toastMessage: String? = nil
     @State private var toastActionTitle: String? = nil
     @State private var toastAction: (() -> Void)? = nil
@@ -123,103 +124,21 @@ struct MainTabView: View {
     }
     
     var body: some View {
-        ZStack(alignment: .bottom) {
-            TabView(selection: $selectedTab) {
-                NotesView(
-                    selectedTab: $selectedTab,
-                    dashboardNavigationDepth: $dashboardNavigationDepth,
-                    onShowToast: { message in
-                        showToast(message)
-                    }
-                )
-                    .tabItem {
-                        Image(systemName: "book.closed.fill")
-                        Text("Notes")
-                    }
-                    .tag(0)
-                
-                RecordLectureView(
-                    selectedTab: $selectedTab,
-                    pendingRouteAction: $pendingRecordingRouteAction,
-                    onShowToast: { message, actionTitle, action in
-                        withAnimation {
-                            toastMessage = message
-                            toastActionTitle = actionTitle
-                            toastAction = action
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                            withAnimation {
-                                toastMessage = nil
-                                toastActionTitle = nil
-                                toastAction = nil
-                            }
-                        }
-                    },
-                    onShowPaywall: {
-                        showPaywall = true
-                    }
-                )
-                .tabItem {
-                    Label("Record", systemImage: "plus")
-                        .opacity(0) // Hidden; replaced by floating button
-                }
-                .tag(1)
-
-                QuranView()
-                    .tabItem {
-                        Image(systemName: "book.closed.fill")
-                        Text("Quran")
-                    }
-                    .tag(2)
-            }
-            .tint(Theme.primaryGreen)
-            .sheet(isPresented: $showPaywall) {
-                OnboardingPaywallView {
-                    showPaywall = false
-                }
-            }
-            
-            Button(action: { selectedTab = 1 }) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(colors: [Theme.primaryGreen, Theme.secondaryGreen],
-                                           startPoint: .topLeading,
-                                           endPoint: .bottomTrailing)
-                        )
-                    Image(systemName: "plus")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.white)
-                }
-                .frame(width: 68, height: 68)
-                .shadow(color: Theme.primaryGreen.opacity(0.28), radius: 12, x: 0, y: 10)
-            }
-            .offset(y: -10)
-            
-            if shouldShowRecordPrompt {
-                DashboardRecordPrompt()
-            }
-            
-            if let message = toastMessage {
-                let actionTitle = toastActionTitle ?? "OK"
-                ToastView(message: message, actionTitle: actionTitle) {
-                    toastAction?()
-                    withAnimation {
-                        toastMessage = nil
-                        toastActionTitle = nil
-                        toastAction = nil
-                    }
-                }
-                .padding(.bottom, 90)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
+        mainContent
         .environmentObject(quranNavigator)
         .onAppear {
             handlePendingActions()
         }
+        .onChange(of: selectedTab) { tab in
+            if tab != 2 {
+                lastNonQuranTab = nil
+            }
+        }
         .onChange(of: quranNavigator.pendingTarget) { target in
             guard target != nil else { return }
+            if selectedTab != 2 {
+                lastNonQuranTab = selectedTab
+            }
             selectedTab = 2
         }
         .onChange(of: pendingControlActionRaw) { _ in
@@ -230,6 +149,118 @@ struct MainTabView: View {
         }
         .onChange(of: pendingLectureDeepLinkIdRaw) { _ in
             handlePendingLectureDeepLinkTabSwitch()
+        }
+    }
+
+    private var mainContent: some View {
+        ZStack(alignment: .bottom) {
+            tabContent
+            recordButton
+            recordPromptOverlay
+            toastOverlay
+        }
+    }
+
+    private var tabContent: some View {
+        TabView(selection: $selectedTab) {
+            NotesView(
+                selectedTab: $selectedTab,
+                dashboardNavigationDepth: $dashboardNavigationDepth,
+                onShowToast: { message in
+                    showToast(message)
+                }
+            )
+                .tabItem {
+                    Image(systemName: "book.closed.fill")
+                    Text("Notes")
+                }
+                .tag(0)
+            
+            RecordLectureView(
+                selectedTab: $selectedTab,
+                pendingRouteAction: $pendingRecordingRouteAction,
+                onShowToast: { message, actionTitle, action in
+                    withAnimation {
+                        toastMessage = message
+                        toastActionTitle = actionTitle
+                        toastAction = action
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        withAnimation {
+                            toastMessage = nil
+                            toastActionTitle = nil
+                            toastAction = nil
+                        }
+                    }
+                },
+                onShowPaywall: {
+                    showPaywall = true
+                }
+            )
+            .tabItem {
+                Label("Record", systemImage: "plus")
+                    .opacity(0) // Hidden; replaced by floating button
+            }
+            .tag(1)
+
+            QuranView(
+                showBackToLecture: lastNonQuranTab != nil,
+                onBackToLecture: handleBackToLecture
+            )
+                .tabItem {
+                    Image(systemName: "book.closed.fill")
+                    Text("Quran")
+                }
+                .tag(2)
+        }
+        .tint(Theme.primaryGreen)
+        .sheet(isPresented: $showPaywall) {
+            OnboardingPaywallView {
+                showPaywall = false
+            }
+        }
+    }
+
+    private var recordButton: some View {
+        Button(action: { selectedTab = 1 }) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                                       startPoint: .topLeading,
+                                       endPoint: .bottomTrailing)
+                    )
+                Image(systemName: "plus")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 68, height: 68)
+            .shadow(color: Theme.primaryGreen.opacity(0.28), radius: 12, x: 0, y: 10)
+        }
+        .offset(y: -10)
+    }
+
+    @ViewBuilder
+    private var recordPromptOverlay: some View {
+        if shouldShowRecordPrompt {
+            DashboardRecordPrompt()
+        }
+    }
+
+    @ViewBuilder
+    private var toastOverlay: some View {
+        if let message = toastMessage {
+            let actionTitle = toastActionTitle ?? "OK"
+            ToastView(message: message, actionTitle: actionTitle) {
+                toastAction?()
+                withAnimation {
+                    toastMessage = nil
+                    toastActionTitle = nil
+                    toastAction = nil
+                }
+            }
+            .padding(.bottom, 90)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
@@ -259,6 +290,12 @@ struct MainTabView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         selectedTab = 0
+    }
+
+    private func handleBackToLecture() {
+        guard let tab = lastNonQuranTab else { return }
+        selectedTab = tab
+        lastNonQuranTab = nil
     }
 
     private func showToast(_ message: String) {

@@ -8,10 +8,20 @@ struct QuranView: View {
     @State private var selectedTextSize: TextSizeOption = .medium
     @State private var highlightedVerseId: String? = nil
     @State private var pendingScrollTarget: QuranCitationTarget? = nil
+    let showBackToLecture: Bool
+    let onBackToLecture: () -> Void
+
+    init(showBackToLecture: Bool = false, onBackToLecture: @escaping () -> Void = {}) {
+        self.showBackToLecture = showBackToLecture
+        self.onBackToLecture = onBackToLecture
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
+            if showBackToLecture {
+                backToLectureButton(action: onBackToLecture)
+            }
             content
         }
         .background(Theme.backgroundGradient.ignoresSafeArea())
@@ -86,6 +96,25 @@ struct QuranView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Select surah")
+    }
+
+    private func backToLectureButton(action: @escaping () -> Void) -> some View {
+        HStack {
+            Button(action: action) {
+                Text("Back to Lecture")
+                    .font(.caption.bold())
+                    .foregroundColor(Theme.primaryGreen)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Theme.primaryGreen.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to Lecture")
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
     }
 
     @ViewBuilder
