@@ -8,6 +8,8 @@ struct FolderDetailView: View {
     var onMove: (Lecture) -> Void
     var onDelete: (Lecture) -> Void
     var onAddLecture: () -> Void
+    var onRenameFolder: (Folder) -> Void
+    var onDeleteFolder: (Folder) -> Void
     
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -82,5 +84,21 @@ struct FolderDetailView: View {
         .background(Theme.backgroundGradient.ignoresSafeArea())
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button("Rename") { onRenameFolder(folder) }
+                    Button(role: .destructive) {
+                        onDeleteFolder(folder)
+                    } label: {
+                        Text("Delete")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Theme.mutedText)
+                }
+            }
+        }
     }
 }

@@ -2070,6 +2070,89 @@ final class LectureStore: ObservableObject {
                 }
             }
     }
+
+    func renameFolder(_ folder: Folder, newName: String) {
+        if let index = folders.firstIndex(where: { $0.id == folder.id }) {
+            folders[index].name = newName
+        }
+        
+        lectures = lectures.map { lecture in
+            var updated = lecture
+            if updated.folderId == folder.id {
+                updated.folderName = newName
+            }
+            return updated
+        }
+        
+        guard let userId else { return }
+        
+        db.collection("users")
+            .document(userId)
+            .collection("folders")
+            .document(folder.id)
+            .setData(["name": newName], merge: true) { error in
+                if let error = error {
+                    print("Error renaming folder: \(error)")
+                }
+            }
+        
+        let lecturesToUpdate = lectures.filter { $0.folderId == folder.id }
+        for lecture in lecturesToUpdate {
+            db.collection("users")
+                .document(userId)
+                .collection("lectures")
+                .document(lecture.id)
+                .setData(["folderName": newName], merge: true) { error in
+                    if let error = error {
+                        print("Error updating lecture folder name: \(error)")
+                    }
+                }
+        }
+    }
+
+    func deleteFolder(_ folder: Folder) {
+        let lecturesToUpdate = lectures.filter { $0.folderId == folder.id }
+        
+        folders.removeAll { $0.id == folder.id }
+        if !lecturesToUpdate.isEmpty {
+            let lectureIds = Set(lecturesToUpdate.map { $0.id })
+            lectures = lectures.map { lecture in
+                var updated = lecture
+                if lectureIds.contains(updated.id) {
+                    updated.folderId = nil
+                    updated.folderName = nil
+                }
+                return updated
+            }
+        }
+        
+        guard let userId else { return }
+        
+        db.collection("users")
+            .document(userId)
+            .collection("folders")
+            .document(folder.id)
+            .delete { error in
+                if let error = error {
+                    print("Error deleting folder: \(error)")
+                }
+            }
+        
+        for lecture in lecturesToUpdate {
+            db.collection("users")
+                .document(userId)
+                .collection("lectures")
+                .document(lecture.id)
+                .setData([
+                    "folderId": FieldValue.delete(),
+                    "folderName": FieldValue.delete()
+                ], merge: true) { error in
+                    if let error = error {
+                        print("Error clearing lecture folder: \(error)")
+                    }
+                }
+        }
+    }
     
     func renameLecture(_ lecture: Lecture, to newTitle: String) {
         var updated = lecture

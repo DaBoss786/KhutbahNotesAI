@@ -324,13 +324,18 @@ struct NotesView: View {
     @State private var showMoveSheet = false
     @State private var showCreateFolderSheet = false
     @State private var showDeleteAlert = false
+    @State private var showRenameFolderSheet = false
+    @State private var showDeleteFolderAlert = false
     @State private var selectedLecture: Lecture?
     @State private var renameText = ""
+    @State private var folderRenameText = ""
     @State private var moveSelection: String?
     @State private var newFolderName = ""
     @State private var inlineFolderName = ""
     @State private var isCreatingInlineFolder = false
     @State private var pendingDeleteLecture: Lecture?
+    @State private var pendingRenameFolder: Folder?
+    @State private var pendingDeleteFolder: Folder?
     @State private var showAddToFolderSheet = false
     @State private var addToFolderTarget: Folder?
     @State private var addToFolderSelections: Set<String> = []
@@ -386,6 +391,12 @@ struct NotesView: View {
         .sheet(isPresented: $showRenameSheet, onDismiss: { renameText = "" }) {
             renameSheet
         }
+        .sheet(isPresented: $showRenameFolderSheet, onDismiss: {
+            folderRenameText = ""
+            pendingRenameFolder = nil
+        }) {
+            renameFolderSheet
+        }
         .sheet(isPresented: $showMoveSheet, onDismiss: {
             moveSelection = nil
             isCreatingInlineFolder = false
@@ -431,6 +442,19 @@ struct NotesView: View {
             }
         } message: {
             Text("This will delete the lecture and its audio file.")
+        }
+        .alert("Delete folder?", isPresented: $showDeleteFolderAlert) {
+            Button("Delete", role: .destructive) {
+                if let folder = pendingDeleteFolder {
+                    store.deleteFolder(folder)
+                }
+                pendingDeleteFolder = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteFolder = nil
+            }
+        } message: {
+            Text("Delete folder and remove its lectures from the folder?")
         }
     }
     
@@ -671,46 +695,71 @@ struct NotesView: View {
             if !store.folders.isEmpty {
                 VStack(spacing: 12) {
                     ForEach(store.folders) { folder in
-                        NavigationLink {
-                            NavigationDepthTracker(depth: $dashboardNavigationDepth) {
-                                FolderDetailView(
-                                    folder: folder,
-                                    lectures: lectures(in: folder),
-                                    selectedTab: $selectedTab,
-                                    onRename: { lecture in startRename(for: lecture) },
-                                    onMove: { lecture in startMove(for: lecture) },
-                                    onDelete: { lecture in
-                                        pendingDeleteLecture = lecture
-                                        showDeleteAlert = true
-                                    },
-                                    onAddLecture: {
-                                        addToFolderTarget = folder
-                                        showAddToFolderSheet = true
-                                    }
-                                )
-                            }
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(folder.name)
-                                        .font(Theme.titleFont)
-                                        .foregroundColor(.black)
-                                    Text("\(lectureCount(for: folder)) lectures")
-                                        .font(Theme.bodyFont)
-                                        .foregroundColor(Theme.mutedText)
+                        ZStack(alignment: .topTrailing) {
+                            NavigationLink {
+                                NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                                    FolderDetailView(
+                                        folder: folder,
+                                        lectures: lectures(in: folder),
+                                        selectedTab: $selectedTab,
+                                        onRename: { lecture in startRename(for: lecture) },
+                                        onMove: { lecture in startMove(for: lecture) },
+                                        onDelete: { lecture in
+                                            pendingDeleteLecture = lecture
+                                            showDeleteAlert = true
+                                        },
+                                        onAddLecture: {
+                                            addToFolderTarget = folder
+                                            showAddToFolderSheet = true
+                                        },
+                                        onRenameFolder: { folder in
+                                            startRenameFolder(folder)
+                                        },
+                                        onDeleteFolder: { folder in
+                                            startDeleteFolder(folder)
+                                        }
+                                    )
                                 }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(Theme.mutedText)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(folder.name)
+                                            .font(Theme.titleFont)
+                                            .foregroundColor(.black)
+                                        Text("\(lectureCount(for: folder)) lectures")
+                                            .font(Theme.bodyFont)
+                                            .foregroundColor(Theme.mutedText)
+                                    }
+                                    Spacer()
+                                }
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Theme.cardBackground)
+                                .cornerRadius(14)
+                                .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
                             }
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Theme.cardBackground)
-                            .cornerRadius(14)
-                            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
+                            .buttonStyle(.plain)
+                            
+                            Menu {
+                                Button("Rename") { startRenameFolder(folder) }
+                                Button(role: .destructive) {
+                                    startDeleteFolder(folder)
+                                } label: {
+                                    Text("Delete")
+                                }
+                                Button("Cancel", role: .cancel) { }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(Theme.mutedText)
+                                    .padding(10)
+                                    .background(Color.white.opacity(0.92))
+                                    .clipShape(Circle())
+                                    .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
+                            }
+                            .padding(.trailing, 12)
+                            .padding(.top, 12)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -721,6 +770,17 @@ struct NotesView: View {
         selectedLecture = lecture
         renameText = lecture.title
         showRenameSheet = true
+    }
+
+    private func startRenameFolder(_ folder: Folder) {
+        pendingRenameFolder = folder
+        folderRenameText = folder.name
+        showRenameFolderSheet = true
+    }
+
+    private func startDeleteFolder(_ folder: Folder) {
+        pendingDeleteFolder = folder
+        showDeleteFolderAlert = true
     }
 
     private func performSearch() {
@@ -864,6 +924,36 @@ struct NotesView: View {
             
             Button("Cancel", role: .cancel) {
                 showRenameSheet = false
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding()
+    }
+
+    private var renameFolderSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename folder")
+                .font(.title2.bold())
+            
+            TextField("Folder name", text: $folderRenameText)
+                .textFieldStyle(.roundedBorder)
+            
+            Spacer()
+            
+            Button(action: {
+                guard let folder = pendingRenameFolder else { return }
+                let trimmed = folderRenameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                store.renameFolder(folder, newName: trimmed)
+                showRenameFolderSheet = false
+            }) {
+                Text("Save")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            
+            Button("Cancel", role: .cancel) {
+                showRenameFolderSheet = false
             }
             .frame(maxWidth: .infinity)
         }
