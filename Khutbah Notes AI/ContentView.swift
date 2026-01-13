@@ -389,7 +389,11 @@ struct NotesView: View {
             }
         }
         .sheet(isPresented: $showRenameSheet, onDismiss: { renameText = "" }) {
-            renameSheet
+            LectureRenameSheet(
+                lecture: selectedLecture,
+                renameText: $renameText,
+                isPresented: $showRenameSheet
+            )
         }
         .sheet(isPresented: $showRenameFolderSheet, onDismiss: {
             folderRenameText = ""
@@ -402,7 +406,13 @@ struct NotesView: View {
             isCreatingInlineFolder = false
             inlineFolderName = ""
         }) {
-            moveSheet
+            LectureMoveSheet(
+                lecture: selectedLecture,
+                moveSelection: $moveSelection,
+                isCreatingInlineFolder: $isCreatingInlineFolder,
+                inlineFolderName: $inlineFolderName,
+                isPresented: $showMoveSheet
+            )
         }
         .sheet(isPresented: $showCreateFolderSheet, onDismiss: { newFolderName = "" }) {
             createFolderSheet
@@ -411,7 +421,11 @@ struct NotesView: View {
             addToFolderSelections = []
             addToFolderTarget = nil
         }) {
-            addToFolderSheet
+            LectureAddToFolderSheet(
+                targetFolder: $addToFolderTarget,
+                selections: $addToFolderSelections,
+                isPresented: $showAddToFolderSheet
+            )
         }
         .sheet(isPresented: $showPaywall) {
             OnboardingPaywallView {
@@ -823,112 +837,6 @@ struct NotesView: View {
     private func lectures(in folder: Folder) -> [Lecture] {
         store.lectures.filter { $0.folderId == folder.id }
     }
-    
-    private var addToFolderSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Add to \(addToFolderTarget?.name ?? "folder")")
-                .font(.title2.bold())
-            
-            if store.lectures.isEmpty {
-                Text("No lectures available.")
-                    .font(Theme.bodyFont)
-                    .foregroundColor(Theme.mutedText)
-            } else {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(store.lectures) { lecture in
-                            Button(action: {
-                                if addToFolderSelections.contains(lecture.id) {
-                                    addToFolderSelections.remove(lecture.id)
-                                } else {
-                                    addToFolderSelections.insert(lecture.id)
-                                }
-                            }) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(lecture.title)
-                                            .font(Theme.titleFont)
-                                            .foregroundColor(.black)
-                                        Text(lecture.date, style: .date)
-                                            .font(Theme.bodyFont)
-                                            .foregroundColor(Theme.mutedText)
-                                    }
-                                    Spacer()
-                                    if addToFolderSelections.contains(lecture.id) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(Theme.primaryGreen)
-                                    } else {
-                                        Image(systemName: "circle")
-                                            .foregroundColor(Theme.mutedText)
-                                    }
-                                }
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Theme.cardBackground)
-                                .cornerRadius(12)
-                                .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            
-            Button(action: {
-                guard
-                    let folder = addToFolderTarget,
-                    !addToFolderSelections.isEmpty
-                else { return }
-                for lectureId in addToFolderSelections {
-                    if let lecture = store.lectures.first(where: { $0.id == lectureId }) {
-                        store.moveLecture(lecture, to: folder)
-                    }
-                }
-                showAddToFolderSheet = false
-            }) {
-                Text("Add")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(addToFolderSelections.isEmpty)
-            
-            Button("Cancel", role: .cancel) {
-                showAddToFolderSheet = false
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding()
-    }
-    
-    private var renameSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Rename lecture")
-                .font(.title2.bold())
-            
-            TextField("Lecture title", text: $renameText)
-                .textFieldStyle(.roundedBorder)
-            
-            Spacer()
-            
-            Button(action: {
-                guard let lecture = selectedLecture else { return }
-                let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                store.renameLecture(lecture, to: trimmed)
-                showRenameSheet = false
-            }) {
-                Text("Save")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            
-            Button("Cancel", role: .cancel) {
-                showRenameSheet = false
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding()
-    }
 
     private var renameFolderSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -960,108 +868,6 @@ struct NotesView: View {
         .padding()
     }
     
-    private var moveSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Move to folder")
-                .font(.title2.bold())
-            
-            if store.folders.isEmpty {
-                Text("You don't have any folders yet.")
-                    .font(Theme.bodyFont)
-                    .foregroundColor(Theme.mutedText)
-            } else {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(store.folders) { folder in
-                            Button(action: { moveSelection = folder.id }) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(folder.name)
-                                            .font(Theme.titleFont)
-                                            .foregroundColor(.black)
-                                        Text("\(lectureCount(for: folder)) lectures")
-                                            .font(Theme.bodyFont)
-                                            .foregroundColor(Theme.mutedText)
-                                    }
-                                    Spacer()
-                                    if moveSelection == folder.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(Theme.primaryGreen)
-                                    } else {
-                                        Image(systemName: "circle")
-                                            .foregroundColor(Theme.mutedText)
-                                    }
-                                }
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Theme.cardBackground)
-                                .cornerRadius(12)
-                                .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            
-            if let currentFolderId = selectedLecture?.folderId, !currentFolderId.isEmpty {
-                Button("Remove from folder") {
-                    moveSelection = nil
-                    applyMoveSelection()
-                }
-                .buttonStyle(.bordered)
-            }
-            
-            if isCreatingInlineFolder {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("New folder name")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    TextField("e.g. Ramadan series", text: $inlineFolderName)
-                        .textFieldStyle(.roundedBorder)
-                    Button(action: {
-                        let trimmed = inlineFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmed.isEmpty else { return }
-                        let newId = UUID().uuidString
-                        store.createFolder(named: trimmed, folderId: newId)
-                        moveSelection = newId
-                        inlineFolderName = ""
-                        isCreatingInlineFolder = false
-                    }) {
-                        Text("Create and Select")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            } else {
-                Button("Create new folder") {
-                    isCreatingInlineFolder = true
-                }
-                .buttonStyle(.bordered)
-            }
-            
-            Button(action: applyMoveSelection) {
-                Text("Confirm")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(selectedLecture == nil)
-            
-            Button("Cancel", role: .cancel) {
-                showMoveSheet = false
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding()
-    }
-    
-    private func applyMoveSelection() {
-        guard let lecture = selectedLecture else { return }
-        let folder = store.folders.first(where: { $0.id == moveSelection })
-        store.moveLecture(lecture, to: folder)
-        showMoveSheet = false
-    }
-    
     private var createFolderSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Create a folder")
@@ -1089,6 +895,279 @@ struct NotesView: View {
             .frame(maxWidth: .infinity)
         }
         .padding()
+    }
+}
+
+struct LectureRenameSheet: View {
+    @EnvironmentObject var store: LectureStore
+    let lecture: Lecture?
+    @Binding var renameText: String
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename lecture")
+                .font(.title2.bold())
+
+            TextField("Lecture title", text: $renameText)
+                .textFieldStyle(.roundedBorder)
+
+            Spacer()
+
+            Button(action: renameLecture) {
+                Text("Save")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button("Cancel", role: .cancel) {
+                isPresented = false
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding()
+    }
+
+    private func renameLecture() {
+        guard let lecture else { return }
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        store.renameLecture(lecture, to: trimmed)
+        isPresented = false
+    }
+}
+
+struct LectureMoveSheet: View {
+    @EnvironmentObject var store: LectureStore
+    let lecture: Lecture?
+    @Binding var moveSelection: String?
+    @Binding var isCreatingInlineFolder: Bool
+    @Binding var inlineFolderName: String
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Move to folder")
+                .font(.title2.bold())
+
+            if store.folders.isEmpty {
+                Text("You don't have any folders yet.")
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.mutedText)
+            } else {
+                FolderSelectionList(selectedFolderId: $moveSelection)
+            }
+
+            if let currentFolderId = lecture?.folderId, !currentFolderId.isEmpty {
+                Button("Remove from folder") {
+                    moveSelection = nil
+                    applyMoveSelection()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if isCreatingInlineFolder {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("New folder name")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    TextField("e.g. Ramadan series", text: $inlineFolderName)
+                        .textFieldStyle(.roundedBorder)
+                    Button(action: createInlineFolder) {
+                        Text("Create and Select")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else {
+                Button("Create new folder") {
+                    isCreatingInlineFolder = true
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Button(action: applyMoveSelection) {
+                Text("Confirm")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(lecture == nil)
+
+            Button("Cancel", role: .cancel) {
+                isPresented = false
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding()
+    }
+
+    private func applyMoveSelection() {
+        guard let lecture else { return }
+        let folder = store.folders.first(where: { $0.id == moveSelection })
+        store.moveLecture(lecture, to: folder)
+        isPresented = false
+    }
+
+    private func createInlineFolder() {
+        let trimmed = inlineFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let newId = UUID().uuidString
+        store.createFolder(named: trimmed, folderId: newId)
+        moveSelection = newId
+        inlineFolderName = ""
+        isCreatingInlineFolder = false
+    }
+}
+
+struct LectureAddToFolderSheet: View {
+    @EnvironmentObject var store: LectureStore
+    @Binding var targetFolder: Folder?
+    @Binding var selections: Set<String>
+    @Binding var isPresented: Bool
+
+    private var targetFolderId: Binding<String?> {
+        Binding(
+            get: { targetFolder?.id },
+            set: { newValue in
+                targetFolder = store.folders.first(where: { $0.id == newValue })
+            }
+        )
+    }
+
+    private var canSubmit: Bool {
+        targetFolder != nil && !selections.isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add to \(targetFolder?.name ?? "folder")")
+                .font(.title2.bold())
+
+            if targetFolder == nil {
+                if store.folders.isEmpty {
+                    Text("You don't have any folders yet.")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(Theme.mutedText)
+                } else {
+                    Text("Choose a folder")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(Theme.mutedText)
+                    FolderSelectionList(selectedFolderId: targetFolderId)
+                }
+            }
+
+            if store.lectures.isEmpty {
+                Text("No lectures available.")
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.mutedText)
+            } else {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        ForEach(store.lectures) { lecture in
+                            Button(action: {
+                                if selections.contains(lecture.id) {
+                                    selections.remove(lecture.id)
+                                } else {
+                                    selections.insert(lecture.id)
+                                }
+                            }) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(lecture.title)
+                                            .font(Theme.titleFont)
+                                            .foregroundColor(.black)
+                                        Text(lecture.date, style: .date)
+                                            .font(Theme.bodyFont)
+                                            .foregroundColor(Theme.mutedText)
+                                    }
+                                    Spacer()
+                                    if selections.contains(lecture.id) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(Theme.primaryGreen)
+                                    } else {
+                                        Image(systemName: "circle")
+                                            .foregroundColor(Theme.mutedText)
+                                    }
+                                }
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Theme.cardBackground)
+                                .cornerRadius(12)
+                                .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
+            Button(action: addLecturesToFolder) {
+                Text("Add")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canSubmit)
+
+            Button("Cancel", role: .cancel) {
+                isPresented = false
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding()
+    }
+
+    private func addLecturesToFolder() {
+        guard let folder = targetFolder, !selections.isEmpty else { return }
+        for lectureId in selections {
+            if let lecture = store.lectures.first(where: { $0.id == lectureId }) {
+                store.moveLecture(lecture, to: folder)
+            }
+        }
+        isPresented = false
+    }
+}
+
+private struct FolderSelectionList: View {
+    @EnvironmentObject var store: LectureStore
+    @Binding var selectedFolderId: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(store.folders) { folder in
+                    Button(action: { selectedFolderId = folder.id }) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(folder.name)
+                                    .font(Theme.titleFont)
+                                    .foregroundColor(.black)
+                                Text("\(lectureCount(for: folder)) lectures")
+                                    .font(Theme.bodyFont)
+                                    .foregroundColor(Theme.mutedText)
+                            }
+                            Spacer()
+                            if selectedFolderId == folder.id {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(Theme.primaryGreen)
+                            } else {
+                                Image(systemName: "circle")
+                                    .foregroundColor(Theme.mutedText)
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.cardBackground)
+                        .cornerRadius(12)
+                        .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func lectureCount(for folder: Folder) -> Int {
+        store.lectures.filter { $0.folderId == folder.id }.count
     }
 }
 
@@ -1295,6 +1374,15 @@ struct LectureDetailView: View {
     @State private var selectedSummaryLanguage: SummaryTranslationLanguage = .english
     @State private var selectedTextSize: TextSizeOption = .medium
     @State private var notesText: String = ""
+    @State private var showRenameSheet = false
+    @State private var showMoveSheet = false
+    @State private var showAddToFolderSheet = false
+    @State private var renameText = ""
+    @State private var moveSelection: String?
+    @State private var addToFolderTarget: Folder?
+    @State private var addToFolderSelections: Set<String> = []
+    @State private var isCreatingInlineFolder = false
+    @State private var inlineFolderName = ""
     @State private var shareItems: [Any]? = nil
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
@@ -1653,6 +1741,19 @@ struct LectureDetailView: View {
             .background(Theme.backgroundGradient.ignoresSafeArea())
             .navigationTitle("Lecture")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button("Rename Lecture…") { startRename() }
+                        Button("Move to Folder…") { startMove() }
+                        Button("Add to Folder…") { startAddToFolder() }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Theme.mutedText)
+                    }
+                }
+            }
             
             if let message = copyBannerMessage {
                 CopyBanner(message: message)
@@ -1680,6 +1781,36 @@ struct LectureDetailView: View {
             if let items = shareItems {
                 ShareSheet(activityItems: items)
             }
+        }
+        .sheet(isPresented: $showRenameSheet, onDismiss: { renameText = "" }) {
+            LectureRenameSheet(
+                lecture: displayLecture,
+                renameText: $renameText,
+                isPresented: $showRenameSheet
+            )
+        }
+        .sheet(isPresented: $showMoveSheet, onDismiss: {
+            moveSelection = nil
+            isCreatingInlineFolder = false
+            inlineFolderName = ""
+        }) {
+            LectureMoveSheet(
+                lecture: displayLecture,
+                moveSelection: $moveSelection,
+                isCreatingInlineFolder: $isCreatingInlineFolder,
+                inlineFolderName: $inlineFolderName,
+                isPresented: $showMoveSheet
+            )
+        }
+        .sheet(isPresented: $showAddToFolderSheet, onDismiss: {
+            addToFolderSelections = []
+            addToFolderTarget = nil
+        }) {
+            LectureAddToFolderSheet(
+                targetFolder: $addToFolderTarget,
+                selections: $addToFolderSelections,
+                isPresented: $showAddToFolderSheet
+            )
         }
     }
     
@@ -1822,6 +1953,24 @@ struct LectureDetailView: View {
                 copyBannerMessage = nil
             }
         }
+    }
+
+    private func startRename() {
+        renameText = displayLecture.title
+        showRenameSheet = true
+    }
+
+    private func startMove() {
+        moveSelection = displayLecture.folderId
+        isCreatingInlineFolder = false
+        inlineFolderName = ""
+        showMoveSheet = true
+    }
+
+    private func startAddToFolder() {
+        addToFolderSelections = [displayLecture.id]
+        addToFolderTarget = store.folders.first(where: { $0.id == displayLecture.folderId })
+        showAddToFolderSheet = true
     }
 }
 
