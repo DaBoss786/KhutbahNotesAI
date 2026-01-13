@@ -593,7 +593,7 @@ struct OnboardingNotificationsPrePromptView: View {
                 
                 VStack(spacing: 14) {
                     Button(action: handleAllowTapped) {
-                        Text("Yes, send me reminders")
+                        Text("Yes, remind me on Fridays")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SolidGreenButtonStyle())
