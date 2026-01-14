@@ -180,6 +180,8 @@ const TRANSCRIBE_CHUNK_SECONDS = 240; // shorter chunks improve code-switching
 const TRANSCRIBE_MULTILINGUAL_PROMPT =
   "Audio may include multiple languages. Transcribe each segment " +
   "in its original language as spoken. Do not translate.";
+const NO_SPEECH_DETECTED_MESSAGE =
+  "No speech detected in this recording.";
 const MIN_WORDS_PER_MINUTE = 50;
 const MIN_CHARS_PER_MINUTE = 200;
 const MIN_AUDIO_SAMPLE_RATE = 16000;
@@ -346,6 +348,52 @@ function areNearIdentical(a: string, b: string): boolean {
   const union = new Set([...aWords, ...bWords]).size;
   const similarity = union > 0 ? intersection / union : 0;
   return similarity >= 0.95;
+}
+
+/**
+ * Detect prompt echoing in transcription output.
+ *
+ * @param {string} text Transcript text.
+ * @return {boolean} True when transcript appears to echo the prompt.
+ */
+function isPromptEcho(text: string): boolean {
+  const normalizedText = normalizeForComparison(text);
+  if (!normalizedText) {
+    return false;
+  }
+  const normalizedPrompt =
+    normalizeForComparison(TRANSCRIBE_MULTILINGUAL_PROMPT);
+  if (!normalizedPrompt) {
+    return false;
+  }
+  if (areNearIdentical(normalizedText, normalizedPrompt)) {
+    return true;
+  }
+  const minWords = 6;
+  if (countWords(normalizedText) < minWords) {
+    return false;
+  }
+  return normalizedPrompt.includes(normalizedText);
+}
+
+/**
+ * Detect prompt echoing across transcript and chunks.
+ *
+ * @param {string} transcriptText Full transcript text.
+ * @param {string[]} chunkTranscripts Per-chunk transcript text.
+ * @return {boolean} True when prompt echo is detected.
+ */
+function isPromptEchoTranscript(
+  transcriptText: string,
+  chunkTranscripts: string[]
+): boolean {
+  if (isPromptEcho(transcriptText)) {
+    return true;
+  }
+  if (chunkTranscripts.length === 0) {
+    return false;
+  }
+  return chunkTranscripts.every((chunk) => isPromptEcho(chunk));
 }
 
 /**
@@ -1067,6 +1115,21 @@ export const onAudioUpload = onObjectFinalized(
         const transcriptText = chunkTranscripts.join("\n\n").trim();
         return {chunkTranscripts, transcriptText};
       };
+      const handleNoSpeechDetected = async (reason: string) => {
+        logger.warn("Transcript rejected as no speech detected.", {
+          lectureId,
+          durationMinutes,
+          reason,
+        });
+        await lectureRef.set(
+          {
+            status: "failed",
+            errorMessage: NO_SPEECH_DETECTED_MESSAGE,
+          },
+          {merge: true}
+        );
+        await refundChargedMinutes(userRef, chargedMinutes, now);
+      };
       const evaluateTranscriptQuality = (
         transcriptText: string,
         chunkTranscripts: string[],
@@ -1105,6 +1168,10 @@ export const onAudioUpload = onObjectFinalized(
       };
 
       let {chunkTranscripts, transcriptText} = buildTranscriptState();
+      if (isPromptEchoTranscript(transcriptText, chunkTranscripts)) {
+        await handleNoSpeechDetected("prompt_echo_initial");
+        return;
+      }
       let quality = evaluateTranscriptQuality(
         transcriptText,
         chunkTranscripts,
@@ -1193,6 +1260,11 @@ export const onAudioUpload = onObjectFinalized(
             "fallback"
           );
         }
+      }
+
+      if (isPromptEchoTranscript(transcriptText, chunkTranscripts)) {
+        await handleNoSpeechDetected("prompt_echo_final");
+        return;
       }
 
       if (!transcriptText) {

@@ -1397,6 +1397,10 @@ struct LectureDetailView: View {
     private let tabs = ["Summary", "Transcript", "Notes"]
     private let failureMessage =
         "Transcription failed. Try recording in a quieter space or closer to the speaker."
+    private let noSpeechDetectedMessage = "No speech detected in this recording."
+    private let noSpeechTitle = "No Speech Detected"
+    private let noSpeechFailureMessage =
+        "We couldn't hear any speech. Try again closer to the mic or in a quieter space."
     private let refundMessage = "Any charged minutes were refunded."
     private let uploadRetryMessage = "Upload failed - tap to retry"
     
@@ -1419,6 +1423,14 @@ struct LectureDetailView: View {
 
     private var isTranscriptionFailed: Bool {
         displayLecture.status == .failed && !displayLecture.hasTranscript
+    }
+
+    private var isNoSpeechDetected: Bool {
+        if let errorMessage = displayLecture.errorMessage?
+            .trimmingCharacters(in: .whitespacesAndNewlines) {
+            return errorMessage == noSpeechDetectedMessage
+        }
+        return false
     }
     
     private var shouldShowSummaryRetry: Bool {
@@ -1463,12 +1475,12 @@ struct LectureDetailView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(Theme.primaryGreen)
-                Text("Transcription Failed")
+                Text(isNoSpeechDetected ? noSpeechTitle : "Transcription Failed")
                     .font(Theme.titleFont)
                     .foregroundColor(.black)
             }
 
-            Text(failureMessage)
+            Text(isNoSpeechDetected ? noSpeechFailureMessage : failureMessage)
                 .font(Theme.bodyFont)
                 .foregroundColor(Theme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1485,7 +1497,7 @@ struct LectureDetailView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .buttonStyle(.plain)
-                } else {
+                } else if !isNoSpeechDetected {
                     Text("Reason: \(errorMessage)")
                         .font(Theme.bodyFont)
                         .foregroundColor(Theme.mutedText)
