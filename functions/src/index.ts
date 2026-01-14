@@ -180,8 +180,11 @@ const TRANSCRIBE_CHUNK_SECONDS = 240; // shorter chunks improve code-switching
 const TRANSCRIBE_MULTILINGUAL_PROMPT =
   "Audio may include multiple languages. Transcribe each segment " +
   "in its original language as spoken. Do not translate.";
+const SILENCE_CHECK_SAMPLE_SECONDS = 120;
+const SILENCE_DB_THRESHOLD = -45;
+const SILENCE_MIN_NON_SILENT_SECONDS = 1.5;
 const NO_SPEECH_DETECTED_MESSAGE =
-  "No speech detected in this recording.";
+  "No speech detected in the audio. Please try again with clearer audio.";
 const MIN_WORDS_PER_MINUTE = 50;
 const MIN_CHARS_PER_MINUTE = 200;
 const MIN_AUDIO_SAMPLE_RATE = 16000;
@@ -492,6 +495,155 @@ async function runCommand(command: string, args: string[]): Promise<void> {
       }
     });
   });
+}
+
+/**
+ * Detect whether the initial audio sample is effectively silent.
+ *
+ * @param {string} filePath Absolute path to the audio file.
+ * @return {Promise<boolean>} True if the sample is silent.
+ */
+async function detectSilenceSample(filePath: string): Promise<boolean> {
+  if (!ffmpegPath) {
+    logger.warn("ffmpeg binary not available; skipping silence check.");
+    return false;
+  }
+  const command = ffmpegPath;
+
+  let sampleSeconds = SILENCE_CHECK_SAMPLE_SECONDS;
+  try {
+    const metadata = await parseFile(filePath);
+    const durationSeconds = metadata.format.duration;
+    if (
+      typeof durationSeconds === "number" &&
+      Number.isFinite(durationSeconds) &&
+      durationSeconds > 0
+    ) {
+      sampleSeconds = Math.min(
+        durationSeconds,
+        SILENCE_CHECK_SAMPLE_SECONDS
+      );
+    }
+  } catch (err: unknown) {
+    logger.warn("Failed to read audio metadata for silence check.", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (!Number.isFinite(sampleSeconds) || sampleSeconds <= 0) {
+    logger.warn("Invalid silence check sample duration; skipping.", {
+      sampleSeconds,
+    });
+    return false;
+  }
+
+  let stderrOutput = "";
+  try {
+    stderrOutput = await new Promise((resolve, reject) => {
+      const args = [
+        "-hide_banner",
+        "-nostats",
+        "-t",
+        `${SILENCE_CHECK_SAMPLE_SECONDS}`,
+        "-i",
+        filePath,
+        "-vn",
+        "-af",
+        `silencedetect=noise=${SILENCE_DB_THRESHOLD}dB`,
+        "-f",
+        "null",
+        "-",
+      ];
+      const child = spawn(command, args, {stdio: "pipe"});
+      const stderr: Buffer[] = [];
+
+      child.stderr?.on("data", (data: Buffer) => {
+        stderr.push(data);
+      });
+
+      child.on("error", (err: Error) => {
+        reject(err);
+      });
+
+      child.on("close", (code: number | null) => {
+        if (code === 0) {
+          resolve(Buffer.concat(stderr).toString());
+        } else {
+          const msg =
+            Buffer.concat(stderr).toString() || "ffmpeg failed";
+          reject(new Error(msg));
+        }
+      });
+    });
+  } catch (err: unknown) {
+    logger.warn("Silence check ffmpeg command failed; skipping.", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+
+  let totalSilentSeconds = 0;
+  let currentSilenceStart: number | null = null;
+
+  for (const line of stderrOutput.split(/\r?\n/)) {
+    const startMatch = line.match(/silence_start:\s*([0-9.]+)/);
+    if (startMatch) {
+      const start = Number.parseFloat(startMatch[1]);
+      if (Number.isFinite(start)) {
+        currentSilenceStart = start;
+      }
+    }
+
+    const endMatch = line.match(/silence_end:\s*([0-9.]+)/);
+    if (endMatch) {
+      const end = Number.parseFloat(endMatch[1]);
+      if (Number.isFinite(end)) {
+        if (
+          currentSilenceStart !== null &&
+          end >= currentSilenceStart
+        ) {
+          totalSilentSeconds += end - currentSilenceStart;
+        }
+        currentSilenceStart = null;
+      }
+    }
+  }
+
+  if (currentSilenceStart !== null) {
+    totalSilentSeconds += Math.max(
+      0,
+      sampleSeconds - currentSilenceStart
+    );
+  }
+
+  if (!Number.isFinite(totalSilentSeconds)) {
+    logger.warn("Silence check output parsing failed; skipping.");
+    return false;
+  }
+
+  const boundedSilentSeconds = Math.min(
+    Math.max(0, totalSilentSeconds),
+    sampleSeconds
+  );
+  const nonSilentSeconds = Math.max(
+    0,
+    sampleSeconds - boundedSilentSeconds
+  );
+  const isSilent =
+    nonSilentSeconds < SILENCE_MIN_NON_SILENT_SECONDS;
+
+  logger.info("Silence check decision.", {
+    fileName: path.basename(filePath),
+    sampleSeconds,
+    maxSampleSeconds: SILENCE_CHECK_SAMPLE_SECONDS,
+    silenceDbThreshold: SILENCE_DB_THRESHOLD,
+    totalSilentSeconds: boundedSilentSeconds,
+    nonSilentSeconds,
+    minNonSilentSeconds: SILENCE_MIN_NON_SILENT_SECONDS,
+    silent: isSilent,
+  });
+
+  return isSilent;
 }
 
 /**
@@ -963,6 +1115,28 @@ export const onAudioUpload = onObjectFinalized(
       });
       transcribeRateLimitReserved = true;
 
+      const handleNoSpeechDetected = async (reason: string) => {
+        logger.warn("Transcript rejected as no speech detected.", {
+          lectureId,
+          durationMinutes,
+          reason,
+        });
+        await lectureRef.set(
+          {
+            status: "failed",
+            errorMessage: NO_SPEECH_DETECTED_MESSAGE,
+          },
+          {merge: true}
+        );
+        await refundChargedMinutes(userRef, chargedMinutes, now);
+      };
+
+      const silenceDetected = await detectSilenceSample(tempFilePath);
+      if (silenceDetected) {
+        await handleNoSpeechDetected("silence_check");
+        return;
+      }
+
       console.log(
         "Sending audio to OpenAI for transcription:",
         filePath
@@ -1114,21 +1288,6 @@ export const onAudioUpload = onObjectFinalized(
           .map((text) => text.trim());
         const transcriptText = chunkTranscripts.join("\n\n").trim();
         return {chunkTranscripts, transcriptText};
-      };
-      const handleNoSpeechDetected = async (reason: string) => {
-        logger.warn("Transcript rejected as no speech detected.", {
-          lectureId,
-          durationMinutes,
-          reason,
-        });
-        await lectureRef.set(
-          {
-            status: "failed",
-            errorMessage: NO_SPEECH_DETECTED_MESSAGE,
-          },
-          {merge: true}
-        );
-        await refundChargedMinutes(userRef, chargedMinutes, now);
       };
       const evaluateTranscriptQuality = (
         transcriptText: string,
