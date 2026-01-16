@@ -175,7 +175,7 @@ const SUMMARY_MODEL = "gpt-5-mini";
 const AI_TITLE_MAX_CHARS = 100;
 const DEFAULT_TITLE_PREFIX = "Khutbah - ";
 const SUMMARY_IN_PROGRESS_TTL_MS = 15 * 60 * 1000;
-const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = 2000;
+const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = MAX_SUMMARY_OUTPUT_TOKENS;
 const TRANSCRIBE_CHUNK_SECONDS = 240; // shorter chunks improve code-switching
 const TRANSCRIBE_MULTILINGUAL_PROMPT =
   "Audio may include multiple languages. Transcribe each segment " +
@@ -240,6 +240,31 @@ const ULTRA_COMPACT_INSTRUCTIONS = [
   "- weeklyActions: max 2 sentences, each under ~12 words.",
   "- explicitAyatOrHadith: keep all citations; citations only (no verse",
   "  text). Avoid duplicates.",
+].join("\n");
+
+const TRANSLATION_COMPACT_RETRY_INSTRUCTIONS = [
+  "Your previous attempt exceeded the output token limit.",
+  "Retry with a compact translation that MUST fit within the token budget.",
+  "",
+  "Rules:",
+  "- Keep the exact JSON keys and item order.",
+  "- Keep the same number of items in each array.",
+  "- Shorten wording while preserving meaning; avoid repetition.",
+  "- Keep Qur'an citations and Arabic text verbatim.",
+  "- Output ONLY valid JSON with the required keys.",
+].join("\n");
+
+const TRANSLATION_ULTRA_COMPACT_RETRY_INSTRUCTIONS = [
+  "Your previous attempt still exceeded the output token limit.",
+  "Retry with an ultra-compact translation that MUST fit well under the",
+  "token budget.",
+  "",
+  "Rules:",
+  "- Keep the exact JSON keys and item order.",
+  "- Keep the same number of items in each array.",
+  "- Use the shortest natural phrasing without losing meaning.",
+  "- Keep Qur'an citations and Arabic text verbatim.",
+  "- Output ONLY valid JSON with the required keys.",
 ].join("\n");
 
 const RATE_LIMIT_ERROR_MESSAGE =
@@ -2902,16 +2927,55 @@ async function translateSummaryContent(
     "Return only valid JSON with the required keys.",
   ].join("\n");
 
-  const text = await runJsonSummaryRequest(
-    openai,
-    [
-      {role: "system", content: SUMMARY_TRANSLATION_SYSTEM_PROMPT},
-      {role: "user", content: translationInstructions},
-      {role: "user", content: JSON.stringify(summary)},
-    ],
-    SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS,
-    `Translation (${languageName})`
-  );
+  let text: string;
+  try {
+    text = await runJsonSummaryRequest(
+      openai,
+      [
+        {role: "system", content: SUMMARY_TRANSLATION_SYSTEM_PROMPT},
+        {role: "user", content: translationInstructions},
+        {role: "user", content: JSON.stringify(summary)},
+      ],
+      SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS,
+      `Translation (${languageName})`
+    );
+  } catch (err: unknown) {
+    if (!isMaxOutputTokensError(err)) {
+      throw err;
+    }
+
+    // First retry: add more tokens with compact translation instructions
+    try {
+      text = await runJsonSummaryRequest(
+        openai,
+        [
+          {role: "system", content: SUMMARY_TRANSLATION_SYSTEM_PROMPT},
+          {role: "user", content: TRANSLATION_COMPACT_RETRY_INSTRUCTIONS},
+          {role: "user", content: translationInstructions},
+          {role: "user", content: JSON.stringify(summary)},
+        ],
+        SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS + 500,
+        `Translation (${languageName}) (compact)`
+      );
+    } catch (err2: unknown) {
+      if (!isMaxOutputTokensError(err2)) {
+        throw err2;
+      }
+
+      // Second retry: even more tokens with ultra-compact instructions
+      text = await runJsonSummaryRequest(
+        openai,
+        [
+          {role: "system", content: SUMMARY_TRANSLATION_SYSTEM_PROMPT},
+          {role: "user", content: TRANSLATION_ULTRA_COMPACT_RETRY_INSTRUCTIONS},
+          {role: "user", content: translationInstructions},
+          {role: "user", content: JSON.stringify(summary)},
+        ],
+        SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS + 1000,
+        `Translation (${languageName}) (ultra-compact)`
+      );
+    }
+  }
 
   let parsed: unknown;
   try {
