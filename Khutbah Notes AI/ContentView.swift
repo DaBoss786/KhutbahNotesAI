@@ -110,6 +110,7 @@ struct MainTabView: View {
     @State private var showPaywall = false
     @State private var dashboardNavigationDepth = 0
     @State private var pendingRecordingRouteAction: RecordingRouteAction? = nil
+    @State private var isKeyboardVisible = false
     @StateObject private var quranNavigator = QuranNavigationCoordinator()
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
     @AppStorage(RecordingUserDefaultsKeys.controlAction, store: RecordingDefaults.shared) private var pendingControlActionRaw = ""
@@ -149,6 +150,12 @@ struct MainTabView: View {
         }
         .onChange(of: pendingLectureDeepLinkIdRaw) { _ in
             handlePendingLectureDeepLinkTabSwitch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            isKeyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            isKeyboardVisible = false
         }
     }
 
@@ -238,6 +245,10 @@ struct MainTabView: View {
             .shadow(color: Theme.primaryGreen.opacity(0.28), radius: 12, x: 0, y: 10)
         }
         .offset(y: -10)
+        .opacity(isKeyboardVisible ? 0 : 1)
+        .allowsHitTesting(!isKeyboardVisible)
+        .accessibilityHidden(isKeyboardVisible)
+        .animation(.easeInOut(duration: 0.2), value: isKeyboardVisible)
     }
 
     @ViewBuilder
