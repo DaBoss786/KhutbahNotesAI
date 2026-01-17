@@ -24,7 +24,9 @@ struct RecordLectureView: View {
     @State private var showUploadTitleSheet = false
     @State private var uploadTitleText = ""
     @State private var selectedUploadURL: URL? = nil
+    @State private var pendingLowRemainingWarningMinutes: Int? = nil
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
+    @AppStorage("lastLowRemainingWarningDate") private var lastLowRemainingWarningDate = ""
     
     private enum RecordingLimitKind {
         case freeLifetime
@@ -41,6 +43,7 @@ struct RecordLectureView: View {
     private let freeLifetimeCapMinutes = 60
     private let premiumMonthlyCapMinutes = 500
     private let perRecordingCapMinutes = 70
+    private let lowRemainingWarningMinutes = 20
     
     var body: some View {
         ZStack {
@@ -131,7 +134,9 @@ struct RecordLectureView: View {
             Text("This will delete the current khutbah recording.")
         }
         .alert("Khutbah Reminder", isPresented: $showRecordingNotice) {
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) {
+                showPendingLowRemainingWarningIfNeeded()
+            }
         } message: {
             Text("Please silence and lock your phone during the khutbah. Khutbah Notes will keep recording even when the screen is off.")
         }
@@ -270,6 +275,7 @@ struct RecordLectureView: View {
             try recordingManager.startRecording()
             titleText = defaultTitle()
             if recordingManager.isRecording {
+                scheduleLowRemainingWarningIfNeeded(for: limit)
                 showRecordingNotice = true
                 shouldShowRecordingNotice = false
             }
@@ -462,6 +468,37 @@ struct RecordLectureView: View {
         case .perRecording:
             return "Per recording limit reached. Save to process this recording."
         }
+    }
+
+    private func lowRemainingStartMessage(remainingMinutes: Int) -> String {
+        let minuteLabel = remainingMinutes == 1 ? "minute" : "minutes"
+        return "Only \(remainingMinutes) \(minuteLabel) left of your \(freeLifetimeCapMinutes)-minute free plan. This recording will stop when you hit the limit."
+    }
+
+    private func scheduleLowRemainingWarningIfNeeded(for limit: RecordingLimit) {
+        guard limit.kind == .freeLifetime else { return }
+        guard limit.minutes < lowRemainingWarningMinutes else { return }
+        guard shouldShowLowRemainingWarningToday() else { return }
+        pendingLowRemainingWarningMinutes = limit.minutes
+    }
+
+    private func showPendingLowRemainingWarningIfNeeded() {
+        guard let remainingMinutes = pendingLowRemainingWarningMinutes else { return }
+        pendingLowRemainingWarningMinutes = nil
+        onShowToast?(lowRemainingStartMessage(remainingMinutes: remainingMinutes), nil, nil)
+    }
+
+    private func shouldShowLowRemainingWarningToday() -> Bool {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar.current
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayKey = formatter.string(from: Date())
+        if lastLowRemainingWarningDate == todayKey {
+            return false
+        }
+        lastLowRemainingWarningDate = todayKey
+        return true
     }
 
     private func formattedRemaining(_ seconds: TimeInterval) -> String {
