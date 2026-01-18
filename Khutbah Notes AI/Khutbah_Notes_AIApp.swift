@@ -53,6 +53,10 @@ struct Khutbah_Notes_AIApp: App {
             }
             .environmentObject(store)
             .onOpenURL { url in
+                if DashboardDeepLink.matches(url) {
+                    DashboardDeepLinkStore.setPendingDashboard()
+                    return
+                }
                 if let lectureId = LectureDeepLink.lectureId(from: url) {
                     LectureDeepLinkStore.setPendingLectureId(lectureId)
                     return

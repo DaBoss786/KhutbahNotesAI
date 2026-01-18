@@ -109,12 +109,17 @@ struct MainTabView: View {
     @State private var toastAction: (() -> Void)? = nil
     @State private var showPaywall = false
     @State private var dashboardNavigationDepth = 0
+    @State private var dashboardNavigationResetToken = UUID()
     @State private var pendingRecordingRouteAction: RecordingRouteAction? = nil
     @State private var isKeyboardVisible = false
     @StateObject private var quranNavigator = QuranNavigationCoordinator()
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
     @AppStorage(RecordingUserDefaultsKeys.controlAction, store: RecordingDefaults.shared) private var pendingControlActionRaw = ""
     @AppStorage(RecordingUserDefaultsKeys.routeAction, store: RecordingDefaults.shared) private var pendingRouteActionRaw = ""
+    @AppStorage(
+        DashboardDeepLinkUserDefaultsKeys.pendingDashboardToken,
+        store: DashboardDeepLinkDefaults.shared
+    ) private var pendingDashboardDeepLinkToken = ""
     @AppStorage(
         LectureDeepLinkUserDefaultsKeys.pendingLectureId,
         store: LectureDeepLinkDefaults.shared
@@ -148,6 +153,9 @@ struct MainTabView: View {
         .onChange(of: pendingRouteActionRaw) { _ in
             handlePendingRouteAction()
         }
+        .onChange(of: pendingDashboardDeepLinkToken) { _ in
+            handlePendingDashboardDeepLink()
+        }
         .onChange(of: pendingLectureDeepLinkIdRaw) { _ in
             handlePendingLectureDeepLinkTabSwitch()
         }
@@ -177,6 +185,7 @@ struct MainTabView: View {
                     showToast(message)
                 }
             )
+                .id(dashboardNavigationResetToken)
                 .tabItem {
                     Image(systemName: "book.closed.fill")
                     Text("Notes")
@@ -278,6 +287,7 @@ struct MainTabView: View {
     private func handlePendingActions() {
         handlePendingControlAction()
         handlePendingRouteAction()
+        handlePendingDashboardDeepLink()
         handlePendingLectureDeepLinkTabSwitch()
     }
 
@@ -301,6 +311,17 @@ struct MainTabView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         selectedTab = 0
+    }
+
+    private func handlePendingDashboardDeepLink() {
+        let trimmed = pendingDashboardDeepLinkToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        selectedTab = 0
+        lastNonQuranTab = nil
+        dashboardNavigationDepth = 0
+        dashboardNavigationResetToken = UUID()
+        pendingDashboardDeepLinkToken = ""
     }
 
     private func handleBackToLecture() {
