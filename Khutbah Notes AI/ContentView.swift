@@ -379,6 +379,7 @@ struct NotesView: View {
     @State private var showSearchResults = false
     @State private var deepLinkLecture: Lecture?
     @State private var showDeepLinkLecture = false
+    @State private var isRamadanGiftBannerDismissed = false
     @AppStorage(
         LectureDeepLinkUserDefaultsKeys.pendingLectureId,
         store: LectureDeepLinkDefaults.shared
@@ -404,6 +405,19 @@ struct NotesView: View {
 
     private var trimmedSearchQuery: String {
         searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isFreeUser: Bool {
+        (store.userUsage?.plan ?? "free") != "premium"
+    }
+
+    private var shouldShowRamadanGiftBanner: Bool {
+        guard isFreeUser, !isRamadanGiftBannerDismissed else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let cutoffComponents = DateComponents(year: 2026, month: 3, day: 21)
+        guard let cutoffDate = calendar.date(from: cutoffComponents) else { return false }
+        return Date() < cutoffDate
     }
     
     var body: some View {
@@ -509,8 +523,13 @@ struct NotesView: View {
         ZStack(alignment: .topLeading) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 20) {
+                    if shouldShowRamadanGiftBanner {
+                        RamadanGiftBannerView {
+                            isRamadanGiftBannerDismissed = true
+                        }
+                    }
                     header
-                    if (store.userUsage?.plan ?? "free") != "premium" {
+                    if isFreeUser {
                         PromoBannerView {
                             showPaywall = true
                         }
@@ -1279,13 +1298,13 @@ struct PromoBannerView: View {
                 .font(.headline)
                 .foregroundColor(.white)
             
-            Text("Your support helps keep this app running and growing.")
+            Text("Upgrade to unlock unlimited minutes, transcripts, and summaries.")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
             
             Button(action: onTap) {
-                Text("Learn More")
+                Text("Go Premium")
                     .fontWeight(.semibold)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
@@ -1301,6 +1320,47 @@ struct PromoBannerView: View {
         )
         .cornerRadius(18)
         .shadow(color: Theme.shadow, radius: 10, x: 0, y: 6)
+    }
+}
+
+struct RamadanGiftBannerView: View {
+    var onDismiss: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "gift.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Theme.primaryGreen)
+
+            Text("Ramadan gift! Enjoy 60 minutes full access.")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(Theme.primaryGreen)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 8)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(Theme.primaryGreen)
+                    .frame(width: 22, height: 22)
+                    .background(Theme.primaryGreen.opacity(0.14))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss Ramadan gift banner")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Theme.primaryGreen.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Theme.primaryGreen.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
     }
 }
 
