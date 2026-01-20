@@ -212,6 +212,33 @@ struct OnboardingStepLayout<Background: View, Content: View, Footer: View>: View
     }
 }
 
+struct OnboardingReveal: ViewModifier {
+    let index: Int
+    let baseDelay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    func body(content: Content) -> some View {
+        let shouldAnimate = !reduceMotion
+        return content
+            .opacity(isVisible || reduceMotion ? 1 : 0)
+            .offset(y: shouldAnimate ? (isVisible ? 0 : 12) : 0)
+            .animation(
+                shouldAnimate ? .easeOut(duration: 0.55).delay(baseDelay * Double(index)) : nil,
+                value: isVisible
+            )
+            .onAppear {
+                isVisible = true
+            }
+    }
+}
+
+extension View {
+    func onboardingReveal(_ index: Int, baseDelay: Double = 0.12) -> some View {
+        modifier(OnboardingReveal(index: index, baseDelay: baseDelay))
+    }
+}
+
 struct OnboardingRememberView: View {
     let progress: OnboardingProgress
     var onGetStarted: () -> Void
@@ -227,22 +254,26 @@ struct OnboardingRememberView: View {
                     .font(.system(size: 32, weight: .bold, design: .serif))
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
+                    .onboardingReveal(0)
 
                 Text("Record, summarize, and reflect on\nFriday sermons—safely and privately.")
                     .font(.system(size: 18, weight: .regular))
                     .foregroundColor(BrandPalette.deepGreen.opacity(0.9))
                     .multilineTextAlignment(.center)
+                    .onboardingReveal(1)
 
                 Image(systemName: "waveform")
                     .font(.system(size: 52, weight: .semibold))
                     .foregroundColor(BrandPalette.deepGreen)
                     .padding(.top, 10)
+                    .onboardingReveal(2)
             },
             footer: {
                 Button(action: handleGetStarted) {
                     Text("Continue")
                 }
                 .buttonStyle(SolidGreenButtonStyle())
+                .onboardingReveal(3)
             }
         )
     }
@@ -269,6 +300,7 @@ struct OnboardingWelcomeView: View {
                     .font(.system(size: 34, weight: .semibold, design: .serif))
                     .foregroundColor(BrandPalette.cream)
                     .multilineTextAlignment(.center)
+                    .onboardingReveal(0)
 
                 VStack(spacing: 10) {
                     Text("Assalamu alaikum")
@@ -285,6 +317,7 @@ struct OnboardingWelcomeView: View {
                         .foregroundColor(BrandPalette.cream.opacity(0.94))
                         .multilineTextAlignment(.center)
                 }
+                .onboardingReveal(1)
             },
             footer: {
                 Button(action: handleGetStarted) {
@@ -292,6 +325,7 @@ struct OnboardingWelcomeView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(CreamButtonGreenTextStyle())
+                .onboardingReveal(2)
             }
         )
     }
@@ -321,6 +355,7 @@ struct OnboardingIntegrityView: View {
                     .padding(.bottom, 4)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: contentWidth)
+                    .onboardingReveal(0)
 
                 VStack(alignment: .leading, spacing: 12) {
                     bullet("Uses only YOUR recording")
@@ -330,11 +365,13 @@ struct OnboardingIntegrityView: View {
                 }
                 .frame(maxWidth: contentWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .onboardingReveal(1)
 
                 Divider()
                     .background(BrandPalette.cream.opacity(0.35))
                     .padding(.vertical, 10)
                     .frame(maxWidth: contentWidth)
+                    .onboardingReveal(2)
 
                 Text("Smart summaries never introduce Islamic content that was not said by the khateeb.")
                     .font(.system(size: 17, weight: .regular))
@@ -342,6 +379,7 @@ struct OnboardingIntegrityView: View {
                     .padding(.top, 2)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: contentWidth)
+                    .onboardingReveal(3)
             },
             footer: {
                 Button(action: handleContinue) {
@@ -349,6 +387,7 @@ struct OnboardingIntegrityView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(CreamButtonGreenTextStyle())
+                .onboardingReveal(4)
             }
         )
     }
@@ -390,6 +429,7 @@ struct OnboardingHowItWorksView: View {
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: contentWidth)
+                    .onboardingReveal(0)
 
                 VStack(alignment: .leading, spacing: 18) {
                     HowItWorksRow(
@@ -410,12 +450,14 @@ struct OnboardingHowItWorksView: View {
                 }
                 .frame(maxWidth: contentWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .onboardingReveal(1)
             },
             footer: {
                 Button(action: handleContinue) {
                     Text("Continue")
                 }
                 .buttonStyle(SolidGreenButtonStyle())
+                .onboardingReveal(2)
             }
         )
     }
@@ -486,6 +528,7 @@ struct OnboardingJumuahReminderView: View {
                     .font(.system(size: 28, weight: .bold, design: .serif))
                     .foregroundColor(BrandPalette.cream)
                     .multilineTextAlignment(.center)
+                    .onboardingReveal(0)
 
                 LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
                     ForEach(times, id: \.self) { time in
@@ -496,12 +539,14 @@ struct OnboardingJumuahReminderView: View {
                         .buttonStyle(TimeChipStyle(isSelected: selectedTime == time))
                     }
                 }
+                .onboardingReveal(1)
 
                 Text("We'll send you a reminder shortly before the khutbah begins.")
                     .font(.system(size: 16, weight: .regular))
                     .foregroundColor(BrandPalette.cream.opacity(0.92))
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
+                    .onboardingReveal(2)
             },
             footer: {
                 Button(action: handleContinue) {
@@ -511,6 +556,7 @@ struct OnboardingJumuahReminderView: View {
                 .buttonStyle(CreamButtonGreenTextStyle())
                 .opacity(selectedTime == nil ? 0.6 : 1)
                 .disabled(selectedTime == nil)
+                .onboardingReveal(3)
             }
         )
         .onAppear {
@@ -578,6 +624,7 @@ struct OnboardingNotificationsPrePromptView: View {
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: contentWidth)
+                    .onboardingReveal(0)
 
                 VStack(alignment: .leading, spacing: 12) {
                     reminderBullet("Reminder before khutbah")
@@ -586,6 +633,7 @@ struct OnboardingNotificationsPrePromptView: View {
                 }
                 .frame(maxWidth: contentWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .onboardingReveal(1)
             },
             footer: {
                 VStack(spacing: 14) {
@@ -595,6 +643,7 @@ struct OnboardingNotificationsPrePromptView: View {
                     }
                     .buttonStyle(SolidGreenButtonStyle())
                     .disabled(isRequestingPermission)
+                    .onboardingReveal(2)
 
                     Button(action: handleNotNowTapped) {
                         Text("Not now")
@@ -604,6 +653,7 @@ struct OnboardingNotificationsPrePromptView: View {
                             .padding(.vertical, 14)
                     }
                     .disabled(isRequestingPermission)
+                    .onboardingReveal(3)
                 }
             }
         )
@@ -684,11 +734,13 @@ struct OnboardingPlaceholderNextView: View {
                     .font(.system(size: 30, weight: .bold, design: .serif))
                     .foregroundColor(BrandPalette.cream)
                     .multilineTextAlignment(.center)
+                    .onboardingReveal(0)
 
                 Text("Swap this screen with your next onboarding step when it's ready.")
                     .font(.system(size: 18, weight: .regular))
                     .foregroundColor(BrandPalette.cream.opacity(0.94))
                     .multilineTextAlignment(.center)
+                    .onboardingReveal(1)
             },
             footer: {
                 Button(action: onContinue) {
@@ -696,6 +748,7 @@ struct OnboardingPlaceholderNextView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SolidGreenButtonStyle())
+                .onboardingReveal(2)
             }
         )
     }
