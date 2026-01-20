@@ -63,6 +63,12 @@ struct OnboardingFlowView: View {
     }
     
     private var totalSteps: Int { Step.allCases.count - 1 } // exclude placeholder
+    private var stepTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        )
+    }
     
     var body: some View {
         ZStack {
@@ -73,28 +79,28 @@ struct OnboardingFlowView: View {
                         step = .rememberEveryKhutbah
                     }
                 }
-                .transition(.opacity)
+                .transition(stepTransition)
             case .rememberEveryKhutbah:
                 OnboardingRememberView(progress: progress(for: .rememberEveryKhutbah)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .integrity
                     }
                 }
-                .transition(.opacity)
+                .transition(stepTransition)
             case .integrity:
                 OnboardingIntegrityView(progress: progress(for: .integrity)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .howItWorks
                     }
                 }
-                .transition(.opacity)
+                .transition(stepTransition)
             case .howItWorks:
                 OnboardingHowItWorksView(progress: progress(for: .howItWorks)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .jumuahReminder
                     }
                 }
-                .transition(.opacity)
+                .transition(stepTransition)
             case .jumuahReminder:
                 OnboardingJumuahReminderView(progress: progress(for: .jumuahReminder)) { selection, timezone in
                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -102,21 +108,21 @@ struct OnboardingFlowView: View {
                         step = .notificationsPrePrompt
                     }
                 }
-                .transition(.opacity)
+                .transition(stepTransition)
             case .notificationsPrePrompt:
                 OnboardingNotificationsPrePromptView(progress: progress(for: .notificationsPrePrompt)) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         step = .paywall
                     }
                 }
-                .transition(.opacity)
+                .transition(stepTransition)
             case .paywall:
                 OnboardingPaywallView {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         hasCompletedOnboarding = true
                     }
                 }
-                .transition(.opacity)
+                .transition(stepTransition)
             }
         }
         .onAppear {
