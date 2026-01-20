@@ -439,7 +439,7 @@ struct OnboardingHowItWorksView: View {
                     .frame(maxWidth: contentWidth)
                     .onboardingReveal(0)
 
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
                     HowItWorksRow(
                         icon: "mic.circle.fill",
                         title: "Record the khutbah",
@@ -460,14 +460,21 @@ struct OnboardingHowItWorksView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .onboardingReveal(1)
 
-                summaryPreviewCard(
-                    title: "Key Points",
-                    bullets: [
-                        "Sabr through trials strengthens faith and resolve",
-                        "Guarding the tongue protects the heart",
-                        "Consistency in small deeds brings lasting change"
-                    ]
-                )
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("SUMMARY PREVIEW")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(BrandPalette.deepGreen.opacity(0.55))
+                        .tracking(1.2)
+                    
+                    summaryPreviewCard(
+                        title: "Key Points",
+                        bullets: [
+                            "Sabr through trials strengthens faith and steadies the heart",
+                            "Guarding the tongue protects relationships and preserves dignity",
+                            "Consistency in small deeds builds lasting spiritual growth"
+                        ]
+                    )
+                }
                 .onboardingReveal(2)
             },
             footer: {
