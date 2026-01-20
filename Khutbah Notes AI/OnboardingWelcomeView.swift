@@ -152,51 +152,93 @@ struct OnboardingFlowView: View {
     }
 }
 
+struct OnboardingStepLayout<Background: View, Content: View, Footer: View>: View {
+    let progress: OnboardingProgress
+    let progressForeground: Color
+    let progressBackground: Color
+    let background: Background
+    let content: Content
+    let footer: Footer
+    let contentSpacing: CGFloat
+
+    init(
+        progress: OnboardingProgress,
+        progressForeground: Color,
+        progressBackground: Color,
+        contentSpacing: CGFloat = 22,
+        @ViewBuilder background: () -> Background,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder footer: () -> Footer
+    ) {
+        self.progress = progress
+        self.progressForeground = progressForeground
+        self.progressBackground = progressBackground
+        self.contentSpacing = contentSpacing
+        self.background = background()
+        self.content = content()
+        self.footer = footer()
+    }
+
+    var body: some View {
+        ZStack {
+            background
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                progressIndicator(progress, background: progressBackground, foreground: progressForeground)
+                    .padding(.top, 18)
+                    .padding(.bottom, 8)
+
+                Spacer(minLength: 10)
+
+                VStack(spacing: contentSpacing) {
+                    content
+                }
+                .padding(.horizontal, 28)
+
+                Spacer()
+
+                footer
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 28)
+            }
+        }
+    }
+}
+
 struct OnboardingRememberView: View {
     let progress: OnboardingProgress
     var onGetStarted: () -> Void
     
     var body: some View {
-        ZStack {
-            BrandPalette.cream
-                .ignoresSafeArea()
-            
-            VStack {
-                progressIndicator(progress, background: BrandPalette.cream, foreground: BrandPalette.deepGreen.opacity(0.8))
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                
-                Spacer()
-                
-                VStack(spacing: 22) {
-                    Text("Remember Every\nKhutbah")
-                        .font(.system(size: 32, weight: .bold, design: .serif))
-                        .foregroundColor(BrandPalette.deepGreen)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                    
-                    Text("Record, summarize, and reflect on\nFriday sermons—safely and privately.")
-                        .font(.system(size: 18, weight: .regular))
-                        .foregroundColor(BrandPalette.deepGreen.opacity(0.9))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                    
-                    Image(systemName: "waveform")
-                        .font(.system(size: 52, weight: .semibold))
-                        .foregroundColor(BrandPalette.deepGreen)
-                        .padding(.top, 10)
-                }
-                
-                Spacer()
-                
+        OnboardingStepLayout(
+            progress: progress,
+            progressForeground: BrandPalette.deepGreen.opacity(0.8),
+            progressBackground: BrandPalette.cream,
+            background: { BrandPalette.cream },
+            content: {
+                Text("Remember Every\nKhutbah")
+                    .font(.system(size: 32, weight: .bold, design: .serif))
+                    .foregroundColor(BrandPalette.deepGreen)
+                    .multilineTextAlignment(.center)
+
+                Text("Record, summarize, and reflect on\nFriday sermons—safely and privately.")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundColor(BrandPalette.deepGreen.opacity(0.9))
+                    .multilineTextAlignment(.center)
+
+                Image(systemName: "waveform")
+                    .font(.system(size: 52, weight: .semibold))
+                    .foregroundColor(BrandPalette.deepGreen)
+                    .padding(.top, 10)
+            },
+            footer: {
                 Button(action: handleGetStarted) {
                     Text("Continue")
                 }
                 .buttonStyle(SolidGreenButtonStyle())
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
             }
-        }
+        )
     }
     
     private func handleGetStarted() {
@@ -210,52 +252,42 @@ struct OnboardingWelcomeView: View {
     var onGetStarted: () -> Void
     
     var body: some View {
-        ZStack {
-            BrandBackground()
-                .ignoresSafeArea()
-            
-            VStack(spacing: 28) {
-                progressIndicator(progress, background: .clear, foreground: BrandPalette.cream.opacity(0.75))
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                
-                Spacer(minLength: 10)
-                
+        OnboardingStepLayout(
+            progress: progress,
+            progressForeground: BrandPalette.cream.opacity(0.75),
+            progressBackground: .clear,
+            contentSpacing: 28,
+            background: { BrandBackground() },
+            content: {
                 Text("بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ")
                     .font(.system(size: 34, weight: .semibold, design: .serif))
                     .foregroundColor(BrandPalette.cream)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                
+
                 VStack(spacing: 10) {
                     Text("Assalamu alaikum")
                         .font(.system(size: 20, weight: .regular, design: .serif))
                         .foregroundColor(BrandPalette.cream.opacity(0.94))
-                    
+
                     Text("Welcome to Khutbah Notes")
                         .font(.system(size: 34, weight: .bold, design: .serif))
                         .foregroundColor(BrandPalette.cream)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                    
+
                     Text("A simple way to remember and\nreflect on khutbahs and lectures")
                         .font(.system(size: 18, weight: .regular, design: .default))
                         .foregroundColor(BrandPalette.cream.opacity(0.94))
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
                 }
-                
-                Spacer()
-                
+            },
+            footer: {
                 Button(action: handleGetStarted) {
                     Text("Get Started")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(CreamButtonGreenTextStyle())
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
             }
-        }
+        )
     }
     
     private func handleGetStarted() {
@@ -270,59 +302,49 @@ struct OnboardingIntegrityView: View {
     private let contentWidth: CGFloat = 320
     
     var body: some View {
-        ZStack {
-            BrandBackground()
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                progressIndicator(progress, background: .clear, foreground: BrandPalette.cream.opacity(0.75))
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                
-                Spacer()
-                
-                VStack(alignment: .center, spacing: 18) {
-                    Text("Your Khutbah.\nNothing Added.")
-                        .font(.system(size: 30, weight: .bold, design: .serif))
-                        .foregroundColor(BrandPalette.cream)
-                        .padding(.bottom, 4)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: contentWidth)
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        bullet("Uses only YOUR recording")
-                        bullet("No fatwas or rulings")
-                        bullet("No invented Quran or hadith")
-                        bullet("Private & secure")
-                    }
-                    .frame(maxWidth: contentWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    
-                    Divider()
-                        .background(BrandPalette.cream.opacity(0.35))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: contentWidth)
-                    
-                    Text("Smart summaries never introduce Islamic content that was not said by the khateeb.")
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundColor(BrandPalette.cream.opacity(0.9))
-                        .padding(.top, 2)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: contentWidth)
+        OnboardingStepLayout(
+            progress: progress,
+            progressForeground: BrandPalette.cream.opacity(0.75),
+            progressBackground: .clear,
+            contentSpacing: 18,
+            background: { BrandBackground() },
+            content: {
+                Text("Your Khutbah.\nNothing Added.")
+                    .font(.system(size: 30, weight: .bold, design: .serif))
+                    .foregroundColor(BrandPalette.cream)
+                    .padding(.bottom, 4)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: contentWidth)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    bullet("Uses only YOUR recording")
+                    bullet("No fatwas or rulings")
+                    bullet("No invented Quran or hadith")
+                    bullet("Private & secure")
                 }
-                .padding(.horizontal, 28)
-                
-                Spacer()
-                
+                .frame(maxWidth: contentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+                Divider()
+                    .background(BrandPalette.cream.opacity(0.35))
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: contentWidth)
+
+                Text("Smart summaries never introduce Islamic content that was not said by the khateeb.")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundColor(BrandPalette.cream.opacity(0.9))
+                    .padding(.top, 2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: contentWidth)
+            },
+            footer: {
                 Button(action: handleContinue) {
                     Text("Continue")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(CreamButtonGreenTextStyle())
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
             }
-        }
+        )
     }
     
     private func bullet(_ text: String) -> some View {
@@ -351,56 +373,45 @@ struct OnboardingHowItWorksView: View {
     private let contentWidth: CGFloat = 340
     
     var body: some View {
-        ZStack {
-            BrandPalette.cream
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                progressIndicator(progress, background: BrandPalette.cream, foreground: BrandPalette.deepGreen.opacity(0.75))
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                
-                Spacer()
-                
-                VStack(spacing: 22) {
-                    Text("How It Works")
-                        .font(.system(size: 32, weight: .bold, design: .serif))
-                        .foregroundColor(BrandPalette.deepGreen)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: contentWidth)
-                    
-                    VStack(alignment: .leading, spacing: 18) {
-                        HowItWorksRow(
-                            icon: "mic.circle.fill",
-                            title: "Record the khutbah",
-                            detail: "Discreetly capture the audio during Jumu'ah."
-                        )
-                        HowItWorksRow(
-                            icon: "list.bullet.rectangle.portrait",
-                            title: "Get key takeaways",
-                            detail: "Transcriptions, summaries, ayaths, and reminders"
-                        )
-                        HowItWorksRow(
-                            icon: "arrow.clockwise.circle.fill",
-                            title: "Reflect all week",
-                            detail: "Stay connected to the message beyond Friday."
-                        )
-                    }
-                    .frame(maxWidth: contentWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
+        OnboardingStepLayout(
+            progress: progress,
+            progressForeground: BrandPalette.deepGreen.opacity(0.75),
+            progressBackground: BrandPalette.cream,
+            background: { BrandPalette.cream },
+            content: {
+                Text("How It Works")
+                    .font(.system(size: 32, weight: .bold, design: .serif))
+                    .foregroundColor(BrandPalette.deepGreen)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: contentWidth)
+
+                VStack(alignment: .leading, spacing: 18) {
+                    HowItWorksRow(
+                        icon: "mic.circle.fill",
+                        title: "Record the khutbah",
+                        detail: "Discreetly capture the audio during Jumu'ah."
+                    )
+                    HowItWorksRow(
+                        icon: "list.bullet.rectangle.portrait",
+                        title: "Get key takeaways",
+                        detail: "Transcriptions, summaries, ayaths, and reminders"
+                    )
+                    HowItWorksRow(
+                        icon: "arrow.clockwise.circle.fill",
+                        title: "Reflect all week",
+                        detail: "Stay connected to the message beyond Friday."
+                    )
                 }
-                .padding(.horizontal, 28)
-                
-                Spacer()
-                
+                .frame(maxWidth: contentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+            },
+            footer: {
                 Button(action: handleContinue) {
                     Text("Continue")
                 }
                 .buttonStyle(SolidGreenButtonStyle())
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
             }
-        }
+        )
     }
     
     private func handleContinue() {
@@ -458,45 +469,35 @@ struct OnboardingJumuahReminderView: View {
     ]
     
     var body: some View {
-        ZStack {
-            BrandBackground()
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                progressIndicator(progress, background: .clear, foreground: BrandPalette.cream.opacity(0.75))
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                
-                Spacer()
-                
-                VStack(spacing: 20) {
-                    Text("When does your Jumu'ah start?")
-                        .font(.system(size: 28, weight: .bold, design: .serif))
-                        .foregroundColor(BrandPalette.cream)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                    
-                    LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
-                        ForEach(times, id: \.self) { time in
-                            Button(action: { selectedTime = time }) {
-                                Text(time)
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(TimeChipStyle(isSelected: selectedTime == time))
+        OnboardingStepLayout(
+            progress: progress,
+            progressForeground: BrandPalette.cream.opacity(0.75),
+            progressBackground: .clear,
+            contentSpacing: 20,
+            background: { BrandBackground() },
+            content: {
+                Text("When does your Jumu'ah start?")
+                    .font(.system(size: 28, weight: .bold, design: .serif))
+                    .foregroundColor(BrandPalette.cream)
+                    .multilineTextAlignment(.center)
+
+                LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
+                    ForEach(times, id: \.self) { time in
+                        Button(action: { selectedTime = time }) {
+                            Text(time)
+                                .frame(maxWidth: .infinity)
                         }
+                        .buttonStyle(TimeChipStyle(isSelected: selectedTime == time))
                     }
-                    .padding(.horizontal, 24)
-                    
-                    Text("We'll send you a reminder shortly before the khutbah begins.")
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(BrandPalette.cream.opacity(0.92))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 28)
-                        .padding(.top, 8)
                 }
-                
-                Spacer()
-                
+
+                Text("We'll send you a reminder shortly before the khutbah begins.")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(BrandPalette.cream.opacity(0.92))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+            },
+            footer: {
                 Button(action: handleContinue) {
                     Text("Continue")
                         .frame(maxWidth: .infinity)
@@ -504,10 +505,8 @@ struct OnboardingJumuahReminderView: View {
                 .buttonStyle(CreamButtonGreenTextStyle())
                 .opacity(selectedTime == nil ? 0.6 : 1)
                 .disabled(selectedTime == nil)
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
             }
-        }
+        )
         .onAppear {
             selectedTime = storedJumuahStartTime
         }
@@ -561,36 +560,28 @@ struct OnboardingNotificationsPrePromptView: View {
     private let contentWidth: CGFloat = 340
     
     var body: some View {
-        ZStack {
-            BrandPalette.cream
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                progressIndicator(progress, background: BrandPalette.cream, foreground: BrandPalette.deepGreen.opacity(0.75))
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                
-                Spacer()
-                
-                VStack(spacing: 20) {
-                    Text("Stay Connected Weekly")
-                        .font(.system(size: 28, weight: .bold, design: .serif))
-                        .foregroundColor(BrandPalette.deepGreen)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: contentWidth)
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        reminderBullet("Reminder before khutbah")
-                        reminderBullet("Alert when summary is ready")
-                        reminderBullet("Midweek reflection reminders")
-                    }
-                    .frame(maxWidth: contentWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
+        OnboardingStepLayout(
+            progress: progress,
+            progressForeground: BrandPalette.deepGreen.opacity(0.75),
+            progressBackground: BrandPalette.cream,
+            contentSpacing: 20,
+            background: { BrandPalette.cream },
+            content: {
+                Text("Stay Connected Weekly")
+                    .font(.system(size: 28, weight: .bold, design: .serif))
+                    .foregroundColor(BrandPalette.deepGreen)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: contentWidth)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    reminderBullet("Reminder before khutbah")
+                    reminderBullet("Alert when summary is ready")
+                    reminderBullet("Midweek reflection reminders")
                 }
-                .padding(.horizontal, 28)
-                
-                Spacer()
-                
+                .frame(maxWidth: contentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+            },
+            footer: {
                 VStack(spacing: 14) {
                     Button(action: handleAllowTapped) {
                         Text("Yes, remind me on Fridays")
@@ -598,7 +589,7 @@ struct OnboardingNotificationsPrePromptView: View {
                     }
                     .buttonStyle(SolidGreenButtonStyle())
                     .disabled(isRequestingPermission)
-                    
+
                     Button(action: handleNotNowTapped) {
                         Text("Not now")
                             .font(.system(size: 17, weight: .semibold))
@@ -608,10 +599,8 @@ struct OnboardingNotificationsPrePromptView: View {
                     }
                     .disabled(isRequestingPermission)
                 }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
             }
-        }
+        )
     }
     
     private func reminderBullet(_ text: String) -> some View {
@@ -678,40 +667,31 @@ struct OnboardingPlaceholderNextView: View {
     var onContinue: () -> Void
     
     var body: some View {
-        ZStack {
-            BrandBackground()
-                .ignoresSafeArea()
-            
-            VStack(spacing: 16) {
-                progressIndicator(OnboardingProgress(current: 6, total: 6), background: .clear, foreground: BrandPalette.cream.opacity(0.75))
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                
-                Spacer()
-                
+        OnboardingStepLayout(
+            progress: OnboardingProgress(current: 6, total: 6),
+            progressForeground: BrandPalette.cream.opacity(0.75),
+            progressBackground: .clear,
+            contentSpacing: 16,
+            background: { BrandBackground() },
+            content: {
                 Text("Onboarding, continued")
                     .font(.system(size: 30, weight: .bold, design: .serif))
                     .foregroundColor(BrandPalette.cream)
-                    .padding(.horizontal, 24)
                     .multilineTextAlignment(.center)
-                
+
                 Text("Swap this screen with your next onboarding step when it's ready.")
                     .font(.system(size: 18, weight: .regular))
                     .foregroundColor(BrandPalette.cream.opacity(0.94))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 28)
-                
-                Spacer()
-                
+            },
+            footer: {
                 Button(action: onContinue) {
                     Text("Continue")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SolidGreenButtonStyle())
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
             }
-        }
+        )
     }
 }
 
