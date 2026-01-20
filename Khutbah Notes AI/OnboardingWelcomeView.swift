@@ -459,17 +459,80 @@ struct OnboardingHowItWorksView: View {
                 .frame(maxWidth: contentWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .onboardingReveal(1)
+
+                summaryPreviewCard(
+                    title: "Key Points",
+                    bullets: [
+                        "Sabr through trials strengthens faith and resolve",
+                        "Guarding the tongue protects the heart",
+                        "Consistency in small deeds brings lasting change"
+                    ]
+                )
+                .onboardingReveal(2)
             },
             footer: {
                 Button(action: handleContinue) {
                     Text("Continue")
                 }
                 .buttonStyle(SolidGreenButtonStyle())
-                .onboardingReveal(2)
+                .onboardingReveal(3)
             }
         )
     }
     
+    private func summaryPreviewCard(title: String, bullets: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    LinearGradient(
+                        colors: [Theme.primaryGreen, Theme.secondaryGreen],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(bullets.indices, id: \.self) { index in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("•")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(.black)
+                        Text(bullets[index])
+                            .font(Theme.bodyFont)
+                            .foregroundColor(.black)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if index < bullets.count - 1 {
+                        Rectangle()
+                            .fill(Theme.mutedText.opacity(0.35))
+                            .frame(height: 0.5)
+                            .padding(.vertical, 3)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Theme.primaryGreen.opacity(0.08), lineWidth: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.5), lineWidth: 8)
+                .blur(radius: 8)
+        )
+        .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
+    }
+
     private func handleContinue() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onContinue()
