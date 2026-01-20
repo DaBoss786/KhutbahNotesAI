@@ -239,6 +239,14 @@ extension View {
     }
 }
 
+enum OnboardingTypography {
+    static let hero = Font.system(size: 32, weight: .semibold, design: .serif)
+    static let title = Font.system(size: 30, weight: .bold, design: .serif)
+    static let eyebrow = Font.system(size: 18, weight: .regular, design: .serif)
+    static let subtitle = Font.system(size: 18, weight: .regular, design: .default)
+    static let body = Font.system(size: 16, weight: .regular, design: .default)
+}
+
 struct OnboardingRememberView: View {
     let progress: OnboardingProgress
     var onGetStarted: () -> Void
@@ -251,13 +259,13 @@ struct OnboardingRememberView: View {
             background: { BrandPalette.cream },
             content: {
                 Text("Remember Every\nKhutbah")
-                    .font(.system(size: 32, weight: .bold, design: .serif))
+                    .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
                     .onboardingReveal(0)
 
                 Text("Record, summarize, and reflect on\nFriday sermons—safely and privately.")
-                    .font(.system(size: 18, weight: .regular))
+                    .font(OnboardingTypography.subtitle)
                     .foregroundColor(BrandPalette.deepGreen.opacity(0.9))
                     .multilineTextAlignment(.center)
                     .onboardingReveal(1)
@@ -297,23 +305,23 @@ struct OnboardingWelcomeView: View {
             background: { BrandBackground() },
             content: {
                 Text("بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ")
-                    .font(.system(size: 34, weight: .semibold, design: .serif))
+                    .font(OnboardingTypography.hero)
                     .foregroundColor(BrandPalette.cream)
                     .multilineTextAlignment(.center)
                     .onboardingReveal(0)
 
                 VStack(spacing: 10) {
                     Text("Assalamu alaikum")
-                        .font(.system(size: 20, weight: .regular, design: .serif))
+                        .font(OnboardingTypography.eyebrow)
                         .foregroundColor(BrandPalette.cream.opacity(0.94))
 
                     Text("Welcome to Khutbah Notes")
-                        .font(.system(size: 34, weight: .bold, design: .serif))
+                        .font(OnboardingTypography.title)
                         .foregroundColor(BrandPalette.cream)
                         .multilineTextAlignment(.center)
 
                     Text("A simple way to remember and\nreflect on khutbahs and lectures")
-                        .font(.system(size: 18, weight: .regular, design: .default))
+                        .font(OnboardingTypography.subtitle)
                         .foregroundColor(BrandPalette.cream.opacity(0.94))
                         .multilineTextAlignment(.center)
                 }
@@ -350,7 +358,7 @@ struct OnboardingIntegrityView: View {
             background: { BrandBackground() },
             content: {
                 Text("Your Khutbah.\nNothing Added.")
-                    .font(.system(size: 30, weight: .bold, design: .serif))
+                    .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.cream)
                     .padding(.bottom, 4)
                     .multilineTextAlignment(.center)
@@ -374,7 +382,7 @@ struct OnboardingIntegrityView: View {
                     .onboardingReveal(2)
 
                 Text("Smart summaries never introduce Islamic content that was not said by the khateeb.")
-                    .font(.system(size: 17, weight: .regular))
+                    .font(OnboardingTypography.subtitle)
                     .foregroundColor(BrandPalette.cream.opacity(0.9))
                     .padding(.top, 2)
                     .multilineTextAlignment(.center)
@@ -425,7 +433,7 @@ struct OnboardingHowItWorksView: View {
             background: { BrandPalette.cream },
             content: {
                 Text("How It Works")
-                    .font(.system(size: 32, weight: .bold, design: .serif))
+                    .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: contentWidth)
@@ -525,7 +533,7 @@ struct OnboardingJumuahReminderView: View {
             background: { BrandBackground() },
             content: {
                 Text("When does your Jumu'ah start?")
-                    .font(.system(size: 28, weight: .bold, design: .serif))
+                    .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.cream)
                     .multilineTextAlignment(.center)
                     .onboardingReveal(0)
@@ -542,7 +550,7 @@ struct OnboardingJumuahReminderView: View {
                 .onboardingReveal(1)
 
                 Text("We'll send you a reminder shortly before the khutbah begins.")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(OnboardingTypography.subtitle)
                     .foregroundColor(BrandPalette.cream.opacity(0.92))
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
@@ -620,7 +628,7 @@ struct OnboardingNotificationsPrePromptView: View {
             background: { BrandPalette.cream },
             content: {
                 Text("Stay Connected Weekly")
-                    .font(.system(size: 28, weight: .bold, design: .serif))
+                    .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: contentWidth)
@@ -731,13 +739,13 @@ struct OnboardingPlaceholderNextView: View {
             background: { BrandBackground() },
             content: {
                 Text("Onboarding, continued")
-                    .font(.system(size: 30, weight: .bold, design: .serif))
+                    .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.cream)
                     .multilineTextAlignment(.center)
                     .onboardingReveal(0)
 
                 Text("Swap this screen with your next onboarding step when it's ready.")
-                    .font(.system(size: 18, weight: .regular))
+                    .font(OnboardingTypography.subtitle)
                     .foregroundColor(BrandPalette.cream.opacity(0.94))
                     .multilineTextAlignment(.center)
                     .onboardingReveal(1)
