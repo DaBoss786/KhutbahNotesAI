@@ -247,6 +247,18 @@ enum OnboardingTypography {
     static let body = Font.system(size: 16, weight: .regular, design: .default)
 }
 
+struct SplashWordmark: View {
+    var height: CGFloat = 68
+    
+    var body: some View {
+        Image("SplashWordmark")
+            .resizable()
+            .scaledToFit()
+            .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
 struct OnboardingRememberView: View {
     let progress: OnboardingProgress
     var onGetStarted: () -> Void
@@ -315,10 +327,11 @@ struct OnboardingWelcomeView: View {
                         .font(OnboardingTypography.eyebrow)
                         .foregroundColor(BrandPalette.cream.opacity(0.94))
 
-                    Text("Welcome to Khutbah Notes")
-                        .font(OnboardingTypography.title)
-                        .foregroundColor(BrandPalette.cream)
-                        .multilineTextAlignment(.center)
+                    Text("Welcome to")
+                        .font(OnboardingTypography.eyebrow)
+                        .foregroundColor(BrandPalette.cream.opacity(0.94))
+
+                    SplashWordmark()
 
                     Text("A simple way to remember and\nreflect on khutbahs and lectures")
                         .font(OnboardingTypography.subtitle)
