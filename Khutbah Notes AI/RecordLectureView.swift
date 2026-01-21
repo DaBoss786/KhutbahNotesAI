@@ -253,6 +253,7 @@ struct RecordLectureView: View {
     }
     
     private func startRecordingTapped() {
+        impactHaptic()
         guard let limit = activeRecordingLimit else {
             onShowToast?("Fetching usage... Try again in a moment.", nil, nil)
             return
@@ -287,6 +288,7 @@ struct RecordLectureView: View {
     
     private func finishRecordingTapped() {
         guard recordingManager.isRecording else { return }
+        impactHaptic()
         recordingManager.pauseRecording()
         titleText = titleText.isEmpty ? defaultTitle() : titleText
         showTitleSheet = true
@@ -329,6 +331,10 @@ struct RecordLectureView: View {
             nil
         )
         selectedTab = 0
+    }
+
+    private func impactHaptic() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     private func uploadAudioTapped() {
@@ -723,7 +729,7 @@ private extension RecordLectureView {
         Button(action: recordingManager.isRecording ? finishRecordingTapped : startRecordingTapped) {
             pulsingRecordButton
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RecordButtonStyle())
     }
     
     var pulsingRecordButton: some View {
@@ -741,6 +747,10 @@ private extension RecordLectureView {
                 .fill(Color.red)
                 .frame(width: 140, height: 140)
                 .shadow(color: Color.red.opacity(0.25), radius: 18, x: 0, y: 10)
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.2), lineWidth: 2)
+                )
                 .overlay(
                     Image(systemName: "mic.fill")
                         .font(.system(size: 52, weight: .bold))
@@ -865,6 +875,15 @@ struct RecordingWaveformView: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 6)
+    }
+}
+
+private struct RecordButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .brightness(configuration.isPressed ? -0.03 : 0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
