@@ -639,13 +639,7 @@ struct NotesView: View {
     
     
     private var segmentPicker: some View {
-        Picker("Filter", selection: $selectedSegment) {
-            ForEach(0..<segments.count, id: \.self) { index in
-                Text(segments[index])
-                    .tag(index)
-            }
-        }
-        .pickerStyle(.segmented)
+        PillSegmentedControl(segments: segments, selection: $selectedSegment)
     }
 
     private var searchBar: some View {
@@ -1704,12 +1698,7 @@ struct LectureDetailView: View {
                     
                     Divider()
                     
-                    Picker("Content", selection: $selectedContentTab) {
-                        ForEach(0..<tabs.count, id: \.self) { index in
-                            Text(tabs[index]).tag(index)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                    PillSegmentedControl(segments: tabs, selection: $selectedContentTab)
 
                     if isTranscriptionFailed && selectedContentTab != 2 {
                         failedContentCard
@@ -3356,6 +3345,58 @@ struct SummaryRetryButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Retry summary")
+    }
+}
+
+private struct PillSegmentedControl: View {
+    let segments: [String]
+    @Binding var selection: Int
+
+    private let backgroundColor = Theme.primaryGreen.opacity(0.08)
+    private let borderColor = Theme.primaryGreen.opacity(0.16)
+    private let activeTextColor = Theme.primaryGreen
+    private let inactiveTextColor = Theme.mutedText
+    private let font = Font.system(size: 14, weight: .semibold, design: .rounded)
+
+    @Namespace private var selectionAnimation
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(segments.indices, id: \.self) { index in
+                Button {
+                    guard selection != index else { return }
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                        selection = index
+                    }
+                } label: {
+                    ZStack {
+                        if selection == index {
+                            Capsule()
+                                .fill(Theme.cardBackground)
+                                .matchedGeometryEffect(id: "pill", in: selectionAnimation)
+                                .shadow(color: Theme.shadow.opacity(0.6), radius: 4, x: 0, y: 2)
+                        }
+                        Text(segments[index])
+                            .font(font)
+                            .foregroundColor(selection == index ? activeTextColor : inactiveTextColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(segments[index])
+            }
+        }
+        .padding(4)
+        .background(backgroundColor)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(borderColor, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
     }
 }
 
