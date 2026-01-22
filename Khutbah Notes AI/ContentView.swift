@@ -187,7 +187,7 @@ struct MainTabView: View {
             )
                 .id(dashboardNavigationResetToken)
                 .tabItem {
-                    Image(systemName: "book.closed.fill")
+                    Image(systemName: "note.text")
                     Text("Notes")
                 }
                 .tag(0)
