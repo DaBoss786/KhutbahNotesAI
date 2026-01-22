@@ -239,6 +239,37 @@ extension View {
     }
 }
 
+struct OnboardingTimedFade: ViewModifier {
+    let delay: Double
+    let duration: Double
+    @Binding var revealAll: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    func body(content: Content) -> some View {
+        let shouldAnimate = !reduceMotion
+        return content
+            .opacity((isVisible || revealAll || reduceMotion) ? 1 : 0)
+            .animation(
+                shouldAnimate && !revealAll ? .easeOut(duration: duration).delay(delay) : nil,
+                value: isVisible
+            )
+            .onAppear {
+                isVisible = true
+            }
+    }
+}
+
+extension View {
+    func onboardingTimedFade(
+        delay: Double,
+        revealAll: Binding<Bool>,
+        duration: Double = 0.3
+    ) -> some View {
+        modifier(OnboardingTimedFade(delay: delay, duration: duration, revealAll: revealAll))
+    }
+}
+
 enum OnboardingTypography {
     static let hero = Font.system(size: 32, weight: .semibold, design: .serif)
     static let title = Font.system(size: 30, weight: .bold, design: .serif)
@@ -262,98 +293,224 @@ struct SplashWordmark: View {
 struct OnboardingRememberView: View {
     let progress: OnboardingProgress
     var onGetStarted: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var revealAll = false
+    @State private var isButtonEnabled = false
+
+    private let fadeDuration: Double = 0.4
+    private let buttonDelay: Double = 2.9
     
     var body: some View {
         OnboardingStepLayout(
             progress: progress,
             progressForeground: BrandPalette.deepGreen.opacity(0.8),
             progressBackground: BrandPalette.cream,
+            contentSpacing: 20,
             background: { BrandPalette.cream },
             content: {
-                Text("Remember Every\nKhutbah")
+                Text("Imagine if you could revisit it.")
                     .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
-                    .onboardingReveal(0)
+                    .onboardingTimedFade(delay: 0.2, revealAll: $revealAll, duration: fadeDuration)
 
-                Text("Record, summarize, and reflect on\nFriday sermons—safely and privately.")
-                    .font(OnboardingTypography.subtitle)
-                    .foregroundColor(BrandPalette.deepGreen.opacity(0.9))
-                    .multilineTextAlignment(.center)
-                    .onboardingReveal(1)
+                VStack(spacing: 18) {
+                    Text("That powerful reminder.")
+                        .font(.system(size: 18, weight: .medium, design: .default))
+                        .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
+                        .multilineTextAlignment(.center)
+                        .onboardingTimedFade(delay: 0.7, revealAll: $revealAll, duration: fadeDuration)
 
-                Image(systemName: "waveform")
-                    .font(.system(size: 52, weight: .semibold))
-                    .foregroundColor(BrandPalette.deepGreen)
-                    .padding(.top, 10)
-                    .onboardingReveal(2)
+                    Text("The exact words.")
+                        .font(.system(size: 18, weight: .medium, design: .default))
+                        .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
+                        .multilineTextAlignment(.center)
+                        .onboardingTimedFade(delay: 1.2, revealAll: $revealAll, duration: fadeDuration)
+
+                    Text("Whenever you need them.")
+                        .font(.system(size: 18, weight: .medium, design: .default))
+                        .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
+                        .multilineTextAlignment(.center)
+                        .onboardingTimedFade(delay: 1.7, revealAll: $revealAll, duration: fadeDuration)
+                }
+                
+                (
+                    Text("Khutbah Notes")
+                        .fontWeight(.semibold)
+                    + Text(" makes it possible.")
+                )
+                .font(.system(size: 18, weight: .medium, design: .default))
+                .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
+                .multilineTextAlignment(.center)
+                .padding(.top, 28)
+                .onboardingTimedFade(delay: 2.4, revealAll: $revealAll, duration: fadeDuration)
             },
             footer: {
-                Button(action: handleGetStarted) {
-                    Text("Continue")
+                ZStack {
+                    Button(action: handleGetStarted) {
+                        Text("Continue")
+                    }
+                    .buttonStyle(SolidGreenButtonStyle())
+                    .disabled(!isButtonEnabled)
                 }
-                .buttonStyle(SolidGreenButtonStyle())
-                .onboardingReveal(3)
+                .overlay {
+                    if !isButtonEnabled {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                revealAllContent()
+                            }
+                    }
+                }
+                .onboardingTimedFade(delay: 2.9, revealAll: $revealAll, duration: fadeDuration)
             }
         )
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                revealAllContent()
+            }
+        )
+        .onAppear {
+            startRevealTiming()
+        }
     }
     
     private func handleGetStarted() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onGetStarted()
+    }
+
+    private func startRevealTiming() {
+        guard !reduceMotion else {
+            revealAllContent()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + buttonDelay + fadeDuration) {
+            isButtonEnabled = true
+        }
+    }
+
+    private func revealAllContent() {
+        if !revealAll {
+            revealAll = true
+        }
+        isButtonEnabled = true
     }
 }
 
 struct OnboardingWelcomeView: View {
     let progress: OnboardingProgress
     var onGetStarted: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var revealAll = false
+    @State private var isButtonEnabled = false
+
+    private let fadeDuration: Double = 0.4
+    private let buttonDelay: Double = 2.2
     
     var body: some View {
         OnboardingStepLayout(
             progress: progress,
             progressForeground: BrandPalette.cream.opacity(0.75),
             progressBackground: .clear,
-            contentSpacing: 28,
+            contentSpacing: 20,
             background: { BrandBackground() },
             content: {
-                Text("بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ")
-                    .font(OnboardingTypography.hero)
-                    .foregroundColor(BrandPalette.cream)
-                    .multilineTextAlignment(.center)
-                    .onboardingReveal(0)
+                VStack(spacing: 0) {
+                    VStack(spacing: 8) {
+                        Text("بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ")
+                            .font(OnboardingTypography.hero)
+                            .foregroundColor(BrandPalette.cream)
+                            .multilineTextAlignment(.center)
 
-                VStack(spacing: 10) {
-                    Text("Assalamu alaikum")
-                        .font(OnboardingTypography.eyebrow)
-                        .foregroundColor(BrandPalette.cream.opacity(0.94))
+                        Text("Assalamu alaikum")
+                            .font(OnboardingTypography.eyebrow)
+                            .foregroundColor(BrandPalette.cream.opacity(0.94))
+                    }
+                    .padding(.top, 36)
 
-                    Text("Welcome to")
-                        .font(OnboardingTypography.eyebrow)
-                        .foregroundColor(BrandPalette.cream.opacity(0.94))
+                    Spacer(minLength: 20)
 
-                    SplashWordmark()
+                    VStack(spacing: 18) {
+                        Text("Ever leave Jumu'ah inspired—then forget the message by Monday?")
+                            .font(OnboardingTypography.title)
+                            .foregroundColor(BrandPalette.cream)
+                            .multilineTextAlignment(.center)
+                            .onboardingTimedFade(delay: 0.5, revealAll: $revealAll, duration: fadeDuration)
 
-                    Text("A simple way to remember and\nreflect on khutbahs and lectures")
-                        .font(OnboardingTypography.subtitle)
-                        .foregroundColor(BrandPalette.cream.opacity(0.94))
-                        .multilineTextAlignment(.center)
+                        VStack(spacing: 0) {
+                            Text("You're not alone.")
+                                .font(.system(size: 20, weight: .semibold, design: .default))
+                                .foregroundColor(BrandPalette.cream.opacity(0.95))
+                                .multilineTextAlignment(.center)
+                                .padding(.bottom, 18)
+                                .onboardingTimedFade(delay: 1.1, revealAll: $revealAll, duration: fadeDuration)
+
+                            Text("Most of us remember the feeling, but lose the words.")
+                                .font(.system(size: 20, weight: .regular, design: .default))
+                                .foregroundColor(BrandPalette.cream.opacity(0.88))
+                                .multilineTextAlignment(.center)
+                                .onboardingTimedFade(delay: 1.7, revealAll: $revealAll, duration: fadeDuration)
+                        }
+                    }
+
+                    Spacer(minLength: 20)
                 }
-                .onboardingReveal(1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             },
             footer: {
-                Button(action: handleGetStarted) {
-                    Text("Get Started")
-                        .frame(maxWidth: .infinity)
+                ZStack {
+                    Button(action: handleGetStarted) {
+                        Text("That's Why We Built This")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(CreamButtonGreenTextStyle())
+                    .disabled(!isButtonEnabled)
                 }
-                .buttonStyle(CreamButtonGreenTextStyle())
-                .onboardingReveal(2)
+                .overlay {
+                    if !isButtonEnabled {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                revealAllContent()
+                            }
+                    }
+                }
+                .onboardingTimedFade(delay: 2.2, revealAll: $revealAll, duration: fadeDuration)
             }
         )
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                revealAllContent()
+            }
+        )
+        .onAppear {
+            startRevealTiming()
+        }
     }
     
     private func handleGetStarted() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onGetStarted()
+    }
+
+    private func startRevealTiming() {
+        guard !reduceMotion else {
+            revealAllContent()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + buttonDelay + fadeDuration) {
+            isButtonEnabled = true
+        }
+    }
+
+    private func revealAllContent() {
+        if !revealAll {
+            revealAll = true
+        }
+        isButtonEnabled = true
     }
 }
 
