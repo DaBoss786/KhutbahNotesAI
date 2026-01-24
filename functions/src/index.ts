@@ -167,10 +167,12 @@ const SUMMARY_TRANSLATION_SYSTEM_PROMPT = [
   "- Do NOT include any extra keys, comments, or text outside the JSON.",
 ].join("\n");
 
-const MAX_SUMMARY_OUTPUT_TOKENS = 3000;
-const CHUNK_CHAR_TARGET = 4000;
+// Slightly smaller chunks reduce summary length and token limit errors.
+const MAX_SUMMARY_OUTPUT_TOKENS = 3200; // modest bump to improve reliability
+// Small reduction to keep chunk summaries shorter.
+const CHUNK_CHAR_TARGET = 3800;
 const CHUNK_CHAR_OVERLAP = 300;
-const CHUNK_OUTPUT_TOKENS = 2000;
+const CHUNK_OUTPUT_TOKENS = 2200; // modest bump to reduce edge-case truncation
 const SUMMARY_MODEL = "gpt-5-mini";
 const AI_TITLE_MAX_CHARS = 100;
 const DEFAULT_TITLE_PREFIX = "Khutbah - ";
@@ -489,6 +491,40 @@ function listChunkFiles(prefix: string, extension: string): string[] {
     )
     .sort()
     .map((name) => path.join(os.tmpdir(), name));
+}
+
+/**
+ * Re-encode audio to 16kHz mono WAV to reduce decoding edge cases.
+ *
+ * @param {string} filePath Source audio absolute path.
+ * @return {Promise<string>} Path to re-encoded WAV file.
+ */
+async function reencodeAudioToWav(filePath: string): Promise<string> {
+  if (!ffmpegPath) {
+    throw new Error("ffmpeg binary not available");
+  }
+
+  const base = path.basename(filePath, path.extname(filePath));
+  const outputPath = path.join(
+    os.tmpdir(),
+    `reencode-${base}-${Date.now()}.wav`
+  );
+  const args = [
+    "-y",
+    "-i",
+    filePath,
+    "-vn",
+    "-ac",
+    "1",
+    "-ar",
+    `${MIN_AUDIO_SAMPLE_RATE}`,
+    "-c:a",
+    "pcm_s16le",
+    outputPath,
+  ];
+
+  await runCommand(ffmpegPath, args);
+  return outputPath;
 }
 
 /**
@@ -1065,6 +1101,8 @@ export const onAudioUpload = onObjectFinalized(
     let durationMinutes = 0;
     let chargedMinutes = 0;
     let chunkPaths: string[] = [];
+    const extraChunkPaths: string[] = [];
+    const extraTempPaths: string[] = [];
     let transcribeRateLimitReserved = false;
 
     const openai = new OpenAI({
@@ -1179,7 +1217,7 @@ export const onAudioUpload = onObjectFinalized(
         fallbackTriggered: boolean;
         fallbackReason?: string;
       };
-      const chunkResults: ChunkResult[] = [];
+      let chunkResults: ChunkResult[] = [];
       const extractTranscriptText = (transcription: unknown) => {
         const rawText = (transcription as {text?: string}).text;
         return typeof rawText === "string" && rawText.trim().length > 0 ?
@@ -1190,15 +1228,23 @@ export const onAudioUpload = onObjectFinalized(
         chunkPath: string,
         chunkIndex: number,
         totalChunks: number,
-        model: string
+        model: string,
+        prompt?: string
       ) => {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           try {
-            return await openai.audio.transcriptions.create({
+            const request: {
+              file: fs.ReadStream;
+              model: string;
+              prompt?: string;
+            } = {
               file: fs.createReadStream(chunkPath),
               model,
-              prompt: TRANSCRIBE_MULTILINGUAL_PROMPT,
-            });
+            };
+            if (prompt) {
+              request.prompt = prompt;
+            }
+            return await openai.audio.transcriptions.create(request);
           } catch (error: unknown) {
             const errorMessage =
               error instanceof Error ? error.message : String(error);
@@ -1241,13 +1287,15 @@ export const onAudioUpload = onObjectFinalized(
         chunkPath: string,
         chunkIndex: number,
         totalChunks: number,
-        model: string
+        model: string,
+        prompt?: string
       ) => {
         const transcription = await transcribeChunkWithRetry(
           chunkPath,
           chunkIndex,
           totalChunks,
-          model
+          model,
+          prompt
         );
         return extractTranscriptText(transcription);
       };
@@ -1264,7 +1312,8 @@ export const onAudioUpload = onObjectFinalized(
           chunkPath,
           chunkIndex,
           totalChunks,
-          primaryTranscriptionModel
+          primaryTranscriptionModel,
+          TRANSCRIBE_MULTILINGUAL_PROMPT
         );
         if (!chunkText) {
           fallbackTriggered = true;
@@ -1274,7 +1323,8 @@ export const onAudioUpload = onObjectFinalized(
             chunkPath,
             chunkIndex,
             totalChunks,
-            fallbackTranscriptionModel
+            fallbackTranscriptionModel,
+            TRANSCRIBE_MULTILINGUAL_PROMPT
           );
         }
 
@@ -1306,8 +1356,8 @@ export const onAudioUpload = onObjectFinalized(
 
       const safeDurationMinutes = durationMinutes || 1;
       const enforceQualityThresholds = (durationMinutes || 0) > 2;
-      const buildTranscriptState = () => {
-        const chunkTranscripts = chunkResults
+      const buildTranscriptState = (results: ChunkResult[]) => {
+        const chunkTranscripts = results
           .map((result) => result.text)
           .filter((text) => text && text.trim().length > 0)
           .map((text) => text.trim());
@@ -1351,7 +1401,8 @@ export const onAudioUpload = onObjectFinalized(
         };
       };
 
-      let {chunkTranscripts, transcriptText} = buildTranscriptState();
+      let {chunkTranscripts, transcriptText} =
+        buildTranscriptState(chunkResults);
       if (isPromptEchoTranscript(transcriptText, chunkTranscripts)) {
         await handleNoSpeechDetected("prompt_echo_initial");
         return;
@@ -1407,7 +1458,8 @@ export const onAudioUpload = onObjectFinalized(
               chunkPath,
               chunkIndex,
               totalChunks,
-              fallbackTranscriptionModel
+              fallbackTranscriptionModel,
+              TRANSCRIBE_MULTILINGUAL_PROMPT
             );
             chunkResults[index] = {
               text: chunkText,
@@ -1435,7 +1487,7 @@ export const onAudioUpload = onObjectFinalized(
             }
           }
 
-          const rebuilt = buildTranscriptState();
+          const rebuilt = buildTranscriptState(chunkResults);
           chunkTranscripts = rebuilt.chunkTranscripts;
           transcriptText = rebuilt.transcriptText;
           quality = evaluateTranscriptQuality(
@@ -1443,6 +1495,89 @@ export const onAudioUpload = onObjectFinalized(
             chunkTranscripts,
             "fallback"
           );
+        }
+      }
+
+      if (quality.repetitionFlag) {
+        logger.warn(
+          "Transcript repetition detected; retrying with re-encoded audio.",
+          {
+            lectureId,
+            durationMinutes,
+            fallbackModel: fallbackTranscriptionModel,
+          }
+        );
+        try {
+          const reencodedPath = await reencodeAudioToWav(tempFilePath);
+          extraTempPaths.push(reencodedPath);
+          const reencodedChunkPaths = await chunkAudio(reencodedPath);
+          extraChunkPaths.push(...reencodedChunkPaths);
+
+          const reencodedResults: ChunkResult[] = [];
+          for (let i = 0; i < reencodedChunkPaths.length; i++) {
+            const chunkPath = reencodedChunkPaths[i];
+            const chunkIndex = i + 1;
+            const totalChunks = reencodedChunkPaths.length;
+            const chunkText = await transcribeChunk(
+              chunkPath,
+              chunkIndex,
+              totalChunks,
+              fallbackTranscriptionModel
+            );
+            reencodedResults.push({
+              text: chunkText,
+              model: fallbackTranscriptionModel,
+              fallbackTriggered: true,
+              fallbackReason: "reencode_retry",
+            });
+            logger.info("Re-encoded transcription chunk completed.", {
+              lectureId,
+              chunkIndex,
+              totalChunks,
+              model: fallbackTranscriptionModel,
+              fallbackTriggered: true,
+              fallbackReason: "reencode_retry",
+              textLength: chunkText.length,
+            });
+          }
+
+          const rebuilt = buildTranscriptState(reencodedResults);
+          const reencodedQuality = evaluateTranscriptQuality(
+            rebuilt.transcriptText,
+            rebuilt.chunkTranscripts,
+            "reencode"
+          );
+
+          if (rebuilt.transcriptText && !reencodedQuality.repetitionFlag) {
+            chunkResults = reencodedResults;
+            chunkTranscripts = rebuilt.chunkTranscripts;
+            transcriptText = rebuilt.transcriptText;
+            quality = reencodedQuality;
+            logger.info(
+              "Re-encoded transcription accepted after repetition retry.",
+              {
+                lectureId,
+                durationMinutes,
+                wordCount: reencodedQuality.wordCount,
+                wordsPerMinute: reencodedQuality.wordsPerMinute,
+              }
+            );
+          } else {
+            logger.warn(
+              "Re-encoded transcription still repetitive or empty.",
+              {
+                lectureId,
+                durationMinutes,
+                wordCount: reencodedQuality.wordCount,
+                wordsPerMinute: reencodedQuality.wordsPerMinute,
+              }
+            );
+          }
+        } catch (err: unknown) {
+          logger.warn("Re-encoded transcription attempt failed.", {
+            lectureId,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
 
@@ -1579,7 +1714,17 @@ export const onAudioUpload = onObjectFinalized(
         if (fs.existsSync(tempFilePath)) {
           fs.unlinkSync(tempFilePath);
         }
+        for (const extraPath of extraTempPaths) {
+          if (fs.existsSync(extraPath)) {
+            fs.unlinkSync(extraPath);
+          }
+        }
         for (const chunkPath of chunkPaths) {
+          if (fs.existsSync(chunkPath)) {
+            fs.unlinkSync(chunkPath);
+          }
+        }
+        for (const chunkPath of extraChunkPaths) {
           if (fs.existsSync(chunkPath)) {
             fs.unlinkSync(chunkPath);
           }
