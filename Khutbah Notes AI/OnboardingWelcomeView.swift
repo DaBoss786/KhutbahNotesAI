@@ -298,8 +298,8 @@ struct OnboardingRememberView: View {
     @State private var revealAll = false
     @State private var isButtonEnabled = false
 
-    private let fadeDuration: Double = 0.4
-    private let buttonDelay: Double = 2.9
+    private let fadeDuration: Double = 1.0
+    private let buttonDelay: Double = 5.8
     
     var body: some View {
         OnboardingStepLayout(
@@ -313,26 +313,26 @@ struct OnboardingRememberView: View {
                     .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
-                    .onboardingTimedFade(delay: 0.2, revealAll: $revealAll, duration: fadeDuration)
+                    .onboardingTimedFade(delay: 0.4, revealAll: $revealAll, duration: fadeDuration)
 
                 VStack(spacing: 18) {
                     Text("That powerful reminder.")
                         .font(.system(size: 18, weight: .medium, design: .default))
                         .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
                         .multilineTextAlignment(.center)
-                        .onboardingTimedFade(delay: 0.7, revealAll: $revealAll, duration: fadeDuration)
+                        .onboardingTimedFade(delay: 1.4, revealAll: $revealAll, duration: fadeDuration)
 
                     Text("The exact words.")
                         .font(.system(size: 18, weight: .medium, design: .default))
                         .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
                         .multilineTextAlignment(.center)
-                        .onboardingTimedFade(delay: 1.2, revealAll: $revealAll, duration: fadeDuration)
+                        .onboardingTimedFade(delay: 2.4, revealAll: $revealAll, duration: fadeDuration)
 
                     Text("Whenever you need them.")
                         .font(.system(size: 18, weight: .medium, design: .default))
                         .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
                         .multilineTextAlignment(.center)
-                        .onboardingTimedFade(delay: 1.7, revealAll: $revealAll, duration: fadeDuration)
+                        .onboardingTimedFade(delay: 3.4, revealAll: $revealAll, duration: fadeDuration)
                 }
                 
                 (
@@ -344,7 +344,7 @@ struct OnboardingRememberView: View {
                 .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
                 .multilineTextAlignment(.center)
                 .padding(.top, 28)
-                .onboardingTimedFade(delay: 2.4, revealAll: $revealAll, duration: fadeDuration)
+                .onboardingTimedFade(delay: 4.8, revealAll: $revealAll, duration: fadeDuration)
             },
             footer: {
                 ZStack {
@@ -363,7 +363,7 @@ struct OnboardingRememberView: View {
                             }
                     }
                 }
-                .onboardingTimedFade(delay: 2.9, revealAll: $revealAll, duration: fadeDuration)
+                .onboardingTimedFade(delay: 5.8, revealAll: $revealAll, duration: fadeDuration)
             }
         )
         .simultaneousGesture(
@@ -407,8 +407,9 @@ struct OnboardingWelcomeView: View {
     @State private var revealAll = false
     @State private var isButtonEnabled = false
 
-    private let fadeDuration: Double = 0.4
-    private let buttonDelay: Double = 2.2
+    private let fadeDuration: Double = 1.0
+    private let emphasizeFadeDuration: Double = 1.3
+    private let buttonDelay: Double = 5.6
     
     var body: some View {
         OnboardingStepLayout(
@@ -434,11 +435,19 @@ struct OnboardingWelcomeView: View {
                     Spacer(minLength: 20)
 
                     VStack(spacing: 18) {
-                        Text("Ever leave Jumu'ah inspired—then forget the message by Monday?")
-                            .font(OnboardingTypography.title)
-                            .foregroundColor(BrandPalette.cream)
-                            .multilineTextAlignment(.center)
-                            .onboardingTimedFade(delay: 0.5, revealAll: $revealAll, duration: fadeDuration)
+                        VStack(spacing: 10) {
+                            Text("Ever hear an inspiring khutbah...")
+                                .font(OnboardingTypography.title)
+                                .foregroundColor(BrandPalette.cream)
+                                .multilineTextAlignment(.center)
+                                .onboardingTimedFade(delay: 1.0, revealAll: $revealAll, duration: fadeDuration)
+
+                            Text("but forget the message by Monday")
+                                .font(.system(size: 18, weight: .medium, design: .default))
+                                .foregroundColor(BrandPalette.cream.opacity(0.95))
+                                .multilineTextAlignment(.center)
+                                .onboardingTimedFade(delay: 1.8, revealAll: $revealAll, duration: fadeDuration)
+                        }
 
                         VStack(spacing: 0) {
                             Text("You're not alone.")
@@ -446,13 +455,13 @@ struct OnboardingWelcomeView: View {
                                 .foregroundColor(BrandPalette.cream.opacity(0.95))
                                 .multilineTextAlignment(.center)
                                 .padding(.bottom, 18)
-                                .onboardingTimedFade(delay: 1.1, revealAll: $revealAll, duration: fadeDuration)
+                                .onboardingTimedFade(delay: 3.2, revealAll: $revealAll, duration: emphasizeFadeDuration)
 
                             Text("Most of us remember the feeling, but lose the words.")
                                 .font(.system(size: 20, weight: .regular, design: .default))
                                 .foregroundColor(BrandPalette.cream.opacity(0.88))
                                 .multilineTextAlignment(.center)
-                                .onboardingTimedFade(delay: 1.7, revealAll: $revealAll, duration: fadeDuration)
+                                .onboardingTimedFade(delay: 4.4, revealAll: $revealAll, duration: fadeDuration)
                         }
                     }
 
@@ -478,7 +487,7 @@ struct OnboardingWelcomeView: View {
                             }
                     }
                 }
-                .onboardingTimedFade(delay: 2.2, revealAll: $revealAll, duration: fadeDuration)
+                .onboardingTimedFade(delay: 5.6, revealAll: $revealAll, duration: fadeDuration)
             }
         )
         .simultaneousGesture(
@@ -618,7 +627,7 @@ struct OnboardingHowItWorksView: View {
                     HowItWorksRow(
                         icon: "list.bullet.rectangle.portrait",
                         title: "Get key takeaways",
-                        detail: "Transcriptions, summaries, ayaths, and reminders"
+                        detail: "Transcriptions, summaries, ayahs, translations, and reminders"
                     )
                     HowItWorksRow(
                         icon: "arrow.clockwise.circle.fill",
