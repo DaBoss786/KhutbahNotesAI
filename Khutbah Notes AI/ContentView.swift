@@ -1659,6 +1659,8 @@ struct LectureDetailView: View {
                         .focused($isNotesFocused)
                         .textInputAutocapitalization(.sentences)
                         .frame(minHeight: 220)
+                        .background(Color.clear)
+                        .modifier(TextEditorBackgroundClear())
                         .toolbar {
                             ToolbarItemGroup(placement: .keyboard) {
                                 Spacer()
@@ -2016,6 +2018,22 @@ struct LectureDetailView: View {
         items
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && QuranCitationParser.parse($0) != nil }
+    }
+
+    private struct TextEditorBackgroundClear: ViewModifier {
+        func body(content: Content) -> some View {
+            if #available(iOS 16.0, *) {
+                content.scrollContentBackground(.hidden)
+            } else {
+                content
+                    .onAppear {
+                        UITextView.appearance().backgroundColor = .clear
+                    }
+                    .onDisappear {
+                        UITextView.appearance().backgroundColor = nil
+                    }
+            }
+        }
     }
     
     private func exportableTranscriptText() -> String? {

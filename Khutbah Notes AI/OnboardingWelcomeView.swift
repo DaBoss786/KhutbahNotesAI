@@ -560,7 +560,7 @@ struct OnboardingIntegrityView: View {
                     .frame(maxWidth: contentWidth)
                     .onboardingReveal(2)
 
-                Text("Smart summaries never introduce Islamic content that was not said by the khateeb.")
+                Text("Our summaries never introduce Islamic content that was not said by the khateeb.")
                     .font(OnboardingTypography.subtitle)
                     .foregroundColor(BrandPalette.cream.opacity(0.9))
                     .padding(.top, 2)
