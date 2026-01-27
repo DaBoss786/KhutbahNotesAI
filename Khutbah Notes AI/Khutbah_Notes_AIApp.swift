@@ -57,11 +57,19 @@ struct Khutbah_Notes_AIApp: App {
                     DashboardDeepLinkStore.setPendingDashboard()
                     return
                 }
+                if let target = QuranDeepLink.target(from: url) {
+                    QuranDeepLinkStore.setPendingTarget(target)
+                    AnalyticsManager.logWidgetTapOpenVerse()
+                    return
+                }
                 if let lectureId = LectureDeepLink.lectureId(from: url) {
                     LectureDeepLinkStore.setPendingLectureId(lectureId)
                     return
                 }
                 if let action = RecordingDeepLink.action(from: url) {
+                    if action == .openRecording {
+                        AnalyticsManager.logWidgetTapOpenRecordFriday()
+                    }
                     RecordingActionStore.setRouteAction(action)
                 }
             }

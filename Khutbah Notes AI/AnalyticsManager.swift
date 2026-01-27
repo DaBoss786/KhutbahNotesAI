@@ -18,6 +18,8 @@ enum AnalyticsEvent: String {
     case onboardingCompleted = "onboarding_completed"
     case onboardingNotificationsChoice = "onboarding_notifications_choice"
     case onboardingPaywallResult = "onboarding_paywall_result"
+    case widgetTapOpenVerse = "widget_tap_open_verse"
+    case widgetTapOpenRecordFriday = "widget_tap_open_record_friday"
 }
 
 enum AudioUploadTrigger: String, Codable {
@@ -417,6 +419,14 @@ struct AnalyticsManager {
             AnalyticsParameterKey.price: price,
             AnalyticsParameterKey.currency: currency
         ])
+    }
+
+    static func logWidgetTapOpenVerse() {
+        log(.widgetTapOpenVerse, parameters: [:])
+    }
+
+    static func logWidgetTapOpenRecordFriday() {
+        log(.widgetTapOpenRecordFriday, parameters: [:])
     }
     
     private static func log(_ event: AnalyticsEvent, parameters: [String: Any?]) {

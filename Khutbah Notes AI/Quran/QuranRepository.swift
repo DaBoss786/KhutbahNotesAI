@@ -95,6 +95,37 @@ final class QuranRepository {
         return verses
     }
 
+    func loadVerse(for surahId: Int, ayah: Int, includeTranslation: Bool) -> QuranVerse? {
+        guard let arabicDatabase else { return nil }
+        let translationText = includeTranslation ? loadEnglishTranslation(for: surahId, ayah: ayah) : nil
+        let query = """
+            SELECT text
+            FROM verses
+            WHERE surah_number = ? AND ayah_number = ?
+            LIMIT 1;
+            """
+        var statement: OpaquePointer?
+
+        if sqlite3_prepare_v2(arabicDatabase, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_int(statement, 1, Int32(surahId))
+            sqlite3_bind_int(statement, 2, Int32(ayah))
+            defer { sqlite3_finalize(statement) }
+
+            if sqlite3_step(statement) == SQLITE_ROW {
+                let arabicText = stringValue(from: statement, index: 0)
+                let cleanedArabicText = stripTrailingArabicNumber(from: arabicText)
+                return QuranVerse(
+                    surahNumber: surahId,
+                    ayahNumber: ayah,
+                    arabicText: cleanedArabicText,
+                    translationText: translationText
+                )
+            }
+        }
+
+        return nil
+    }
+
     private func loadEnglishTranslations(for surahId: Int) -> [Int: String] {
         guard let translationDatabase else { return [:] }
         let query = "SELECT ayah, text FROM translation WHERE sura = ? ORDER BY ayah;"
@@ -112,6 +143,29 @@ final class QuranRepository {
         }
 
         return translations
+    }
+
+    private func loadEnglishTranslation(for surahId: Int, ayah: Int) -> String? {
+        guard let translationDatabase else { return nil }
+        let query = """
+            SELECT text
+            FROM translation
+            WHERE sura = ? AND ayah = ?
+            LIMIT 1;
+            """
+        var statement: OpaquePointer?
+
+        if sqlite3_prepare_v2(translationDatabase, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_int(statement, 1, Int32(surahId))
+            sqlite3_bind_int(statement, 2, Int32(ayah))
+            defer { sqlite3_finalize(statement) }
+
+            if sqlite3_step(statement) == SQLITE_ROW {
+                return stringValue(from: statement, index: 0)
+            }
+        }
+
+        return nil
     }
 
     private func stringValue(from statement: OpaquePointer?, index: Int32) -> String {

@@ -22,6 +22,15 @@
 		D402C57F2F0B790D0039F8DA /* quran_en_sahih.db in Resources */ = {isa = PBXBuildFile; fileRef = D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */; };
 		D402C5822F0B7DDC0039F8DA /* translations.txt in Resources */ = {isa = PBXBuildFile; fileRef = D402C5812F0B7DCD0039F8DA /* translations.txt */; };
 		D402C5842F0B86500039F8DA /* quran-metadata-surah-name.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */; };
+		E60200012F20000100000001 /* RecordingRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000001 /* RecordingRouting.swift */; };
+		E60200012F20000100000002 /* QuranRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000002 /* QuranRouting.swift */; };
+		E60200012F20000100000003 /* QuranRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000003 /* QuranRepository.swift */; };
+		E60200012F20000100000004 /* QuranModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000004 /* QuranModels.swift */; };
+		E60200012F20000100000005 /* QuranNavigationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000005 /* QuranNavigationCoordinator.swift */; };
+		E60200012F20000100000006 /* DailyAyahProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000006 /* DailyAyahProvider.swift */; };
+		E60300012F20000100000001 /* quran_ar.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C57C2F0B78FD0039F8DA /* quran_ar.sqlite */; };
+		E60300012F20000100000002 /* quran_en_sahih.db in Resources */ = {isa = PBXBuildFile; fileRef = D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */; };
+		E60300012F20000100000003 /* quran-metadata-surah-name.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */; };
 		D4A39EA72EE3EBED007FF4D8 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA62EE3EBED007FF4D8 /* FirebaseAnalytics */; };
 		D4A39EA92EE3EBED007FF4D8 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA82EE3EBED007FF4D8 /* FirebaseAuth */; };
 		D4A39EAB2EE3EBED007FF4D8 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EAA2EE3EBED007FF4D8 /* FirebaseFirestore */; };
@@ -78,6 +87,12 @@
 		D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */ = {isa = PBXFileReference; lastKnownFileType = file; path = quran_en_sahih.db; sourceTree = "<group>"; };
 		D402C5812F0B7DCD0039F8DA /* translations.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = translations.txt; sourceTree = "<group>"; };
 		D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = "quran-metadata-surah-name.sqlite"; sourceTree = "<group>"; };
+		E60100012F20000100000001 /* RecordingRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/RecordingRouting.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000002 /* QuranRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranRouting.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000003 /* QuranRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranRepository.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000004 /* QuranModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranModels.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000005 /* QuranNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000006 /* DailyAyahProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift"; sourceTree = "<group>"; };
 		D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Khutbah Notes AI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -408,6 +423,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E60300012F20000100000002 /* quran_en_sahih.db in Resources */,
+				E60300012F20000100000003 /* quran-metadata-surah-name.sqlite in Resources */,
+				E60300012F20000100000001 /* quran_ar.sqlite in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -443,6 +461,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E60200012F20000100000006 /* DailyAyahProvider.swift in Sources */,
+				E60200012F20000100000005 /* QuranNavigationCoordinator.swift in Sources */,
+				E60200012F20000100000004 /* QuranModels.swift in Sources */,
+				E60200012F20000100000003 /* QuranRepository.swift in Sources */,
+				E60200012F20000100000002 /* QuranRouting.swift in Sources */,
+				E60200012F20000100000001 /* RecordingRouting.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -803,7 +827,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4.2;
+				MARKETING_VERSION = 1.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AI";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -854,7 +878,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4.2;
+				MARKETING_VERSION = 1.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AI";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

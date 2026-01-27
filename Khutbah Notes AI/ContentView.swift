@@ -124,6 +124,10 @@ struct MainTabView: View {
         LectureDeepLinkUserDefaultsKeys.pendingLectureId,
         store: LectureDeepLinkDefaults.shared
     ) private var pendingLectureDeepLinkIdRaw = ""
+    @AppStorage(
+        QuranDeepLinkUserDefaultsKeys.pendingQuranTarget,
+        store: QuranDeepLinkDefaults.shared
+    ) private var pendingQuranDeepLinkTargetRaw = ""
     
     private var shouldShowRecordPrompt: Bool {
         !hasSavedRecording && selectedTab == 0 && dashboardNavigationDepth == 0
@@ -158,6 +162,9 @@ struct MainTabView: View {
         }
         .onChange(of: pendingLectureDeepLinkIdRaw) { _ in
             handlePendingLectureDeepLinkTabSwitch()
+        }
+        .onChange(of: pendingQuranDeepLinkTargetRaw) { _ in
+            handlePendingQuranDeepLink()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
@@ -289,6 +296,7 @@ struct MainTabView: View {
         handlePendingRouteAction()
         handlePendingDashboardDeepLink()
         handlePendingLectureDeepLinkTabSwitch()
+        handlePendingQuranDeepLink()
     }
 
     private func handlePendingControlAction() {
@@ -322,6 +330,15 @@ struct MainTabView: View {
         dashboardNavigationDepth = 0
         dashboardNavigationResetToken = UUID()
         pendingDashboardDeepLinkToken = ""
+    }
+
+    private func handlePendingQuranDeepLink() {
+        let trimmed = pendingQuranDeepLinkTargetRaw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        pendingQuranDeepLinkTargetRaw = ""
+        guard let target = QuranDeepLink.parseVerseId(trimmed) else { return }
+        quranNavigator.requestNavigation(to: target)
     }
 
     private func handleBackToLecture() {
