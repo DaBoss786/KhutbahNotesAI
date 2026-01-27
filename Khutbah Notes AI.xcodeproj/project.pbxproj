@@ -22,19 +22,20 @@
 		D402C57F2F0B790D0039F8DA /* quran_en_sahih.db in Resources */ = {isa = PBXBuildFile; fileRef = D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */; };
 		D402C5822F0B7DDC0039F8DA /* translations.txt in Resources */ = {isa = PBXBuildFile; fileRef = D402C5812F0B7DCD0039F8DA /* translations.txt */; };
 		D402C5842F0B86500039F8DA /* quran-metadata-surah-name.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */; };
-		E60200012F20000100000001 /* RecordingRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000001 /* RecordingRouting.swift */; };
-		E60200012F20000100000002 /* QuranRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000002 /* QuranRouting.swift */; };
-		E60200012F20000100000003 /* QuranRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000003 /* QuranRepository.swift */; };
-		E60200012F20000100000004 /* QuranModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000004 /* QuranModels.swift */; };
-		E60200012F20000100000005 /* QuranNavigationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000005 /* QuranNavigationCoordinator.swift */; };
-		E60200012F20000100000006 /* DailyAyahProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000006 /* DailyAyahProvider.swift */; };
-		E60300012F20000100000001 /* quran_ar.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C57C2F0B78FD0039F8DA /* quran_ar.sqlite */; };
-		E60300012F20000100000002 /* quran_en_sahih.db in Resources */ = {isa = PBXBuildFile; fileRef = D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */; };
-		E60300012F20000100000003 /* quran-metadata-surah-name.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */; };
 		D4A39EA72EE3EBED007FF4D8 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA62EE3EBED007FF4D8 /* FirebaseAnalytics */; };
 		D4A39EA92EE3EBED007FF4D8 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EA82EE3EBED007FF4D8 /* FirebaseAuth */; };
 		D4A39EAB2EE3EBED007FF4D8 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EAA2EE3EBED007FF4D8 /* FirebaseFirestore */; };
 		D4A39EAD2EE3EBED007FF4D8 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = D4A39EAC2EE3EBED007FF4D8 /* FirebaseStorage */; };
+		E60200012F20000100000001 /* Khutbah Notes AI/RecordingRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000001 /* Khutbah Notes AI/RecordingRouting.swift */; };
+		E60200012F20000100000002 /* Khutbah Notes AI/Quran/QuranRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000002 /* Khutbah Notes AI/Quran/QuranRouting.swift */; };
+		E60200012F20000100000003 /* Khutbah Notes AI/Quran/QuranRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000003 /* Khutbah Notes AI/Quran/QuranRepository.swift */; };
+		E60200012F20000100000004 /* Khutbah Notes AI/Quran/QuranModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000004 /* Khutbah Notes AI/Quran/QuranModels.swift */; };
+		E60200012F20000100000005 /* Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000005 /* Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift */; };
+		E60200012F20000100000006 /* Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60100012F20000100000006 /* Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift */; };
+		E60300012F20000100000001 /* quran_ar.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C57C2F0B78FD0039F8DA /* quran_ar.sqlite */; };
+		E60300012F20000100000002 /* quran_en_sahih.db in Resources */ = {isa = PBXBuildFile; fileRef = D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */; };
+		E60300012F20000100000003 /* quran-metadata-surah-name.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */; };
+		E60400012F20000100000001 /* Lock Screen.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = E60500012F20000100000001 /* Lock Screen.mp4 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,13 +88,14 @@
 		D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */ = {isa = PBXFileReference; lastKnownFileType = file; path = quran_en_sahih.db; sourceTree = "<group>"; };
 		D402C5812F0B7DCD0039F8DA /* translations.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = translations.txt; sourceTree = "<group>"; };
 		D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = "quran-metadata-surah-name.sqlite"; sourceTree = "<group>"; };
-		E60100012F20000100000001 /* RecordingRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/RecordingRouting.swift"; sourceTree = "<group>"; };
-		E60100012F20000100000002 /* QuranRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranRouting.swift"; sourceTree = "<group>"; };
-		E60100012F20000100000003 /* QuranRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranRepository.swift"; sourceTree = "<group>"; };
-		E60100012F20000100000004 /* QuranModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranModels.swift"; sourceTree = "<group>"; };
-		E60100012F20000100000005 /* QuranNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift"; sourceTree = "<group>"; };
-		E60100012F20000100000006 /* DailyAyahProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift"; sourceTree = "<group>"; };
 		D4A39E8D2EE29C04007FF4D8 /* Khutbah Notes AI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Khutbah Notes AI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E60100012F20000100000001 /* Khutbah Notes AI/RecordingRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/RecordingRouting.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000002 /* Khutbah Notes AI/Quran/QuranRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranRouting.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000003 /* Khutbah Notes AI/Quran/QuranRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranRepository.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000004 /* Khutbah Notes AI/Quran/QuranModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranModels.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000005 /* Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift"; sourceTree = "<group>"; };
+		E60100012F20000100000006 /* Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift"; sourceTree = "<group>"; };
+		E60500012F20000100000001 /* Lock Screen.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Khutbah Notes AI/Assets/Lock Screen.mp4"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -236,6 +238,7 @@
 				D402B9A12EF67EC20039F8DA /* OneSignalWidget */,
 				D402B99C2EF67EC20039F8DA /* Frameworks */,
 				D4A39E8E2EE29C04007FF4D8 /* Products */,
+				D4D423472F287E0400AA8DE3 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -248,6 +251,19 @@
 				9AA10D0DA792CB0DB5C50106 /* Khutbah Notes AITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D4D423472F287E0400AA8DE3 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				E60100012F20000100000006 /* Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift */,
+				E60100012F20000100000005 /* Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift */,
+				E60100012F20000100000004 /* Khutbah Notes AI/Quran/QuranModels.swift */,
+				E60100012F20000100000003 /* Khutbah Notes AI/Quran/QuranRepository.swift */,
+				E60100012F20000100000002 /* Khutbah Notes AI/Quran/QuranRouting.swift */,
+				E60100012F20000100000001 /* Khutbah Notes AI/RecordingRouting.swift */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -437,6 +453,7 @@
 				D402C57F2F0B790D0039F8DA /* quran_en_sahih.db in Resources */,
 				D402C5842F0B86500039F8DA /* quran-metadata-surah-name.sqlite in Resources */,
 				D402C57D2F0B78FD0039F8DA /* quran_ar.sqlite in Resources */,
+				E60400012F20000100000001 /* Lock Screen.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -461,12 +478,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E60200012F20000100000006 /* DailyAyahProvider.swift in Sources */,
-				E60200012F20000100000005 /* QuranNavigationCoordinator.swift in Sources */,
-				E60200012F20000100000004 /* QuranModels.swift in Sources */,
-				E60200012F20000100000003 /* QuranRepository.swift in Sources */,
-				E60200012F20000100000002 /* QuranRouting.swift in Sources */,
-				E60200012F20000100000001 /* RecordingRouting.swift in Sources */,
+				E60200012F20000100000006 /* Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift in Sources */,
+				E60200012F20000100000005 /* Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift in Sources */,
+				E60200012F20000100000004 /* Khutbah Notes AI/Quran/QuranModels.swift in Sources */,
+				E60200012F20000100000003 /* Khutbah Notes AI/Quran/QuranRepository.swift in Sources */,
+				E60200012F20000100000002 /* Khutbah Notes AI/Quran/QuranRouting.swift in Sources */,
+				E60200012F20000100000001 /* Khutbah Notes AI/RecordingRouting.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

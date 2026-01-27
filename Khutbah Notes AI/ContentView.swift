@@ -396,7 +396,8 @@ struct NotesView: View {
     @State private var showSearchResults = false
     @State private var deepLinkLecture: Lecture?
     @State private var showDeepLinkLecture = false
-    @State private var isRamadanGiftBannerDismissed = false
+    @State private var showWidgetInstructions = false
+    @AppStorage("isWidgetBannerDismissed") private var isWidgetBannerDismissed = false
     @AppStorage(
         LectureDeepLinkUserDefaultsKeys.pendingLectureId,
         store: LectureDeepLinkDefaults.shared
@@ -428,13 +429,15 @@ struct NotesView: View {
         (store.userUsage?.plan ?? "free") != "premium"
     }
 
-    private var shouldShowRamadanGiftBanner: Bool {
-        guard isFreeUser, !isRamadanGiftBannerDismissed else { return false }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        let cutoffComponents = DateComponents(year: 2026, month: 3, day: 21)
-        guard let cutoffDate = calendar.date(from: cutoffComponents) else { return false }
-        return Date() < cutoffDate
+    private var supportsLockScreenWidgets: Bool {
+        if #available(iOS 16.0, *) {
+            return true
+        }
+        return false
+    }
+
+    private var shouldShowWidgetBanner: Bool {
+        supportsLockScreenWidgets && !isWidgetBannerDismissed
     }
     
     var body: some View {
@@ -540,10 +543,16 @@ struct NotesView: View {
         ZStack(alignment: .topLeading) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 20) {
-                    if shouldShowRamadanGiftBanner {
-                        RamadanGiftBannerView {
-                            isRamadanGiftBannerDismissed = true
-                        }
+                    if shouldShowWidgetBanner {
+                        WidgetBannerView(
+                            onTap: {
+                                isWidgetBannerDismissed = true
+                                showWidgetInstructions = true
+                            },
+                            onDismiss: {
+                                isWidgetBannerDismissed = true
+                            }
+                        )
                     }
                     header
                     if isFreeUser {
@@ -597,6 +606,16 @@ struct NotesView: View {
                     SettingsView()
                 },
                 isActive: $showSettings
+            ) {
+                EmptyView()
+            }
+            .frame(width: 0, height: 0)
+            .hidden()
+            NavigationLink(
+                destination: NavigationDepthTracker(depth: $dashboardNavigationDepth) {
+                    WidgetInstructionsView(source: .banner)
+                },
+                isActive: $showWidgetInstructions
             ) {
                 EmptyView()
             }
@@ -3505,6 +3524,14 @@ struct SettingsView: View {
                 Section(header: Text("Preferences")) {
                     NavigationLink(destination: NotificationsSettingsView()) {
                         Label("Notifications", systemImage: "bell.badge")
+                    }
+                    if #available(iOS 16.0, *) {
+                        NavigationLink(destination: WidgetInstructionsView(source: .settings)) {
+                            Label("Lock Screen Widget", systemImage: "lock.iphone")
+                        }
+                    } else {
+                        Label("Lock Screen Widget (iOS 16+)", systemImage: "lock.iphone")
+                            .foregroundColor(.secondary)
                     }
                 }
 
