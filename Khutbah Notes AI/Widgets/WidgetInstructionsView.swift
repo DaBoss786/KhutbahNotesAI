@@ -9,6 +9,7 @@ enum WidgetInstructionsSource: String {
 
 struct WidgetInstructionsView: View {
     let source: WidgetInstructionsSource
+    @AppStorage("isPresentingWidgetInstructions") private var isPresentingWidgetInstructions = false
     @StateObject private var videoPlayer = LoopingVideoPlayer(
         resourceName: "Lock Screen",
         resourceExtension: "mp4"
@@ -29,9 +30,11 @@ struct WidgetInstructionsView: View {
         .navigationTitle("Lock Screen Widget")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            isPresentingWidgetInstructions = true
             videoPlayer.play()
         }
         .onDisappear {
+            isPresentingWidgetInstructions = false
             videoPlayer.pause()
         }
     }

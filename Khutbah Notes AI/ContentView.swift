@@ -113,6 +113,7 @@ struct MainTabView: View {
     @State private var pendingRecordingRouteAction: RecordingRouteAction? = nil
     @State private var isKeyboardVisible = false
     @StateObject private var quranNavigator = QuranNavigationCoordinator()
+    @AppStorage("isPresentingWidgetInstructions") private var isPresentingWidgetInstructions = false
     @AppStorage("hasSavedRecording") private var hasSavedRecording = false
     @AppStorage(RecordingUserDefaultsKeys.controlAction, store: RecordingDefaults.shared) private var pendingControlActionRaw = ""
     @AppStorage(RecordingUserDefaultsKeys.routeAction, store: RecordingDefaults.shared) private var pendingRouteActionRaw = ""
@@ -130,7 +131,10 @@ struct MainTabView: View {
     ) private var pendingQuranDeepLinkTargetRaw = ""
     
     private var shouldShowRecordPrompt: Bool {
-        !hasSavedRecording && selectedTab == 0 && dashboardNavigationDepth == 0
+        !hasSavedRecording
+            && selectedTab == 0
+            && dashboardNavigationDepth == 0
+            && !isPresentingWidgetInstructions
     }
     
     var body: some View {
