@@ -195,8 +195,8 @@ const TARGET_AAC_BITRATE_KBPS = 96;
 const TARGET_OPUS_BITRATE_KBPS = 96;
 const TARGET_MP3_BITRATE_KBPS = 96;
 const REPETITION_NGRAM_SIZE = 3;
-const REPETITION_NGRAM_COVERAGE = 0.6;
-const REPETITION_UNIQUE_WORD_RATIO = 0.2;
+const REPETITION_NGRAM_COVERAGE = 0.75;
+const REPETITION_UNIQUE_WORD_RATIO = 0.1;
 const AUDIO_EXTENSIONS = new Set([
   ".m4a",
   ".mp3",
@@ -426,17 +426,59 @@ function isPromptEchoTranscript(
   return chunkTranscripts.every((chunk) => isPromptEcho(chunk));
 }
 
+type RepetitionMetrics = {
+  repetitionFlag: boolean;
+  looksRepetitive: boolean;
+  tokensLength: number;
+  uniqueRatio: number;
+  ngramCoverage: number;
+  allChunksNearIdentical: boolean;
+  topNgrams: {ngram: string; count: number; coverage: number}[];
+};
+
+/**
+ * Collect the most frequent n-grams and their coverage.
+ *
+ * @param {string[]} tokens Tokenized words.
+ * @param {number} n N-gram size.
+ * @param {number} limit Max n-grams to return.
+ * @return {{ngram: string, count: number, coverage: number}[]} Top n-grams.
+ */
+function getTopNgrams(
+  tokens: string[],
+  n: number,
+  limit = 3
+): {ngram: string; count: number; coverage: number}[] {
+  if (tokens.length < n) {
+    return [];
+  }
+  const counts = new Map<string, number>();
+  for (let i = 0; i <= tokens.length - n; i++) {
+    const gram = tokens.slice(i, i + n).join(" ");
+    counts.set(gram, (counts.get(gram) ?? 0) + 1);
+  }
+  const total = tokens.length - n + 1;
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([ngram, count]) => ({
+      ngram,
+      count,
+      coverage: total > 0 ? count / total : 0,
+    }));
+}
+
 /**
  * Detect repetitive transcripts across full text and chunks.
  *
  * @param {string} transcriptText Full transcript text.
  * @param {string[]} chunkTranscripts Per-chunk transcript text.
- * @return {boolean} True when repetition is detected.
+ * @return {RepetitionMetrics} Metrics for repetition detection.
  */
-function isRepetitiveTranscript(
+function getRepetitionMetrics(
   transcriptText: string,
   chunkTranscripts: string[]
-): boolean {
+): RepetitionMetrics {
   const normalizedTranscript = normalizeForComparison(transcriptText);
   const tokens = normalizedTranscript.split(" ").filter(Boolean);
   const uniqueWords = new Set(tokens).size;
@@ -445,8 +487,8 @@ function isRepetitiveTranscript(
   const ngramCoverage = maxNgramCoverage(tokens, REPETITION_NGRAM_SIZE);
   const looksRepetitive =
     tokens.length >= 30 &&
-    (uniqueRatio < REPETITION_UNIQUE_WORD_RATIO ||
-      ngramCoverage >= REPETITION_NGRAM_COVERAGE);
+    uniqueRatio < REPETITION_UNIQUE_WORD_RATIO &&
+    ngramCoverage >= REPETITION_NGRAM_COVERAGE;
 
   const normalizedChunks = chunkTranscripts
     .map(normalizeForComparison)
@@ -457,7 +499,15 @@ function isRepetitiveTranscript(
       areNearIdentical(chunk, normalizedChunks[0])
     );
 
-  return looksRepetitive || allChunksNearIdentical;
+  return {
+    repetitionFlag: looksRepetitive || allChunksNearIdentical,
+    looksRepetitive,
+    tokensLength: tokens.length,
+    uniqueRatio,
+    ngramCoverage,
+    allChunksNearIdentical,
+    topNgrams: getTopNgrams(tokens, REPETITION_NGRAM_SIZE),
+  };
 }
 
 /**
@@ -1371,7 +1421,7 @@ export const onAudioUpload = onObjectFinalized(
       ) => {
         const wordCount = countWords(transcriptText);
         const wordsPerMinute = wordCount / safeDurationMinutes;
-        const repetitionFlag = isRepetitiveTranscript(
+        const repetition = getRepetitionMetrics(
           transcriptText,
           chunkTranscripts
         );
@@ -1388,12 +1438,27 @@ export const onAudioUpload = onObjectFinalized(
           durationMinutes,
           wordCount,
           wordsPerMinute,
-          repetitionFlag,
+          repetitionFlag: repetition.repetitionFlag,
+          repetitionDetails: {
+            tokensLength: repetition.tokensLength,
+            uniqueRatio: repetition.uniqueRatio,
+            ngramCoverage: repetition.ngramCoverage,
+            looksRepetitive: repetition.looksRepetitive,
+            allChunksNearIdentical: repetition.allChunksNearIdentical,
+            chunkCount: chunkTranscripts.length,
+            thresholds: {
+              minTokens: 30,
+              uniqueRatioMax: REPETITION_UNIQUE_WORD_RATIO,
+              ngramCoverageMin: REPETITION_NGRAM_COVERAGE,
+              ngramSize: REPETITION_NGRAM_SIZE,
+            },
+            topNgrams: repetition.topNgrams,
+          },
           pass,
         });
 
         return {
-          repetitionFlag,
+          repetitionFlag: repetition.repetitionFlag,
           tooFewWords,
           tooShortForDuration,
           wordCount,
