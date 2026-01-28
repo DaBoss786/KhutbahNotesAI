@@ -179,15 +179,20 @@ private final class LoopingVideoPlayer: ObservableObject {
     @Published var player: AVPlayer? = nil
 
     private var endObserver: NSObjectProtocol?
+    private var loopWorkItem: DispatchWorkItem?
+    private var isLoopScheduled = false
     private let notificationCenter: NotificationCenter
+    private let loopDelay: TimeInterval
 
     init(
         resourceName: String,
         resourceExtension: String,
         bundle: Bundle = .main,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        loopDelay: TimeInterval = 3.0
     ) {
         self.notificationCenter = notificationCenter
+        self.loopDelay = loopDelay
 
         guard let url = bundle.url(forResource: resourceName, withExtension: resourceExtension) else {
             return
@@ -202,23 +207,45 @@ private final class LoopingVideoPlayer: ObservableObject {
             object: player.currentItem,
             queue: .main
         ) { [weak player] _ in
-            player?.seek(to: .zero)
-            player?.play()
+            guard let player else { return }
+            self.scheduleNextLoop(for: player)
         }
     }
 
     deinit {
+        loopWorkItem?.cancel()
         if let endObserver {
             notificationCenter.removeObserver(endObserver)
         }
     }
 
     func play() {
+        loopWorkItem?.cancel()
+        loopWorkItem = nil
+        isLoopScheduled = false
         player?.seek(to: .zero)
         player?.play()
     }
 
     func pause() {
+        loopWorkItem?.cancel()
+        loopWorkItem = nil
+        isLoopScheduled = false
         player?.pause()
+    }
+
+    private func scheduleNextLoop(for player: AVPlayer) {
+        guard !isLoopScheduled else { return }
+        isLoopScheduled = true
+        player.pause()
+
+        let workItem = DispatchWorkItem { [weak self, weak player] in
+            guard let self, let player else { return }
+            self.isLoopScheduled = false
+            player.seek(to: .zero)
+            player.play()
+        }
+        loopWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + loopDelay, execute: workItem)
     }
 }
