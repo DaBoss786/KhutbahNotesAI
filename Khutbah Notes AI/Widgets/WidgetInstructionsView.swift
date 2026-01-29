@@ -118,8 +118,8 @@ struct WidgetInstructionsView: View {
             )
             InstructionStepCard(
                 number: 3,
-                title: "Select Daily Ayah",
-                detail: "Add the rectangular widget and tap Done."
+                title: "Select Daily or Hourly Ayah",
+                detail: "Add the rectangular widget you prefer and tap Done."
             )
         }
     }

@@ -17,6 +17,11 @@ struct DailyAyah: Equatable {
 }
 
 enum DailyAyahProvider {
+    enum AyahCadence {
+        case daily
+        case hourly
+    }
+
     // A small, stable rotation list for deterministic daily selection.
     private static let rotatingVerseIds: [String] = [
         "1:1",
@@ -36,7 +41,25 @@ enum DailyAyahProvider {
         bundle: Bundle = .main,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> DailyAyah {
-        let target = targetForDate(date, calendar: calendar) ?? QuranCitationTarget(surahId: 1, ayah: 1)
+        ayah(on: date, cadence: .daily, bundle: bundle, calendar: calendar)
+    }
+
+    static func hourlyAyah(
+        on date: Date = Date(),
+        bundle: Bundle = .main,
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) -> DailyAyah {
+        ayah(on: date, cadence: .hourly, bundle: bundle, calendar: calendar)
+    }
+
+    static func ayah(
+        on date: Date = Date(),
+        cadence: AyahCadence,
+        bundle: Bundle = .main,
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) -> DailyAyah {
+        let target = targetForDate(date, cadence: cadence, calendar: calendar)
+            ?? QuranCitationTarget(surahId: 1, ayah: 1)
 
         guard let repository = QuranRepository(bundle: bundle) else {
             return DailyAyah(target: target, surahName: nil, arabicText: "", translationText: nil)
@@ -70,13 +93,23 @@ enum DailyAyahProvider {
 
     static func nextRefreshDate(
         after date: Date,
+        cadence: AyahCadence,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> Date {
         var calendar = calendar
         calendar.timeZone = .current
 
         let startOfDay = calendar.startOfDay(for: date)
-        let nextMidnight = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? date.addingTimeInterval(86_400)
+        let nextMidnight = calendar.date(byAdding: .day, value: 1, to: startOfDay)
+            ?? date.addingTimeInterval(86_400)
+        let nextHourBase = calendar.date(byAdding: .hour, value: 1, to: date)
+            ?? date.addingTimeInterval(3_600)
+        let nextHour = calendar.date(
+            bySettingHour: calendar.component(.hour, from: nextHourBase),
+            minute: 0,
+            second: 0,
+            of: nextHourBase
+        ) ?? nextHourBase
 
         let fridaySix = calendar.nextDate(
             after: date,
@@ -89,22 +122,32 @@ enum DailyAyahProvider {
             matchingPolicy: .nextTimePreservingSmallerComponents
         )
 
-        let candidates = [nextMidnight, fridaySix, fridayFifteen]
+        let cadenceRefresh = cadence == .hourly ? nextHour : nextMidnight
+        let candidates = [cadenceRefresh, fridaySix, fridayFifteen]
             .compactMap { $0 }
             .filter { $0 > date }
 
-        return candidates.min() ?? nextMidnight
+        return candidates.min() ?? cadenceRefresh
     }
 
     private static func targetForDate(
         _ date: Date,
+        cadence: AyahCadence,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> QuranCitationTarget? {
         guard !rotatingVerseIds.isEmpty else { return nil }
         var calendar = calendar
         calendar.timeZone = .current
         let dayOfYear = calendar.ordinality(of: .day, in: .year, for: date) ?? 1
-        let index = (dayOfYear - 1) % rotatingVerseIds.count
+        let hour = calendar.component(.hour, from: date)
+        let rotationIndex: Int
+        switch cadence {
+        case .daily:
+            rotationIndex = dayOfYear - 1
+        case .hourly:
+            rotationIndex = (dayOfYear - 1) * 24 + hour
+        }
+        let index = rotationIndex % rotatingVerseIds.count
         return QuranDeepLink.parseVerseId(rotatingVerseIds[index])
     }
 }

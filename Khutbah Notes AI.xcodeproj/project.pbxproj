@@ -35,7 +35,7 @@
 		E60300012F20000100000001 /* quran_ar.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C57C2F0B78FD0039F8DA /* quran_ar.sqlite */; };
 		E60300012F20000100000002 /* quran_en_sahih.db in Resources */ = {isa = PBXBuildFile; fileRef = D402C57E2F0B790D0039F8DA /* quran_en_sahih.db */; };
 		E60300012F20000100000003 /* quran-metadata-surah-name.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = D402C5832F0B86500039F8DA /* quran-metadata-surah-name.sqlite */; };
-		E60400012F20000100000001 /* Lock Screen.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = E60500012F20000100000001 /* Lock Screen.mp4 */; };
+		E60400012F20000100000001 /* Khutbah Notes AI/Assets/Lock Screen.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = E60500012F20000100000001 /* Khutbah Notes AI/Assets/Lock Screen.mp4 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -95,7 +95,7 @@
 		E60100012F20000100000004 /* Khutbah Notes AI/Quran/QuranModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranModels.swift"; sourceTree = "<group>"; };
 		E60100012F20000100000005 /* Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/Quran/QuranNavigationCoordinator.swift"; sourceTree = "<group>"; };
 		E60100012F20000100000006 /* Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Khutbah Notes AI/DailyAyah/DailyAyahProvider.swift"; sourceTree = "<group>"; };
-		E60500012F20000100000001 /* Lock Screen.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Khutbah Notes AI/Assets/Lock Screen.mp4"; sourceTree = "<group>"; };
+		E60500012F20000100000001 /* Khutbah Notes AI/Assets/Lock Screen.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Khutbah Notes AI/Assets/Lock Screen.mp4"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -262,6 +262,7 @@
 				E60100012F20000100000003 /* Khutbah Notes AI/Quran/QuranRepository.swift */,
 				E60100012F20000100000002 /* Khutbah Notes AI/Quran/QuranRouting.swift */,
 				E60100012F20000100000001 /* Khutbah Notes AI/RecordingRouting.swift */,
+				E60500012F20000100000001 /* Khutbah Notes AI/Assets/Lock Screen.mp4 */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -453,7 +454,7 @@
 				D402C57F2F0B790D0039F8DA /* quran_en_sahih.db in Resources */,
 				D402C5842F0B86500039F8DA /* quran-metadata-surah-name.sqlite in Resources */,
 				D402C57D2F0B78FD0039F8DA /* quran_ar.sqlite in Resources */,
-				E60400012F20000100000001 /* Lock Screen.mp4 in Resources */,
+				E60400012F20000100000001 /* Khutbah Notes AI/Assets/Lock Screen.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -844,7 +845,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AI";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -895,7 +896,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.medswipeapp.Khutbah-Notes-AI";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

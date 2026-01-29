@@ -15,5 +15,6 @@ struct OneSignalWidgetBundle: WidgetBundle {
         OneSignalWidgetControl()
         OneSignalWidgetLiveActivity()
         DailyAyahWidget()
+        HourlyAyahWidget()
     }
 }

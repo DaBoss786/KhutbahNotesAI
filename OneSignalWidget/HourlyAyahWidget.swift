@@ -1,23 +1,23 @@
 import SwiftUI
 import WidgetKit
 
-private struct DailyAyahEntry: TimelineEntry {
+private struct HourlyAyahEntry: TimelineEntry {
     let date: Date
     let ayah: DailyAyah
     let isJummahWindow: Bool
     let widgetURL: URL
 }
 
-private struct DailyAyahTimelineProvider: TimelineProvider {
-    func placeholder(in context: Context) -> DailyAyahEntry {
-        let sampleTarget = QuranCitationTarget(surahId: 2, ayah: 255)
+private struct HourlyAyahTimelineProvider: TimelineProvider {
+    func placeholder(in context: Context) -> HourlyAyahEntry {
+        let sampleTarget = QuranCitationTarget(surahId: 18, ayah: 10)
         let sampleAyah = DailyAyah(
             target: sampleTarget,
-            surahName: "Al-Baqarah",
+            surahName: "Al-Kahf",
             arabicText: "",
-            translationText: "Allah! There is no deity except Him, the Ever-Living, the Sustainer of existence."
+            translationText: "Our Lord, grant us mercy from Yourself and guide us to a right course."
         )
-        return DailyAyahEntry(
+        return HourlyAyahEntry(
             date: Date(),
             ayah: sampleAyah,
             isJummahWindow: false,
@@ -25,25 +25,25 @@ private struct DailyAyahTimelineProvider: TimelineProvider {
         )
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (DailyAyahEntry) -> Void) {
+    func getSnapshot(in context: Context, completion: @escaping (HourlyAyahEntry) -> Void) {
         completion(makeEntry(for: Date()))
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<DailyAyahEntry>) -> Void) {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<HourlyAyahEntry>) -> Void) {
         let now = Date()
         let entry = makeEntry(for: now)
-        let nextRefresh = DailyAyahProvider.nextRefreshDate(after: now, cadence: .daily)
+        let nextRefresh = DailyAyahProvider.nextRefreshDate(after: now, cadence: .hourly)
         let timeline = Timeline(entries: [entry], policy: .after(nextRefresh))
         completion(timeline)
     }
 
-    private func makeEntry(for date: Date) -> DailyAyahEntry {
-        let ayah = DailyAyahProvider.dailyAyah(on: date, bundle: .main)
+    private func makeEntry(for date: Date) -> HourlyAyahEntry {
+        let ayah = DailyAyahProvider.ayah(on: date, cadence: .hourly, bundle: .main)
         let isJummahWindow = DailyAyahProvider.isJummahWindow(on: date)
         let widgetURL = isJummahWindow
             ? RecordingDeepLink.url(for: .openRecording)
             : QuranDeepLink.url(for: ayah.target)
-        return DailyAyahEntry(
+        return HourlyAyahEntry(
             date: date,
             ayah: ayah,
             isJummahWindow: isJummahWindow,
@@ -52,9 +52,9 @@ private struct DailyAyahTimelineProvider: TimelineProvider {
     }
 }
 
-private struct DailyAyahWidgetEntryView: View {
+private struct HourlyAyahWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
-    let entry: DailyAyahEntry
+    let entry: HourlyAyahEntry
 
     var body: some View {
         Group {
@@ -108,7 +108,7 @@ private struct DailyAyahWidgetEntryView: View {
     private var translationText: String {
         let trimmed = entry.ayah.translationText?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? entry.ayah.referenceText : trimmed
+        return trimmed.isEmpty ? entry.ayah.displayReferenceText : trimmed
     }
 
     private var inlineSnippet: String {
@@ -119,32 +119,33 @@ private struct DailyAyahWidgetEntryView: View {
     }
 }
 
-struct DailyAyahWidget: Widget {
-    private let kind = "DailyAyahWidget"
+struct HourlyAyahWidget: Widget {
+    private let kind = "HourlyAyahWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: DailyAyahTimelineProvider()) { entry in
-            DailyAyahWidgetEntryView(entry: entry)
+        StaticConfiguration(kind: kind, provider: HourlyAyahTimelineProvider()) { entry in
+            HourlyAyahWidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("Daily Ayah")
-        .description("A daily verse that becomes a Jummah recorder on Fridays.")
+        .configurationDisplayName("Hourly Ayah")
+        .description("A verse that refreshes hourly and becomes a Jummah recorder on Fridays.")
         .supportedFamilies([.accessoryRectangular, .accessoryInline])
     }
 }
 
 #Preview(as: .accessoryRectangular) {
-    DailyAyahWidget()
+    HourlyAyahWidget()
 } timeline: {
-    let target = QuranCitationTarget(surahId: 18, ayah: 10)
-    DailyAyahEntry(
+    let target = QuranCitationTarget(surahId: 2, ayah: 255)
+    HourlyAyahEntry(
         date: .now,
         ayah: DailyAyah(
             target: target,
-            surahName: "Al-Kahf",
+            surahName: "Al-Baqarah",
             arabicText: "",
-            translationText: "Our Lord, grant us mercy from Yourself and guide us to a right course."
+            translationText: "Allah! There is no deity except Him, the Ever-Living, the Sustainer of existence."
         ),
         isJummahWindow: false,
         widgetURL: QuranDeepLink.url(for: target)
     )
 }
+
