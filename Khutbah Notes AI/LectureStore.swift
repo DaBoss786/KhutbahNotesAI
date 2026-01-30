@@ -147,6 +147,7 @@ final class LectureStore: ObservableObject {
         lectures[index] = lecture
     }
 
+
     var uploadFailureMessageText: String {
         uploadFailureMessage
     }
