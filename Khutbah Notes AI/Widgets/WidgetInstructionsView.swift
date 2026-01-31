@@ -109,7 +109,7 @@ struct WidgetInstructionsView: View {
             InstructionStepCard(
                 number: 1,
                 title: "Press and hold your Lock Screen",
-                detail: "Tap Customize, then choose the Lock Screen preview."
+                detail: "Tap Customize."
             )
             InstructionStepCard(
                 number: 2,
