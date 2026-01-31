@@ -70,7 +70,7 @@ private struct DailyAyahWidgetEntryView: View {
     }
 
     private var rectangularView: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             if entry.isJummahWindow {
                 HStack(spacing: 6) {
                     Image(systemName: "mic.fill")
@@ -84,9 +84,10 @@ private struct DailyAyahWidgetEntryView: View {
                     .lineLimit(1)
             } else {
                 Text(translationText)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.primary)
-                    .lineLimit(3)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.9)
                 Text(entry.ayah.displayReferenceText)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
