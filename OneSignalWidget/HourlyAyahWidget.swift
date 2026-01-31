@@ -74,7 +74,7 @@ private struct HourlyAyahWidgetEntryView: View {
             if entry.isJummahWindow {
                 HStack(spacing: 6) {
                     Image(systemName: "mic.fill")
-                    Text("Jummah")
+                    Text("Jummah Mubarak")
                         .font(.caption.bold())
                 }
                 .foregroundStyle(.primary)
@@ -98,7 +98,7 @@ private struct HourlyAyahWidgetEntryView: View {
     @ViewBuilder
     private var inlineView: some View {
         if entry.isJummahWindow {
-            Label("Jummah", systemImage: "mic.fill")
+            Label("Jummah Mubarak", systemImage: "mic.fill")
         } else {
             Text("\(entry.ayah.displayReferenceText) \(inlineSnippet)")
                 .lineLimit(1)
@@ -148,4 +148,3 @@ struct HourlyAyahWidget: Widget {
         widgetURL: QuranDeepLink.url(for: target)
     )
 }
-

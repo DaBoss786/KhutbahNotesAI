@@ -114,8 +114,11 @@ enum DailyAyahProvider {
         calendar.timeZone = .current
         let weekday = calendar.component(.weekday, from: date)
         guard weekday == 6 else { return false } // Friday in the Gregorian calendar.
-        let hour = calendar.component(.hour, from: date)
-        return hour >= 6 && hour < 15
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        let hour = components.hour ?? 0
+        let minute = components.minute ?? 0
+        let minutesSinceMidnight = hour * 60 + minute
+        return minutesSinceMidnight >= 11 * 60 + 30 && minutesSinceMidnight < 14 * 60
     }
 
     static func nextRefreshDate(
@@ -138,19 +141,19 @@ enum DailyAyahProvider {
             of: nextHourBase
         ) ?? nextHourBase
 
-        let fridaySix = calendar.nextDate(
+        let fridayStart = calendar.nextDate(
             after: date,
-            matching: DateComponents(hour: 6, minute: 0, second: 0, weekday: 6),
+            matching: DateComponents(hour: 11, minute: 30, second: 0, weekday: 6),
             matchingPolicy: .nextTimePreservingSmallerComponents
         )
-        let fridayFifteen = calendar.nextDate(
+        let fridayEnd = calendar.nextDate(
             after: date,
-            matching: DateComponents(hour: 15, minute: 0, second: 0, weekday: 6),
+            matching: DateComponents(hour: 14, minute: 0, second: 0, weekday: 6),
             matchingPolicy: .nextTimePreservingSmallerComponents
         )
 
         let cadenceRefresh = cadence == .hourly ? nextHour : nextMidnight
-        let candidates = [cadenceRefresh, fridaySix, fridayFifteen]
+        let candidates = [cadenceRefresh, fridayStart, fridayEnd]
             .compactMap { $0 }
             .filter { $0 > date }
 

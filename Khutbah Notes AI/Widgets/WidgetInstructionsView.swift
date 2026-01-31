@@ -41,10 +41,10 @@ struct WidgetInstructionsView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Add Daily Ayah to your Lock Screen")
+            Text("Add an ayah to your lock screen")
                 .font(Theme.largeTitleFont)
                 .foregroundColor(.black)
-            Text("On Fridays (6am–3pm), it becomes a quick Jummah recorder.")
+            Text("On Fridays (11:30am–2pm), it becomes a quick Jummah recorder.")
                 .font(.subheadline)
                 .foregroundColor(Theme.mutedText)
         }

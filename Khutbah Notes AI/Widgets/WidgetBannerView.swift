@@ -12,11 +12,11 @@ struct WidgetBannerView: View {
                 .foregroundColor(Theme.primaryGreen)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("New: Daily Ayah Lock Screen widget")
+                Text("New: Quran Lock Screen widget")
                     .font(.footnote.weight(.semibold))
                     .foregroundColor(Theme.primaryGreen)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Shows a verse daily and becomes a Jummah recorder on Fridays.")
+                Text("Shows a verse daily/hourly and becomes a khutbah recorder on Fridays.")
                     .font(.caption)
                     .foregroundColor(Theme.primaryGreen.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
@@ -61,4 +61,3 @@ struct WidgetBannerView: View {
         }
     }
 }
-

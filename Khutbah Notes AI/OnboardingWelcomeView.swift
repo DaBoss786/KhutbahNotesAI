@@ -862,11 +862,18 @@ struct OnboardingNotificationsPrePromptView: View {
     let progress: OnboardingProgress
     var onContinue: () -> Void
     
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: LectureStore
     @AppStorage("notificationPrefChoice") private var storedNotificationChoice: String?
     @State private var isRequestingPermission = false
+    @State private var revealAll = false
     
     private let contentWidth: CGFloat = 340
+    private let fadeDuration: Double = 1.1
+    private let baseFadeDelay: Double = 0.6
+    private let stepFadeDelay: Double = 1.0
+    private let extraPauseAfterNudge: Double = 0.6
+    private let lastRevealIndex: Int = 7
     
     var body: some View {
         OnboardingStepLayout(
@@ -876,55 +883,99 @@ struct OnboardingNotificationsPrePromptView: View {
             contentSpacing: 20,
             background: { BrandPalette.cream },
             content: {
-                Text("Stay Connected Weekly")
+                Text("Don’t Miss the Khutbah")
                     .font(OnboardingTypography.title)
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: contentWidth)
-                    .onboardingReveal(0)
+                    .onboardingTimedFade(delay: fadeDelay(0), revealAll: $revealAll, duration: fadeDuration)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    reminderBullet("Reminder before khutbah")
-                    reminderBullet("Alert when summary is ready")
-                    reminderBullet("Midweek reflection reminders")
+                VStack(spacing: 10) {
+                    storyLine("Fridays can be hectic…", index: 1)
+                    storyLine("Without a nudge, it’s easy to forget to record.", index: 2)
+                    storyLine("Let us send a gentle reminder inshallah", index: 3)
                 }
-                .frame(maxWidth: contentWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .onboardingReveal(1)
+                .frame(maxWidth: contentWidth)
+
+                notificationCard
+                    .onboardingTimedFade(delay: fadeDelay(4), revealAll: $revealAll, duration: fadeDuration)
             },
             footer: {
-                VStack(spacing: 14) {
+                VStack(spacing: 10) {
                     Button(action: handleAllowTapped) {
-                        Text("Yes, remind me on Fridays")
+                        Text("Yes, remind me before Jumu’ah")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SolidGreenButtonStyle())
                     .disabled(isRequestingPermission)
-                    .onboardingReveal(2)
+
+                    Text("No spam. Turn off anytime.")
+                        .font(.system(size: 13, weight: .medium, design: .default))
+                        .foregroundColor(BrandPalette.deepGreen.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
 
                     Button(action: handleNotNowTapped) {
-                        Text("Not now")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(BrandPalette.deepGreen)
+                        Text("Maybe Later")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(BrandPalette.deepGreen.opacity(0.82))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 10)
                     }
                     .disabled(isRequestingPermission)
-                    .onboardingReveal(3)
                 }
+                .allowsHitTesting(revealAll)
+                .onboardingTimedFade(delay: fadeDelay(5), revealAll: $revealAll, duration: fadeDuration)
             }
         )
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                revealAllContent()
+            }
+        )
+        .onAppear {
+            startRevealTiming()
+        }
     }
     
-    private func reminderBullet(_ text: String) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "bell.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(BrandPalette.deepGreen)
-                .opacity(0.9)
-            Text(text)
-                .font(.system(size: 17, weight: .regular))
-                .foregroundColor(BrandPalette.deepGreen.opacity(0.95))
+    private func storyLine(_ text: String, index: Int) -> some View {
+        Text(text)
+            .font(OnboardingTypography.subtitle)
+            .foregroundColor(BrandPalette.deepGreen.opacity(0.92))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .onboardingTimedFade(delay: fadeDelay(index), revealAll: $revealAll, duration: fadeDuration)
+    }
+
+    private func fadeDelay(_ index: Int) -> Double {
+        baseFadeDelay + (Double(index) * stepFadeDelay) + (index >= 3 ? extraPauseAfterNudge : 0)
+    }
+
+    private func startRevealTiming() {
+        guard !reduceMotion else {
+            revealAllContent()
+            return
+        }
+        let finalDelay = fadeDelay(lastRevealIndex) + fadeDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + finalDelay) {
+            revealAllContent()
+        }
+    }
+
+    private func revealAllContent() {
+        if !revealAll {
+            revealAll = true
+        }
+    }
+
+    @ViewBuilder
+    private var notificationCard: some View {
+        if let image = UIImage(named: "jummahreminder") ?? UIImage(named: "jummahreminder.png") {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: contentWidth + 40)
         }
     }
     
