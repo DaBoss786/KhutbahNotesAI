@@ -9,7 +9,7 @@ import RevenueCat
 import RevenueCatUI
 
 struct OnboardingPaywallView: View {
-    var onComplete: () -> Void
+    var onComplete: (_ result: OnboardingPaywallResult) -> Void
     
     @State private var offering: Offering?
     @State private var isLoading = true
@@ -17,6 +17,7 @@ struct OnboardingPaywallView: View {
     @State private var showActivationConfirmation = false
     @State private var activationError: String?
     @State private var retryCount = 0
+    @State private var pendingCompletionResult: OnboardingPaywallResult?
     
     private let maxRetries = 3
     private let premiumEntitlementId = "Khutbah Notes Pro"
@@ -35,16 +36,18 @@ struct OnboardingPaywallView: View {
                     .onRequestedDismissal {
                         logPaywallResult(.dismissed)
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        onComplete()   // <-- this takes the user to the dashboard in your app
+                        onComplete(.dismissed)   // <-- this takes the user to the dashboard in your app
                     }
                     .onPurchaseCompleted {
                         logPaywallResult(.purchased)
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        pendingCompletionResult = .purchased
                         handleEntitlementConfirmation(from: $0)
                     }
                     .onRestoreCompleted {
                         logPaywallResult(.restored)
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        pendingCompletionResult = .restored
                         handleEntitlementConfirmation(from: $0)
                     }
 
@@ -113,7 +116,7 @@ struct OnboardingPaywallView: View {
                 
                 Button(action: {
                     logPaywallResult(.dismissed)
-                    onComplete()
+                    onComplete(.dismissed)
                 }) {
                     Text("Continue without subscribing")
                         .font(.system(size: 16, weight: .medium))
@@ -140,13 +143,13 @@ struct OnboardingPaywallView: View {
                 .foregroundColor(BrandPalette.cream.opacity(0.85))
                 .multilineTextAlignment(.center)
             
-            Button(action: {
-                logPaywallResult(.dismissed)
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                onComplete()
-            }) {
-                Text("Get Started")
-                    .frame(maxWidth: .infinity)
+                Button(action: {
+                    logPaywallResult(.dismissed)
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    onComplete(.dismissed)
+                }) {
+                    Text("Get Started")
+                        .frame(maxWidth: .infinity)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(BrandPalette.primaryButtonBottom)
                     .padding(.vertical, 16)
@@ -182,7 +185,9 @@ struct OnboardingPaywallView: View {
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     showActivationConfirmation = false
-                    onComplete()
+                    let completionResult = pendingCompletionResult ?? .purchased
+                    pendingCompletionResult = nil
+                    onComplete(completionResult)
                 }) {
                     Text("Continue")
                         .frame(maxWidth: .infinity)

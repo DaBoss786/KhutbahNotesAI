@@ -21,6 +21,8 @@ struct Khutbah_Notes_AIApp: App {
     @StateObject private var store: LectureStore
     @State private var showSplash = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("pendingRamadanGiftModal") private var pendingRamadanGiftModal = false
+    @AppStorage("hasShownRamadanGiftModal") private var hasShownRamadanGiftModal = false
     
     init() {
         FirebaseApp.configure()
@@ -49,6 +51,17 @@ struct Khutbah_Notes_AIApp: App {
                 if showSplash {
                     SplashView(isActive: $showSplash)
                         .transition(.opacity)
+                }
+
+                if shouldShowRamadanGiftModal {
+                    RamadanGiftModalView {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            pendingRamadanGiftModal = false
+                            hasShownRamadanGiftModal = true
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(2)
                 }
             }
             .environmentObject(store)
@@ -115,6 +128,10 @@ struct Khutbah_Notes_AIApp: App {
                 print("RevenueCat synced with user: \(userId)")
             }
         }
+    }
+
+    private var shouldShowRamadanGiftModal: Bool {
+        pendingRamadanGiftModal && !showSplash && hasCompletedOnboarding && !hasShownRamadanGiftModal
     }
 }
 

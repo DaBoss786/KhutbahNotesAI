@@ -242,7 +242,7 @@ struct MainTabView: View {
         }
         .tint(Theme.primaryGreen)
         .sheet(isPresented: $showPaywall) {
-            OnboardingPaywallView {
+            OnboardingPaywallView { _ in
                 showPaywall = false
             }
         }
@@ -498,7 +498,7 @@ struct NotesView: View {
             )
         }
         .sheet(isPresented: $showPaywall) {
-            OnboardingPaywallView {
+            OnboardingPaywallView { _ in
                 showPaywall = false
             }
         }
@@ -3593,7 +3593,7 @@ struct SettingsView: View {
             })
         }
         .sheet(isPresented: $showPaywall) {
-            OnboardingPaywallView {
+            OnboardingPaywallView { _ in
                 showPaywall = false
             }
         }

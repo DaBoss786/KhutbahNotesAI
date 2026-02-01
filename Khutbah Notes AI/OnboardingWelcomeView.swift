@@ -15,6 +15,8 @@ struct OnboardingFlowView: View {
     @State private var step: Step = .welcome
     @State private var hasLoggedInitialStep = false
     @State private var pendingStepDetails: PendingStepDetails?
+    @AppStorage("hasShownRamadanGiftModal") private var hasShownRamadanGiftModal = false
+    @AppStorage("pendingRamadanGiftModal") private var pendingRamadanGiftModal = false
 
     private struct PendingStepDetails {
         let jumuahTime: String
@@ -117,9 +119,9 @@ struct OnboardingFlowView: View {
                 }
                 .transition(stepTransition)
             case .paywall:
-                OnboardingPaywallView {
+                OnboardingPaywallView { result in
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        hasCompletedOnboarding = true
+                        handlePaywallCompletion(result)
                     }
                 }
                 .transition(stepTransition)
@@ -154,6 +156,18 @@ struct OnboardingFlowView: View {
         )
         if step == .notificationsPrePrompt {
             pendingStepDetails = nil
+        }
+    }
+
+    private func handlePaywallCompletion(_ result: OnboardingPaywallResult) {
+        switch result {
+        case .dismissed:
+            if !hasShownRamadanGiftModal {
+                pendingRamadanGiftModal = true
+            }
+            hasCompletedOnboarding = true
+        case .purchased, .restored:
+            hasCompletedOnboarding = true
         }
     }
 }
