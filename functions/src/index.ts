@@ -4229,6 +4229,15 @@ interface UserDoc {
     oneSignalId?: string;
     pushSubscriptionId?: string;
   };
+  notificationState?: {
+    jumuahReminderScheduledKey?: string;
+    jumuahReminderScheduledSendAfterUtc?: string;
+    jumuahReminderScheduledAt?: FirebaseFirestore.Timestamp;
+    jumuahReminderScheduledBy?: string;
+    jumuahReminderTriggerInProgressKey?: string;
+    jumuahReminderTriggerLastAttemptAt?: FirebaseFirestore.Timestamp;
+    jumuahReminderTriggerError?: string;
+  };
 }
 
 interface ScheduleGroup {
@@ -4498,16 +4507,27 @@ function calculateSendTime(
 
   const now = referenceDate || DateTime.utc();
   const nowInTz = now.setZone(timezone);
-  const friday = getNextFriday(nowInTz);
+  let friday = getNextWeekday(nowInTz, 5);
 
-  const jumuahDateTime = friday.set({
+  let jumuahDateTime = friday.set({
     hour: parsed.hours,
     minute: parsed.minutes,
     second: 0,
     millisecond: 0,
   });
 
-  const reminderTime = jumuahDateTime.minus({minutes: minutesBefore});
+  let reminderTime = jumuahDateTime.minus({minutes: minutesBefore});
+  if (reminderTime <= nowInTz) {
+    friday = friday.plus({days: 7});
+    jumuahDateTime = friday.set({
+      hour: parsed.hours,
+      minute: parsed.minutes,
+      second: 0,
+      millisecond: 0,
+    });
+    reminderTime = jumuahDateTime.minus({minutes: minutesBefore});
+  }
+
   return reminderTime.toUTC().toISO();
 }
 
@@ -4520,6 +4540,64 @@ function calculateSendTime(
  */
 function getGroupKey(time: string, timezone: string): string {
   return `${time}|${timezone}`;
+}
+
+/**
+ * Build a stable key for reminder de-duplication.
+ *
+ * @param {string} sendAfterUtc ISO send_after in UTC.
+ * @return {string} Minute-granularity UTC key.
+ */
+function getReminderScheduleKey(sendAfterUtc: string): string {
+  const dt = DateTime.fromISO(sendAfterUtc, {zone: "utc"});
+  if (!dt.isValid) {
+    return sendAfterUtc.substring(0, 16);
+  }
+  return dt.toFormat("yyyy-MM-dd'T'HH:mm");
+}
+
+/**
+ * Check if push reminders are enabled.
+ *
+ * @param {string|undefined} preference Preference.
+ * @return {boolean} True when reminder pushes are enabled.
+ */
+function isPushReminderPreferenceEnabled(
+  preference: UserPreferences["notificationPreference"] | undefined
+): preference is "push" | "provisional" {
+  return preference === "push" || preference === "provisional";
+}
+
+/**
+ * Detect whether reminder-related preferences changed into a schedulable state.
+ *
+ * @param {UserPreferences=} before Previous preferences.
+ * @param {UserPreferences=} after Updated preferences.
+ * @return {boolean} True when the update should trigger catch-up scheduling.
+ */
+function hasRelevantReminderPreferenceChange(
+  before?: UserPreferences,
+  after?: UserPreferences
+): boolean {
+  if (!after) {
+    return false;
+  }
+
+  const afterPreference = after.notificationPreference;
+  if (!isPushReminderPreferenceEnabled(afterPreference)) {
+    return false;
+  }
+
+  const beforePreference = before?.notificationPreference;
+  if (!isPushReminderPreferenceEnabled(beforePreference)) {
+    return true;
+  }
+
+  return (
+    beforePreference !== afterPreference ||
+    before?.jumuahStartTime !== after.jumuahStartTime ||
+    before?.jumuahTimezone !== after.jumuahTimezone
+  );
 }
 
 // ============== ONESIGNAL API ==============
@@ -5094,6 +5172,7 @@ async function runJumuahReminderScheduling(
     let skippedNotEnabled = 0;
     let skippedInvalidTime = 0;
     let skippedInvalidTz = 0;
+    let skippedAlreadyScheduled = 0;
 
     let hasMore = true;
     while (hasMore) {
@@ -5150,6 +5229,14 @@ async function runJumuahReminderScheduling(
           continue;
         }
 
+        const reminderKey = getReminderScheduleKey(sendAfterUtc);
+        if (
+          data.notificationState?.jumuahReminderScheduledKey === reminderKey
+        ) {
+          skippedAlreadyScheduled++;
+          continue;
+        }
+
         if (DateTime.fromISO(sendAfterUtc) < now) {
           logger.debug("Skipping past send time", {
             userId: doc.id,
@@ -5188,6 +5275,7 @@ async function runJumuahReminderScheduling(
       notEnabled: skippedNotEnabled,
       invalidTime: skippedInvalidTime,
       invalidTz: skippedInvalidTz,
+      alreadyScheduled: skippedAlreadyScheduled,
     });
 
     if (groups.size === 0) {
@@ -5198,6 +5286,7 @@ async function runJumuahReminderScheduling(
           notEnabled: skippedNotEnabled,
           invalidTime: skippedInvalidTime,
           invalidTz: skippedInvalidTz,
+          alreadyScheduled: skippedAlreadyScheduled,
         },
       });
       return;
@@ -5258,6 +5347,7 @@ async function runJumuahReminderScheduling(
           notEnabled: skippedNotEnabled,
           invalidTime: skippedInvalidTime,
           invalidTz: skippedInvalidTz,
+          alreadyScheduled: skippedAlreadyScheduled,
         },
       }
     );
@@ -5302,6 +5392,164 @@ export const scheduleJumuahRemindersCatchup = onSchedule(
       "Friday 06:00 UTC catch-up",
       DateTime.utc()
     );
+  }
+);
+
+/**
+ * Schedule a same-week Jumu'ah reminder when reminder preferences change on
+ * local Friday after onboarding/settings updates.
+ */
+export const scheduleJumuahReminderOnPreferenceChange = onDocumentWritten(
+  {
+    document: "users/{userId}",
+    region: "us-central1",
+    secrets: [onesignalApiKey],
+    timeoutSeconds: 60,
+    memory: "256MiB",
+  },
+  async (event) => {
+    const afterSnap = event.data?.after;
+    if (!afterSnap?.exists) {
+      return;
+    }
+
+    const afterData = afterSnap.data() as UserDoc | undefined;
+    if (!afterData) {
+      return;
+    }
+
+    const beforeData = event.data?.before?.exists ?
+      (event.data.before.data() as UserDoc | undefined) :
+      undefined;
+
+    const beforePrefs = beforeData?.preferences;
+    const afterPrefs = afterData.preferences;
+    if (!hasRelevantReminderPreferenceChange(beforePrefs, afterPrefs)) {
+      return;
+    }
+
+    const preference = afterPrefs?.notificationPreference;
+    const jumuahTime = afterPrefs?.jumuahStartTime;
+    const timezone = afterPrefs?.jumuahTimezone;
+
+    if (
+      !jumuahTime ||
+      !timezone ||
+      !isValidTimezone(timezone) ||
+      !isPushReminderPreferenceEnabled(preference)
+    ) {
+      return;
+    }
+
+    const now = DateTime.utc();
+    const nowInTz = now.setZone(timezone);
+    if (nowInTz.weekday !== 5) {
+      return;
+    }
+
+    const sendAfterUtc = calculateSendTime(jumuahTime, timezone, 3, now);
+    if (!sendAfterUtc) {
+      return;
+    }
+
+    const sendAfter = DateTime.fromISO(sendAfterUtc);
+    if (!sendAfter.isValid || sendAfter <= now) {
+      return;
+    }
+
+    const sendAfterInTz = sendAfter.setZone(timezone);
+    if (!sendAfterInTz.hasSame(nowInTz, "day")) {
+      return;
+    }
+
+    const scheduleKey = getReminderScheduleKey(sendAfterUtc);
+    if (
+      afterData.notificationState?.jumuahReminderScheduledKey === scheduleKey
+    ) {
+      return;
+    }
+
+    const docRef = afterSnap.ref;
+    const lockAcquired = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      if (!snap.exists) {
+        return false;
+      }
+
+      const current = snap.data() as UserDoc | undefined;
+      const currentState = current?.notificationState;
+      if (currentState?.jumuahReminderScheduledKey === scheduleKey) {
+        return false;
+      }
+      if (currentState?.jumuahReminderTriggerInProgressKey === scheduleKey) {
+        return false;
+      }
+
+      tx.update(docRef, {
+        "notificationState.jumuahReminderTriggerInProgressKey": scheduleKey,
+        "notificationState.jumuahReminderTriggerLastAttemptAt":
+          admin.firestore.FieldValue.serverTimestamp(),
+        "notificationState.jumuahReminderTriggerError":
+          admin.firestore.FieldValue.delete(),
+      });
+      return true;
+    });
+
+    if (!lockAcquired) {
+      return;
+    }
+
+    const apiKey = onesignalApiKey.value();
+    if (!apiKey) {
+      await docRef.update({
+        "notificationState.jumuahReminderTriggerInProgressKey":
+          admin.firestore.FieldValue.delete(),
+        "notificationState.jumuahReminderTriggerError":
+          "missing_onesignal_api_key",
+      });
+      return;
+    }
+
+    const {userId} = event.params;
+    const result = await sendJumuahNotification([userId], sendAfterUtc, apiKey);
+
+    if (result.success) {
+      await docRef.update({
+        "notificationState.jumuahReminderScheduledKey": scheduleKey,
+        "notificationState.jumuahReminderScheduledSendAfterUtc": sendAfterUtc,
+        "notificationState.jumuahReminderScheduledAt":
+          admin.firestore.FieldValue.serverTimestamp(),
+        "notificationState.jumuahReminderScheduledBy":
+          "preference_change_trigger",
+        "notificationState.jumuahReminderTriggerInProgressKey":
+          admin.firestore.FieldValue.delete(),
+        "notificationState.jumuahReminderTriggerError":
+          admin.firestore.FieldValue.delete(),
+      });
+
+      logger.info("Scheduled Friday reminder from preference change", {
+        userId,
+        timezone,
+        jumuahTime,
+        sendAfterUtc,
+      });
+      return;
+    }
+
+    await docRef.update({
+      "notificationState.jumuahReminderTriggerInProgressKey":
+        admin.firestore.FieldValue.delete(),
+      "notificationState.jumuahReminderTriggerError":
+        result.error ?? "onesignal_error",
+    });
+
+    logger.error("Failed preference-change reminder scheduling", {
+      userId,
+      timezone,
+      jumuahTime,
+      sendAfterUtc,
+      error: result.error,
+    });
   }
 );
 
