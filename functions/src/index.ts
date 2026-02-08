@@ -195,8 +195,31 @@ const TARGET_AAC_BITRATE_KBPS = 96;
 const TARGET_OPUS_BITRATE_KBPS = 96;
 const TARGET_MP3_BITRATE_KBPS = 96;
 const REPETITION_NGRAM_SIZE = 3;
-const REPETITION_NGRAM_COVERAGE = 0.75;
-const REPETITION_UNIQUE_WORD_RATIO = 0.1;
+const REPETITION_DISTRIBUTED_TOP_N = 20;
+const REPETITION_MIN_TOKENS = 30;
+const REPETITION_SUSPICIOUS_UNIQUE_RATIO_MAX = 0.18;
+const REPETITION_HARD_FAIL_UNIQUE_RATIO_MAX = 0.12;
+const REPETITION_SUSPICIOUS_TOP1_COVERAGE_MIN = 0.25;
+const REPETITION_HARD_FAIL_TOP1_COVERAGE_MIN = 0.4;
+const REPETITION_SUSPICIOUS_TOP3_COVERAGE_MIN = 0.55;
+const REPETITION_HARD_FAIL_TOP3_COVERAGE_MIN = 0.75;
+const REPETITION_SUSPICIOUS_TOP3_UNIQUE_RATIO_MAX = 0.25;
+const REPETITION_HARD_FAIL_TOP3_UNIQUE_RATIO_MAX = 0.2;
+const REPETITION_SUSPICIOUS_LOW_UNIQUE_MIN_TOKENS = 400;
+const REPETITION_HARD_FAIL_LOW_UNIQUE_MIN_TOKENS = 800;
+const REPETITION_SUSPICIOUS_LOW_UNIQUE_RATIO_MAX = 0.08;
+const REPETITION_HARD_FAIL_LOW_UNIQUE_RATIO_MAX = 0.05;
+const REPETITION_SUSPICIOUS_TOP20_MIN_TOKENS = 400;
+const REPETITION_HARD_FAIL_TOP20_MIN_TOKENS = 800;
+const REPETITION_SUSPICIOUS_TOP20_COVERAGE_MIN = 0.65;
+const REPETITION_HARD_FAIL_TOP20_COVERAGE_MIN = 0.8;
+const REPETITION_SUSPICIOUS_TOP20_UNIQUE_RATIO_MAX = 0.12;
+const REPETITION_HARD_FAIL_TOP20_UNIQUE_RATIO_MAX = 0.1;
+const CHUNK_REPETITION_MIN_TOKENS = 30;
+const CHUNK_REPETITION_UNIQUE_RATIO_MAX = 0.2;
+const CHUNK_REPETITION_TOP1_COVERAGE_MIN = 0.28;
+const CHUNK_REPETITION_SUSPICIOUS_RATIO_MIN = 0.4;
+const CHUNK_REPETITION_HARD_FAIL_RATIO_MIN = 0.6;
 const AUDIO_EXTENSIONS = new Set([
   ".m4a",
   ".mp3",
@@ -428,10 +451,21 @@ function isPromptEchoTranscript(
 
 type RepetitionMetrics = {
   repetitionFlag: boolean;
+  repetitionHardFail: boolean;
   looksRepetitive: boolean;
   tokensLength: number;
   uniqueRatio: number;
   ngramCoverage: number;
+  top3Coverage: number;
+  top20Coverage: number;
+  lowUniqueOverrideSuspicious: boolean;
+  lowUniqueOverrideHardFail: boolean;
+  distributedRepetitionSuspicious: boolean;
+  distributedRepetitionHardFail: boolean;
+  repetitiveChunkCount: number;
+  repetitiveChunkRatio: number;
+  chunkRepetitionSuspicious: boolean;
+  chunkRepetitionHardFail: boolean;
   allChunksNearIdentical: boolean;
   topNgrams: {ngram: string; count: number; coverage: number}[];
 };
@@ -484,29 +518,108 @@ function getRepetitionMetrics(
   const uniqueWords = new Set(tokens).size;
   const uniqueRatio =
     tokens.length > 0 ? uniqueWords / tokens.length : 1;
-  const ngramCoverage = maxNgramCoverage(tokens, REPETITION_NGRAM_SIZE);
-  const looksRepetitive =
-    tokens.length >= 30 &&
-    uniqueRatio < REPETITION_UNIQUE_WORD_RATIO &&
-    ngramCoverage >= REPETITION_NGRAM_COVERAGE;
+  const topNgrams = getTopNgrams(tokens, REPETITION_NGRAM_SIZE);
+  const top20Ngrams = getTopNgrams(
+    tokens,
+    REPETITION_NGRAM_SIZE,
+    REPETITION_DISTRIBUTED_TOP_N
+  );
+  const ngramCoverage = topNgrams[0]?.coverage ?? 0;
+  const top3Coverage = topNgrams
+    .slice(0, 3)
+    .reduce((sum, gram) => sum + gram.coverage, 0);
+  const top20Coverage = top20Ngrams
+    .reduce((sum, gram) => sum + gram.coverage, 0);
+  const hasMinTokens = tokens.length >= REPETITION_MIN_TOKENS;
+  const lowUniqueOverrideSuspicious =
+    tokens.length >= REPETITION_SUSPICIOUS_LOW_UNIQUE_MIN_TOKENS &&
+    uniqueRatio < REPETITION_SUSPICIOUS_LOW_UNIQUE_RATIO_MAX;
+  const lowUniqueOverrideHardFail =
+    tokens.length >= REPETITION_HARD_FAIL_LOW_UNIQUE_MIN_TOKENS &&
+    uniqueRatio < REPETITION_HARD_FAIL_LOW_UNIQUE_RATIO_MAX;
+  const distributedRepetitionSuspicious =
+    tokens.length >= REPETITION_SUSPICIOUS_TOP20_MIN_TOKENS &&
+    top20Coverage >= REPETITION_SUSPICIOUS_TOP20_COVERAGE_MIN &&
+    uniqueRatio < REPETITION_SUSPICIOUS_TOP20_UNIQUE_RATIO_MAX;
+  const distributedRepetitionHardFail =
+    tokens.length >= REPETITION_HARD_FAIL_TOP20_MIN_TOKENS &&
+    top20Coverage >= REPETITION_HARD_FAIL_TOP20_COVERAGE_MIN &&
+    uniqueRatio < REPETITION_HARD_FAIL_TOP20_UNIQUE_RATIO_MAX;
+  const transcriptSuspicious =
+    hasMinTokens &&
+    ((uniqueRatio < REPETITION_SUSPICIOUS_UNIQUE_RATIO_MAX &&
+      ngramCoverage >= REPETITION_SUSPICIOUS_TOP1_COVERAGE_MIN) ||
+      (top3Coverage >= REPETITION_SUSPICIOUS_TOP3_COVERAGE_MIN &&
+        uniqueRatio < REPETITION_SUSPICIOUS_TOP3_UNIQUE_RATIO_MAX) ||
+      lowUniqueOverrideSuspicious ||
+      distributedRepetitionSuspicious);
+  const transcriptHardFail =
+    hasMinTokens &&
+    ((uniqueRatio < REPETITION_HARD_FAIL_UNIQUE_RATIO_MAX &&
+      ngramCoverage >= REPETITION_HARD_FAIL_TOP1_COVERAGE_MIN) ||
+      (top3Coverage >= REPETITION_HARD_FAIL_TOP3_COVERAGE_MIN &&
+        uniqueRatio < REPETITION_HARD_FAIL_TOP3_UNIQUE_RATIO_MAX) ||
+      lowUniqueOverrideHardFail ||
+      distributedRepetitionHardFail);
 
   const normalizedChunks = chunkTranscripts
     .map(normalizeForComparison)
     .filter(Boolean);
+  const repetitiveChunkCount = normalizedChunks.filter((chunk) => {
+    const chunkTokens = chunk.split(" ").filter(Boolean);
+    if (chunkTokens.length < CHUNK_REPETITION_MIN_TOKENS) {
+      return false;
+    }
+    const chunkUniqueRatio =
+      new Set(chunkTokens).size / chunkTokens.length;
+    const chunkTop1Coverage = maxNgramCoverage(
+      chunkTokens,
+      REPETITION_NGRAM_SIZE
+    );
+    return (
+      chunkUniqueRatio < CHUNK_REPETITION_UNIQUE_RATIO_MAX &&
+      chunkTop1Coverage >= CHUNK_REPETITION_TOP1_COVERAGE_MIN
+    );
+  }).length;
+  const repetitiveChunkRatio =
+    normalizedChunks.length > 0 ?
+      repetitiveChunkCount / normalizedChunks.length :
+      0;
+  const chunkRepetitionSuspicious =
+    normalizedChunks.length >= 2 &&
+    repetitiveChunkRatio >= CHUNK_REPETITION_SUSPICIOUS_RATIO_MIN;
+  const chunkRepetitionHardFail =
+    normalizedChunks.length >= 2 &&
+    repetitiveChunkRatio >= CHUNK_REPETITION_HARD_FAIL_RATIO_MIN;
   const allChunksNearIdentical =
     normalizedChunks.length >= 2 &&
     normalizedChunks.every((chunk) =>
       areNearIdentical(chunk, normalizedChunks[0])
     );
+  const repetitionFlag =
+    transcriptSuspicious || chunkRepetitionSuspicious || allChunksNearIdentical;
+  const repetitionHardFail =
+    transcriptHardFail || chunkRepetitionHardFail || allChunksNearIdentical;
 
   return {
-    repetitionFlag: looksRepetitive || allChunksNearIdentical,
-    looksRepetitive,
+    repetitionFlag,
+    repetitionHardFail,
+    looksRepetitive: repetitionFlag,
     tokensLength: tokens.length,
     uniqueRatio,
     ngramCoverage,
+    top3Coverage,
+    top20Coverage,
+    lowUniqueOverrideSuspicious,
+    lowUniqueOverrideHardFail,
+    distributedRepetitionSuspicious,
+    distributedRepetitionHardFail,
+    repetitiveChunkCount,
+    repetitiveChunkRatio,
+    chunkRepetitionSuspicious,
+    chunkRepetitionHardFail,
     allChunksNearIdentical,
-    topNgrams: getTopNgrams(tokens, REPETITION_NGRAM_SIZE),
+    topNgrams,
   };
 }
 
@@ -1439,17 +1552,70 @@ export const onAudioUpload = onObjectFinalized(
           wordCount,
           wordsPerMinute,
           repetitionFlag: repetition.repetitionFlag,
+          repetitionHardFail: repetition.repetitionHardFail,
           repetitionDetails: {
             tokensLength: repetition.tokensLength,
             uniqueRatio: repetition.uniqueRatio,
             ngramCoverage: repetition.ngramCoverage,
+            top3Coverage: repetition.top3Coverage,
+            top20Coverage: repetition.top20Coverage,
             looksRepetitive: repetition.looksRepetitive,
+            lowUniqueOverrideSuspicious:
+              repetition.lowUniqueOverrideSuspicious,
+            lowUniqueOverrideHardFail:
+              repetition.lowUniqueOverrideHardFail,
+            distributedRepetitionSuspicious:
+              repetition.distributedRepetitionSuspicious,
+            distributedRepetitionHardFail:
+              repetition.distributedRepetitionHardFail,
+            chunkRepetitionSuspicious: repetition.chunkRepetitionSuspicious,
+            chunkRepetitionHardFail: repetition.chunkRepetitionHardFail,
+            repetitiveChunkCount: repetition.repetitiveChunkCount,
+            repetitiveChunkRatio: repetition.repetitiveChunkRatio,
             allChunksNearIdentical: repetition.allChunksNearIdentical,
             chunkCount: chunkTranscripts.length,
             thresholds: {
-              minTokens: 30,
-              uniqueRatioMax: REPETITION_UNIQUE_WORD_RATIO,
-              ngramCoverageMin: REPETITION_NGRAM_COVERAGE,
+              minTokens: REPETITION_MIN_TOKENS,
+              suspiciousUniqueRatioMax:
+                REPETITION_SUSPICIOUS_UNIQUE_RATIO_MAX,
+              hardFailUniqueRatioMax: REPETITION_HARD_FAIL_UNIQUE_RATIO_MAX,
+              suspiciousTop1CoverageMin:
+                REPETITION_SUSPICIOUS_TOP1_COVERAGE_MIN,
+              hardFailTop1CoverageMin: REPETITION_HARD_FAIL_TOP1_COVERAGE_MIN,
+              suspiciousTop3CoverageMin:
+                REPETITION_SUSPICIOUS_TOP3_COVERAGE_MIN,
+              hardFailTop3CoverageMin:
+                REPETITION_HARD_FAIL_TOP3_COVERAGE_MIN,
+              suspiciousTop3UniqueRatioMax:
+                REPETITION_SUSPICIOUS_TOP3_UNIQUE_RATIO_MAX,
+              hardFailTop3UniqueRatioMax:
+                REPETITION_HARD_FAIL_TOP3_UNIQUE_RATIO_MAX,
+              suspiciousLowUniqueMinTokens:
+                REPETITION_SUSPICIOUS_LOW_UNIQUE_MIN_TOKENS,
+              hardFailLowUniqueMinTokens:
+                REPETITION_HARD_FAIL_LOW_UNIQUE_MIN_TOKENS,
+              suspiciousLowUniqueRatioMax:
+                REPETITION_SUSPICIOUS_LOW_UNIQUE_RATIO_MAX,
+              hardFailLowUniqueRatioMax:
+                REPETITION_HARD_FAIL_LOW_UNIQUE_RATIO_MAX,
+              distributedTopN: REPETITION_DISTRIBUTED_TOP_N,
+              suspiciousTop20MinTokens:
+                REPETITION_SUSPICIOUS_TOP20_MIN_TOKENS,
+              hardFailTop20MinTokens: REPETITION_HARD_FAIL_TOP20_MIN_TOKENS,
+              suspiciousTop20CoverageMin:
+                REPETITION_SUSPICIOUS_TOP20_COVERAGE_MIN,
+              hardFailTop20CoverageMin:
+                REPETITION_HARD_FAIL_TOP20_COVERAGE_MIN,
+              suspiciousTop20UniqueRatioMax:
+                REPETITION_SUSPICIOUS_TOP20_UNIQUE_RATIO_MAX,
+              hardFailTop20UniqueRatioMax:
+                REPETITION_HARD_FAIL_TOP20_UNIQUE_RATIO_MAX,
+              chunkMinTokens: CHUNK_REPETITION_MIN_TOKENS,
+              chunkUniqueRatioMax: CHUNK_REPETITION_UNIQUE_RATIO_MAX,
+              chunkTop1CoverageMin: CHUNK_REPETITION_TOP1_COVERAGE_MIN,
+              chunkSuspiciousRatioMin:
+                CHUNK_REPETITION_SUSPICIOUS_RATIO_MIN,
+              chunkHardFailRatioMin: CHUNK_REPETITION_HARD_FAIL_RATIO_MIN,
               ngramSize: REPETITION_NGRAM_SIZE,
             },
             topNgrams: repetition.topNgrams,
@@ -1459,6 +1625,7 @@ export const onAudioUpload = onObjectFinalized(
 
         return {
           repetitionFlag: repetition.repetitionFlag,
+          repetitionHardFail: repetition.repetitionHardFail,
           tooFewWords,
           tooShortForDuration,
           wordCount,
@@ -1613,7 +1780,10 @@ export const onAudioUpload = onObjectFinalized(
             "reencode"
           );
 
-          if (rebuilt.transcriptText && !reencodedQuality.repetitionFlag) {
+          if (
+            rebuilt.transcriptText &&
+            !reencodedQuality.repetitionHardFail
+          ) {
             chunkResults = reencodedResults;
             chunkTranscripts = rebuilt.chunkTranscripts;
             transcriptText = rebuilt.transcriptText;
@@ -1629,7 +1799,8 @@ export const onAudioUpload = onObjectFinalized(
             );
           } else {
             logger.warn(
-              "Re-encoded transcription still repetitive or empty.",
+              "Re-encoded transcription still hard-fails repetition " +
+                "or is empty.",
               {
                 lectureId,
                 durationMinutes,
@@ -1637,6 +1808,11 @@ export const onAudioUpload = onObjectFinalized(
                 wordsPerMinute: reencodedQuality.wordsPerMinute,
               }
             );
+            if (reencodedQuality.repetitionHardFail) {
+              // Preserve a hard-fail outcome from the re-encode pass so
+              // final acceptance checks cannot use stale pre-reencode quality.
+              quality = reencodedQuality;
+            }
           }
         } catch (err: unknown) {
           logger.warn("Re-encoded transcription attempt failed.", {
@@ -1668,7 +1844,7 @@ export const onAudioUpload = onObjectFinalized(
         return;
       }
 
-      if (quality.repetitionFlag) {
+      if (quality.repetitionHardFail) {
         logger.warn("Transcript rejected for repetition.", {
           lectureId,
           durationMinutes,
@@ -1678,7 +1854,9 @@ export const onAudioUpload = onObjectFinalized(
         await lectureRef.set(
           {
             status: "failed",
-            errorMessage: "Transcription appears repetitive/invalid.",
+            errorMessage:
+              "Audio quality is too poor to transcribe reliably. " +
+              "Please retry with clearer audio.",
           },
           {merge: true}
         );
@@ -1697,7 +1875,7 @@ export const onAudioUpload = onObjectFinalized(
           {
             status: "failed",
             errorMessage:
-              "Transcription too short for audio duration. " +
+              "Audio quality is too poor to transcribe reliably. " +
               "Please retry with clearer audio.",
           },
           {merge: true}
