@@ -21,6 +21,7 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environmentObject(LectureStore(seedMockData: true))
+        .environmentObject(MasjidStore())
 }
 
 struct Theme {
@@ -144,16 +145,16 @@ struct MainTabView: View {
             handlePendingActions()
         }
         .onChange(of: selectedTab) { tab in
-            if tab != 2 {
+            if tab != 3 {
                 lastNonQuranTab = nil
             }
         }
         .onChange(of: quranNavigator.pendingTarget) { target in
             guard target != nil else { return }
-            if selectedTab != 2 {
+            if selectedTab != 3 {
                 lastNonQuranTab = selectedTab
             }
-            selectedTab = 2
+            selectedTab = 3
         }
         .onChange(of: pendingControlActionRaw) { _ in
             handlePendingControlAction()
@@ -202,6 +203,13 @@ struct MainTabView: View {
                     Text("Notes")
                 }
                 .tag(0)
+
+            MasjidDirectoryView()
+                .tabItem {
+                    Image(systemName: "building.2.fill")
+                    Text("Masjids")
+                }
+                .tag(1)
             
             RecordLectureView(
                 selectedTab: $selectedTab,
@@ -228,7 +236,7 @@ struct MainTabView: View {
                 Label("Record", systemImage: "plus")
                     .opacity(0) // Hidden; replaced by floating button
             }
-            .tag(1)
+            .tag(2)
 
             QuranView(
                 showBackToLecture: lastNonQuranTab != nil,
@@ -238,7 +246,14 @@ struct MainTabView: View {
                     Image(systemName: "book.closed.fill")
                     Text("Quran")
                 }
-                .tag(2)
+                .tag(3)
+
+            SettingsView()
+                .tabItem {
+                    Image(systemName: "gearshape.fill")
+                    Text("Settings")
+                }
+                .tag(4)
         }
         .tint(Theme.primaryGreen)
         .sheet(isPresented: $showPaywall) {
@@ -249,7 +264,7 @@ struct MainTabView: View {
     }
 
     private var recordButton: some View {
-        Button(action: { selectedTab = 1 }) {
+        Button(action: { selectedTab = 2 }) {
             ZStack {
                 Circle()
                     .fill(
@@ -313,7 +328,7 @@ struct MainTabView: View {
 
     private func handlePendingRouteAction() {
         guard let action = RecordingRouteAction(rawValue: pendingRouteActionRaw) else { return }
-        selectedTab = 1
+        selectedTab = 2
         pendingRecordingRouteAction = action
         pendingRouteActionRaw = ""
     }
@@ -1636,7 +1651,7 @@ struct LectureDetailView: View {
                 .foregroundColor(Theme.mutedText)
 
             Button {
-                selectedRootTab = 1
+                selectedRootTab = 2
                 dismiss()
             } label: {
                 HStack(spacing: 8) {
@@ -3406,7 +3421,7 @@ struct SummaryRetryButton: View {
     }
 }
 
-private struct PillSegmentedControl: View {
+struct PillSegmentedControl: View {
     let segments: [String]
     @Binding var selection: Int
 
@@ -3487,6 +3502,7 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 struct SettingsView: View {
     @EnvironmentObject private var store: LectureStore
+    @EnvironmentObject private var masjidStore: MasjidStore
     @State private var showPaywall = false
     @State private var showFeedback = false
     @State private var showAccountSheet = false
@@ -3576,8 +3592,19 @@ struct SettingsView: View {
                             .foregroundColor(.red)
                     }
                 }
+
+                if masjidStore.isAdmin {
+                    Section(header: Text("Admin")) {
+                        NavigationLink(destination: MasjidAdminView()) {
+                            Label("Masjid Channels Admin", systemImage: "lock.shield")
+                        }
+                    }
+                }
             }
             .navigationTitle("Settings")
+        }
+        .task {
+            await masjidStore.refreshAdminStatus()
         }
         .sheet(isPresented: $showAccountSheet, onDismiss: {
             if showPaywallFromAccount {

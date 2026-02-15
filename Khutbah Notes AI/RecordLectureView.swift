@@ -551,9 +551,9 @@ struct RecordLectureView: View {
         defer { pendingRouteAction = nil }
         switch action {
         case .openRecording:
-            selectedTab = 1
+            selectedTab = 2
         case .showSaveCard:
-            selectedTab = 1
+            selectedTab = 2
             guard recordingManager.isRecording || recordingManager.isPaused || recordingManager.hasPendingRecording else { return }
             titleText = titleText.isEmpty ? defaultTitle() : titleText
             showTitleSheet = true

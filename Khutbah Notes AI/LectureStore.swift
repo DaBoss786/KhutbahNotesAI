@@ -1777,6 +1777,122 @@ final class LectureStore: ObservableObject {
             }
     }
 
+    @discardableResult
+    func saveMasjidKhutbahToNotes(
+        masjidName: String,
+        khutbah: MasjidKhutbah,
+        transcriptOverride: String? = nil
+    ) async throws -> String {
+        guard let userId else {
+            throw NSError(
+                domain: "MasjidSave",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing user session."]
+            )
+        }
+
+        let videoId = khutbah.youtubeVideoId.isEmpty ?
+            (YouTubeURLParser.videoId(from: khutbah.youtubeUrl) ?? khutbah.id) :
+            khutbah.youtubeVideoId
+        let lectureId = "masjid-\(khutbah.masjidId)-\(videoId)"
+        let title = khutbah.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?
+            "\(masjidName) Khutbah" :
+            khutbah.title
+        let date = khutbah.date ?? khutbah.createdAt ?? Date()
+        let transcriptOverrideTrimmed = transcriptOverride?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcript: String?
+        if let transcriptOverrideTrimmed, !transcriptOverrideTrimmed.isEmpty {
+            transcript = transcriptOverrideTrimmed
+        } else {
+            transcript = khutbah.transcriptPreview?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let durationMinutes: Int? = {
+            guard let durationSec = khutbah.durationSec else { return nil }
+            return max(1, Int(ceil(Double(durationSec) / 60.0)))
+        }()
+        let summary = buildMasjidSummary(from: khutbah)
+
+        var data: [String: Any] = [
+            "title": title,
+            "date": Timestamp(date: date),
+            "isFavorite": false,
+            "status": "ready",
+        ]
+        data["durationMinutes"] = durationMinutes ?? NSNull()
+        data["audioPath"] = FieldValue.delete()
+        data["folderId"] = NSNull()
+        data["folderName"] = NSNull()
+        data["errorMessage"] = FieldValue.delete()
+        if let transcript, !transcript.isEmpty {
+            data["transcript"] = transcript
+            data["transcriptFormatted"] = transcript
+        } else {
+            data["transcript"] = NSNull()
+            data["transcriptFormatted"] = NSNull()
+        }
+
+        if let summary {
+            data["summary"] = [
+                "mainTheme": summary.mainTheme,
+                "keyPoints": summary.keyPoints,
+                "explicitAyatOrHadith": summary.explicitAyatOrHadith,
+                "weeklyActions": summary.weeklyActions,
+            ]
+        } else {
+            data["summary"] = NSNull()
+        }
+
+        try await db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lectureId)
+            .setData(data, merge: true)
+
+        let localLecture = Lecture(
+            id: lectureId,
+            title: title,
+            date: date,
+            durationMinutes: durationMinutes,
+            chargedMinutes: nil,
+            isFavorite: false,
+            status: .ready,
+            quotaReason: nil,
+            transcript: transcript,
+            transcriptFormatted: transcript,
+            summary: summary,
+            audioPath: nil,
+            folderId: nil,
+            folderName: nil
+        )
+
+        if let index = lectures.firstIndex(where: { $0.id == lectureId }) {
+            lectures[index] = localLecture
+        } else {
+            lectures.insert(localLecture, at: 0)
+        }
+
+        return lectureId
+    }
+
+    private func buildMasjidSummary(from khutbah: MasjidKhutbah) -> LectureSummary? {
+        let mainTheme = khutbah.mainTheme?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasContent = !mainTheme.isEmpty ||
+            !khutbah.keyPoints.isEmpty ||
+            !khutbah.weeklyActions.isEmpty ||
+            !khutbah.explicitAyatOrHadith.isEmpty
+
+        guard hasContent else { return nil }
+
+        return LectureSummary(
+            mainTheme: mainTheme.isEmpty ? "Not mentioned" : mainTheme,
+            keyPoints: khutbah.keyPoints,
+            explicitAyatOrHadith: khutbah.explicitAyatOrHadith,
+            weeklyActions: khutbah.weeklyActions
+        )
+    }
+
     private func isTransientUploadError(_ error: Error) -> Bool {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain {

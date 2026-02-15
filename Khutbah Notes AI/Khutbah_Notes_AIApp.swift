@@ -19,6 +19,7 @@ import OneSignalLiveActivities
 struct Khutbah_Notes_AIApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var store: LectureStore
+    @StateObject private var masjidStore = MasjidStore()
     @State private var showSplash = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("pendingRamadanGiftModal") private var pendingRamadanGiftModal = false
@@ -65,6 +66,7 @@ struct Khutbah_Notes_AIApp: App {
                 }
             }
             .environmentObject(store)
+            .environmentObject(masjidStore)
             .onOpenURL { url in
                 if DashboardDeepLink.matches(url) {
                     DashboardDeepLinkStore.setPendingDashboard()
@@ -96,6 +98,7 @@ struct Khutbah_Notes_AIApp: App {
             syncRevenueCatUser(with: user.uid)
             OneSignalIntegration.linkCurrentUser(with: user.uid)
             store.start(for: user.uid)
+            masjidStore.start()
             return
         }
         
@@ -116,6 +119,7 @@ struct Khutbah_Notes_AIApp: App {
                 self.syncRevenueCatUser(with: user.uid)
                 OneSignalIntegration.linkCurrentUser(with: user.uid)
                 self.store.start(for: user.uid)
+                self.masjidStore.start()
             }
         }
     }

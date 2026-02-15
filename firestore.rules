@@ -1,24 +1,155 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/lectures/{lectureId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create, update: if request.auth != null
-        && request.auth.uid == userId
-        && (!("notes" in request.resource.data)
-          || request.resource.data.notes is string
-          || request.resource.data.notes == null);
-      allow delete: if request.auth != null && request.auth.uid == userId;
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
 
-    match /users/{userId}/{document=**} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow update, delete: if request.auth != null
-        && request.auth.uid == userId
-        && !(request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          "plan", "periodStart", "renewsAt", "monthlyKey", "monthlyMinutesUsed"
-        ]));
+    function lectureFieldsAreValid() {
+      return
+        (!("title" in request.resource.data) ||
+          request.resource.data.title is string) &&
+        (!("date" in request.resource.data) ||
+          request.resource.data.date is timestamp) &&
+        (!("isFavorite" in request.resource.data) ||
+          request.resource.data.isFavorite is bool) &&
+        (!("status" in request.resource.data) ||
+          request.resource.data.status in [
+            "recording", "processing", "summarizing", "transcribed",
+            "ready", "failed", "blocked_quota"
+          ]) &&
+        (!("audioPath" in request.resource.data) ||
+          request.resource.data.audioPath is string) &&
+        (!("durationMinutes" in request.resource.data) ||
+          request.resource.data.durationMinutes is int ||
+          request.resource.data.durationMinutes is float ||
+          request.resource.data.durationMinutes == null) &&
+        (!("errorMessage" in request.resource.data) ||
+          request.resource.data.errorMessage is string ||
+          request.resource.data.errorMessage == null) &&
+        (!("transcript" in request.resource.data) ||
+          request.resource.data.transcript is string ||
+          request.resource.data.transcript == null) &&
+        (!("transcriptFormatted" in request.resource.data) ||
+          request.resource.data.transcriptFormatted is string ||
+          request.resource.data.transcriptFormatted == null) &&
+        (!("summary" in request.resource.data) ||
+          request.resource.data.summary is map ||
+          request.resource.data.summary == null) &&
+        (!("notes" in request.resource.data) ||
+          request.resource.data.notes is string ||
+          request.resource.data.notes == null) &&
+        (!("folderId" in request.resource.data) ||
+          request.resource.data.folderId is string ||
+          request.resource.data.folderId == null) &&
+        (!("folderName" in request.resource.data) ||
+          request.resource.data.folderName is string ||
+          request.resource.data.folderName == null) &&
+        (!("summaryTranslationRequests" in request.resource.data) ||
+          request.resource.data.summaryTranslationRequests is map) &&
+        (!("summaryTranslationErrors" in request.resource.data) ||
+          request.resource.data.summaryTranslationErrors is map) &&
+        (!("summaryInProgress" in request.resource.data) ||
+          request.resource.data.summaryInProgress is map ||
+          request.resource.data.summaryInProgress is bool ||
+          request.resource.data.summaryInProgress == null);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          "preferences",
+          "oneSignal",
+          "onboardingComplete",
+          "createdAt"
+        ]);
+
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "preferences",
+          "oneSignal",
+          "onboardingComplete",
+          "createdAt"
+        ]);
+
+      allow delete: if false;
+    }
+
+    match /users/{userId}/lectures/{lectureId} {
+      allow read: if isOwner(userId);
+
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          "title",
+          "date",
+          "isFavorite",
+          "status",
+          "transcript",
+          "transcriptFormatted",
+          "summary",
+          "audioPath",
+          "durationMinutes",
+          "errorMessage",
+          "folderId",
+          "folderName",
+          "notes"
+        ])
+        && lectureFieldsAreValid();
+
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "title",
+          "notes",
+          "folderId",
+          "folderName",
+          "isFavorite",
+          "status",
+          "errorMessage",
+          "durationMinutes",
+          "audioPath",
+          "transcript",
+          "transcriptFormatted",
+          "summary",
+          "summaryTranslationRequests",
+          "summaryTranslationErrors",
+          "summaryInProgress"
+        ])
+        && lectureFieldsAreValid();
+
+      allow delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/folders/{folderId} {
+      allow read: if isOwner(userId);
+
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(["name", "createdAt"])
+        && request.resource.data.name is string
+        && (request.resource.data.createdAt is timestamp
+          || request.resource.data.createdAt == request.time);
+
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name"])
+        && request.resource.data.name is string;
+
+      allow delete: if isOwner(userId);
+    }
+
+    match /masjids/{masjidId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if false;
+    }
+
+    match /masjids/{masjidId}/khutbahs/{khutbahId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if false;
+    }
+
+    match /masjids/{masjidId}/khutbahs/{khutbahId}/{document=**} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if false;
     }
 
     match /feedback/{feedbackId} {
