@@ -14,6 +14,8 @@ struct MasjidAdminView: View {
     @State private var youtubeUrl = ""
     @State private var khutbahTitle = ""
     @State private var speaker = ""
+    @State private var useQueueDateOverride = false
+    @State private var queueDate = Date()
     @State private var manualTranscript = ""
 
     @State private var promoteMasjidId = ""
@@ -132,6 +134,14 @@ struct MasjidAdminView: View {
 
                 TextField("Title (optional)", text: $khutbahTitle)
                 TextField("Speaker (optional)", text: $speaker)
+                Toggle("Override Date", isOn: $useQueueDateOverride)
+                if useQueueDateOverride {
+                    DatePicker(
+                        "Date",
+                        selection: $queueDate,
+                        displayedComponents: [.date]
+                    )
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Transcript (optional)")
@@ -308,12 +318,15 @@ struct MasjidAdminView: View {
                 youtubeUrl: youtubeUrl.trimmingCharacters(in: .whitespacesAndNewlines),
                 title: khutbahTitle,
                 speaker: speaker,
+                date: useQueueDateOverride ? queueDate : nil,
                 manualTranscript: manualTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             statusMessage = "Khutbah queued for processing."
             youtubeUrl = ""
             khutbahTitle = ""
             speaker = ""
+            useQueueDateOverride = false
+            queueDate = Date()
             manualTranscript = ""
         } catch {
             statusMessage = error.localizedDescription

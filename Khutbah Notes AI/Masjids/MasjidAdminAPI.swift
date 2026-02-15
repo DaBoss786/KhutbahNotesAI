@@ -124,6 +124,7 @@ enum MasjidAdminAPI {
         youtubeUrl: String,
         title: String?,
         speaker: String?,
+        date: Date?,
         manualTranscript: String?
     ) async throws {
         var body: [String: Any] = [
@@ -135,6 +136,9 @@ enum MasjidAdminAPI {
         }
         if let speaker, !speaker.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["speaker"] = speaker
+        }
+        if let date {
+            body["date"] = ISO8601DateFormatter().string(from: date)
         }
         if let manualTranscript,
            !manualTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
