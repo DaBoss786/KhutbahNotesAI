@@ -3575,6 +3575,14 @@ struct SettingsView: View {
                     NavigationLink(destination: StaticContentView(title: "About", bodyText: PlaceholderCopy.about)) {
                         Label("About", systemImage: "info.circle")
                     }
+                    NavigationLink(
+                        destination: StaticContentView(
+                            title: "Masjid Partnerships",
+                            bodyText: PlaceholderCopy.masjidPartnerships
+                        )
+                    ) {
+                        Label("Masjid Partnerships", systemImage: "building.2")
+                    }
                 }
 
                 Section(header: Text("Legal")) {

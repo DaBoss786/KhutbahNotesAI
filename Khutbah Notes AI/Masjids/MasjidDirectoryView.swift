@@ -80,6 +80,23 @@ struct MasjidDirectoryView: View {
             Text("Curated khutbah summaries from trusted masjids.")
                 .font(Theme.bodyFont)
                 .foregroundColor(Theme.mutedText)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Want your masjid included here?")
+                    .font(.footnote)
+                    .foregroundColor(Theme.mutedText)
+                NavigationLink(
+                    destination: StaticContentView(
+                        title: "Masjid Partnerships",
+                        bodyText: PlaceholderCopy.masjidPartnerships
+                    )
+                ) {
+                    Text("Partner with us!")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Theme.primaryGreen)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 

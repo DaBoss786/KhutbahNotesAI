@@ -71,6 +71,23 @@ enum PlaceholderCopy {
     Our goal is simple: make it easier to retain beneficial knowledge and act on it. Khutbah Notes is a personal companion for listening and reflection and is not a replacement for the speaker, the khutbah, or scholarly guidance.
     """
 
+    static let masjidPartnerships = """
+    **Masjid Partnerships**
+    We help masjids share khutbahs and summaries with their congregation in a searchable library. Help your community remember and revisit khutbah/lecture takeaways.
+
+    **If your masjid already posts khutbahs online**
+    We can add your masjid to our Masjid Channels section and post the khutbah audio/video on our app. We will also create summaries + key points for each khutbah.
+
+    **If your masjid doesn't post khutbahs online**
+    An approved community member can record khutbahs on their phone and submit them for publishing with required approvals. We will also create summaries + key points for each khutbah.
+
+    **Permission & takedowns**
+    We only publish with permission. If anything needs correction or removal, contact us and we'll respond promptly.
+
+    **Contact**
+    [support@khutbah-notes.com](mailto:support@khutbah-notes.com)
+    """
+
     static let terms = """
     **Terms of Service - Khutbah Notes**
 
