@@ -147,7 +147,7 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    match /masjids/{masjidId}/khutbahs/{khutbahId}/{document=**} {
+    match /masjids/{masjidId}/khutbahs/{khutbahId}/artifacts/{artifactId} {
       allow read: if request.auth != null;
       allow create, update, delete: if false;
     }

@@ -142,4 +142,36 @@ enum MasjidAdminAPI {
         }
         _ = try await request(path: "adminQueueMasjidKhutbah", body: body)
     }
+
+    static func promoteLecture(
+        masjidId: String,
+        sourceUserId: String,
+        sourceLectureId: String,
+        title: String?,
+        speaker: String?,
+        date: Date?,
+        transcript: String?,
+        includeAudio: Bool
+    ) async throws {
+        var body: [String: Any] = [
+            "masjidId": masjidId,
+            "sourceUserId": sourceUserId,
+            "sourceLectureId": sourceLectureId,
+            "includeAudio": includeAudio,
+        ]
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["title"] = title
+        }
+        if let speaker, !speaker.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["speaker"] = speaker
+        }
+        if let date {
+            body["date"] = ISO8601DateFormatter().string(from: date)
+        }
+        if let transcript,
+           !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["transcript"] = transcript
+        }
+        _ = try await request(path: "adminPromoteLectureToMasjid", body: body)
+    }
 }

@@ -16,6 +16,16 @@ struct MasjidAdminView: View {
     @State private var speaker = ""
     @State private var manualTranscript = ""
 
+    @State private var promoteMasjidId = ""
+    @State private var sourceUserId = ""
+    @State private var sourceLectureId = ""
+    @State private var promoteTitle = ""
+    @State private var promoteSpeaker = ""
+    @State private var promoteTranscript = ""
+    @State private var includePromotionAudio = true
+    @State private var usePromoteDateOverride = false
+    @State private var promoteDate = Date()
+
     @State private var statusMessage: String?
     @State private var isSubmitting = false
 
@@ -29,6 +39,13 @@ struct MasjidAdminView: View {
     private var canQueueKhutbah: Bool {
         !queueMasjidId.isEmpty &&
             !youtubeUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !isSubmitting
+    }
+
+    private var canPromoteLecture: Bool {
+        !promoteMasjidId.isEmpty &&
+            !sourceUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !sourceLectureId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !isSubmitting
     }
 
@@ -51,6 +68,11 @@ struct MasjidAdminView: View {
                 await masjidStore.refreshAdminStatus()
             }
             setDefaultQueueMasjid()
+            setDefaultPromoteMasjid()
+        }
+        .onChange(of: masjidStore.masjids.count) { _ in
+            setDefaultQueueMasjid()
+            setDefaultPromoteMasjid()
         }
     }
 
@@ -140,6 +162,64 @@ struct MasjidAdminView: View {
                 .disabled(!canQueueKhutbah)
             }
 
+            Section("Promote Existing Lecture") {
+                Picker("Masjid", selection: $promoteMasjidId) {
+                    Text("Select").tag("")
+                    ForEach(masjidStore.masjids) { masjid in
+                        Text(masjid.name).tag(masjid.id)
+                    }
+                }
+
+                TextField("Source User UID", text: $sourceUserId)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Source Lecture ID", text: $sourceLectureId)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                TextField("Title override (optional)", text: $promoteTitle)
+                TextField("Speaker override (optional)", text: $promoteSpeaker)
+
+                Toggle("Override Date", isOn: $usePromoteDateOverride)
+                if usePromoteDateOverride {
+                    DatePicker(
+                        "Date",
+                        selection: $promoteDate,
+                        displayedComponents: [.date]
+                    )
+                }
+
+                Toggle("Copy source audio to masjid channel", isOn: $includePromotionAudio)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Transcript override (optional)")
+                        .font(.footnote)
+                        .foregroundColor(Theme.mutedText)
+
+                    ZStack(alignment: .topLeading) {
+                        if promoteTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Leave empty to reuse source lecture transcript.")
+                                .font(Theme.bodyFont)
+                                .foregroundColor(Theme.mutedText.opacity(0.8))
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                        }
+
+                        TextEditor(text: $promoteTranscript)
+                            .frame(minHeight: 110)
+                            .textInputAutocapitalization(.sentences)
+                            .autocorrectionDisabled()
+                    }
+                }
+
+                Button {
+                    Task { await promoteLecture() }
+                } label: {
+                    Text(isSubmitting ? "Promoting..." : "Promote to Masjid")
+                }
+                .disabled(!canPromoteLecture)
+            }
+
             if let statusMessage, !statusMessage.isEmpty {
                 Section("Status") {
                     Text(statusMessage)
@@ -182,6 +262,12 @@ struct MasjidAdminView: View {
     private func setDefaultQueueMasjid() {
         if queueMasjidId.isEmpty {
             queueMasjidId = masjidStore.masjids.first?.id ?? ""
+        }
+    }
+
+    private func setDefaultPromoteMasjid() {
+        if promoteMasjidId.isEmpty {
+            promoteMasjidId = masjidStore.masjids.first?.id ?? ""
         }
     }
 
@@ -229,6 +315,35 @@ struct MasjidAdminView: View {
             khutbahTitle = ""
             speaker = ""
             manualTranscript = ""
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    private func promoteLecture() async {
+        guard canPromoteLecture else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await MasjidAdminAPI.promoteLecture(
+                masjidId: promoteMasjidId,
+                sourceUserId: sourceUserId.trimmingCharacters(in: .whitespacesAndNewlines),
+                sourceLectureId: sourceLectureId.trimmingCharacters(in: .whitespacesAndNewlines),
+                title: promoteTitle,
+                speaker: promoteSpeaker,
+                date: usePromoteDateOverride ? promoteDate : nil,
+                transcript: promoteTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+                includeAudio: includePromotionAudio
+            )
+            statusMessage = "Lecture promoted to masjid channel."
+            sourceUserId = ""
+            sourceLectureId = ""
+            promoteTitle = ""
+            promoteSpeaker = ""
+            promoteTranscript = ""
+            usePromoteDateOverride = false
+            promoteDate = Date()
         } catch {
             statusMessage = error.localizedDescription
         }

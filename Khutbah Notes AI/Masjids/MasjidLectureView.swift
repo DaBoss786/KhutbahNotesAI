@@ -67,6 +67,14 @@ struct MasjidLectureView: View {
         }
     }
 
+    private var promotedAudioPath: String? {
+        guard let rawPath = khutbah.audioPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+        return rawPath
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
@@ -154,8 +162,14 @@ struct MasjidLectureView: View {
                     .stroke(Theme.primaryGreen.opacity(0.16), lineWidth: 1)
             )
             .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
+        } else if let promotedAudioPath {
+            LectureAudioPlayerView(audioPath: promotedAudioPath)
+                .frame(maxWidth: .infinity)
+                .padding(12)
+                .background(Theme.cardBackground)
+                .cornerRadius(14)
         } else {
-            Text("Unable to load YouTube video.")
+            Text("Unable to load lecture media.")
                 .font(Theme.bodyFont)
                 .foregroundColor(Theme.mutedText)
                 .padding(16)

@@ -14,6 +14,7 @@ import {
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import {randomUUID} from "crypto";
 import {spawn} from "child_process";
 import ffmpegPath from "ffmpeg-static";
 import {parseFile} from "music-metadata";
@@ -6890,6 +6891,85 @@ function extractYouTubeVideoId(value: string): string | null {
 }
 
 /**
+ * Builds a deterministic document ID for a promoted user lecture.
+ * @param {string} sourceUserId Source lecture owner UID.
+ * @param {string} sourceLectureId Source lecture document ID.
+ * @return {string} Stable promoted khutbah ID.
+ */
+function buildPromotedKhutbahId(
+  sourceUserId: string,
+  sourceLectureId: string
+): string {
+  const normalized = `${sourceUserId}_${sourceLectureId}`
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const safe = normalized.length > 220 ?
+    normalized.slice(0, 220) :
+    normalized;
+  return safe ? `promoted_${safe}` : `promoted_${Date.now()}`;
+}
+
+/**
+ * Converts a Firebase Storage path into an object path for this app bucket.
+ * @param {string} rawPath Raw `audioPath` string from Firestore.
+ * @return {string | null} Object path or null when invalid/unsupported.
+ */
+function normalizeStorageObjectPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^gs:\/\//i.test(trimmed)) {
+    const withoutScheme = trimmed.replace(/^gs:\/\//i, "");
+    const slashIndex = withoutScheme.indexOf("/");
+    if (slashIndex <= 0) {
+      return null;
+    }
+    const bucket = withoutScheme.slice(0, slashIndex);
+    const objectPath = withoutScheme.slice(slashIndex + 1).replace(/^\/+/, "");
+    if (!objectPath || bucket !== storageBucketName) {
+      return null;
+    }
+    return objectPath;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed.replace(/^\/+/, "");
+}
+
+/**
+ * Normalizes a source lecture summary for use in masjid channels.
+ * @param {unknown} rawSummary Source lecture summary field.
+ * @return {{
+ *   mainTheme: string,
+ *   keyPoints: string[],
+ *   explicitAyatOrHadith: string[],
+ *   weeklyActions: string[]
+ * } | null} Normalized summary or null when unavailable.
+ */
+function normalizePromotedSummary(rawSummary: unknown): {
+  mainTheme: string;
+  keyPoints: string[];
+  explicitAyatOrHadith: string[];
+  weeklyActions: string[];
+} | null {
+  if (
+    !rawSummary ||
+    typeof rawSummary !== "object" ||
+    Array.isArray(rawSummary)
+  ) {
+    return null;
+  }
+  const normalized = normalizeSummary(rawSummary as SummaryShape);
+  return enforceSummaryLimits(normalized);
+}
+
+/**
  * Returns whether the currently-authenticated user is an approved masjid
  * admin UID.
  */
@@ -7141,6 +7221,272 @@ export const adminQueueMasjidKhutbah = onRequest(
       youtubeVideoId: videoId,
       deduped: queueResult.deduped,
       status: queueResult.status,
+    });
+  }
+);
+
+/**
+ * Admin-only endpoint to promote an existing user lecture into a masjid
+ * channel as a ready khutbah.
+ */
+export const adminPromoteLectureToMasjid = onRequest(
+  {
+    secrets: [masjidAdminUids],
+    timeoutSeconds: 120,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).send("POST only");
+      return;
+    }
+
+    const uid = await getUidFromBearerAuth(req);
+    if (!uid) {
+      res.status(401).json({error: "Unauthorized"});
+      return;
+    }
+    if (!isMasjidAdmin(uid)) {
+      res.status(403).json({error: "Admin access required"});
+      return;
+    }
+
+    const rawMasjidId = req.body?.masjidId;
+    const rawSourceUserId = req.body?.sourceUserId;
+    const rawSourceLectureId = req.body?.sourceLectureId;
+    const rawTitle = req.body?.title;
+    const rawSpeaker = req.body?.speaker;
+    const rawDate = req.body?.date;
+    const rawTags = req.body?.tags;
+    const rawTranscript = req.body?.transcript;
+    const rawIncludeAudio = req.body?.includeAudio;
+
+    const masjidId = typeof rawMasjidId === "string" ? rawMasjidId.trim() : "";
+    const sourceUserId = typeof rawSourceUserId === "string" ?
+      rawSourceUserId.trim() :
+      "";
+    const sourceLectureId = typeof rawSourceLectureId === "string" ?
+      rawSourceLectureId.trim() :
+      "";
+
+    if (!masjidId || !sourceUserId || !sourceLectureId) {
+      res.status(400).json({
+        error: "masjidId, sourceUserId, and sourceLectureId are required",
+      });
+      return;
+    }
+
+    const masjidRef = db.collection("masjids").doc(masjidId);
+    const masjidSnap = await masjidRef.get();
+    if (!masjidSnap.exists) {
+      res.status(404).json({error: "Masjid not found"});
+      return;
+    }
+
+    const sourceLectureRef = db.collection("users")
+      .doc(sourceUserId)
+      .collection("lectures")
+      .doc(sourceLectureId);
+    const sourceLectureSnap = await sourceLectureRef.get();
+    if (!sourceLectureSnap.exists) {
+      res.status(404).json({error: "Source lecture not found"});
+      return;
+    }
+
+    const sourceData =
+      sourceLectureSnap.data() as Record<string, unknown> | undefined;
+    if (!sourceData) {
+      res.status(400).json({error: "Source lecture data unavailable"});
+      return;
+    }
+
+    const normalizedSummary = normalizePromotedSummary(sourceData.summary);
+    if (!normalizedSummary) {
+      res.status(400).json({error: "Source lecture summary is missing"});
+      return;
+    }
+
+    const titleOverride = typeof rawTitle === "string" ? rawTitle.trim() : "";
+    const sourceTitle = typeof sourceData.title === "string" ?
+      sourceData.title.trim() :
+      "";
+    const title = titleOverride || sourceTitle || "Khutbah Summary";
+
+    const speaker = typeof rawSpeaker === "string" ? rawSpeaker.trim() : "";
+    const parsedDate = (() => {
+      if (typeof rawDate === "string" || typeof rawDate === "number") {
+        const dateValue = new Date(rawDate);
+        if (!Number.isNaN(dateValue.getTime())) {
+          return admin.firestore.Timestamp.fromDate(dateValue);
+        }
+      }
+      if (sourceData.date instanceof admin.firestore.Timestamp) {
+        return sourceData.date;
+      }
+      return null;
+    })();
+
+    const tags = Array.isArray(rawTags) ?
+      rawTags
+        .filter((item) => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0) :
+      [];
+
+    const transcriptOverride = typeof rawTranscript === "string" ?
+      rawTranscript.trim() :
+      "";
+    const sourceTranscript = typeof sourceData.transcript === "string" ?
+      sourceData.transcript.trim() :
+      "";
+    const sourceTranscriptFormatted =
+      typeof sourceData.transcriptFormatted === "string" ?
+        sourceData.transcriptFormatted.trim() :
+        "";
+    const transcriptText =
+      transcriptOverride || sourceTranscript || sourceTranscriptFormatted;
+    if (transcriptText.length > YOUTUBE_CAPTIONS_MAX_CHARS) {
+      res.status(400).json({
+        error: `transcript exceeds ${YOUTUBE_CAPTIONS_MAX_CHARS} chars`,
+      });
+      return;
+    }
+
+    const includeAudio = rawIncludeAudio === true;
+    const sourceAudioRaw = typeof sourceData.audioPath === "string" ?
+      sourceData.audioPath.trim() :
+      "";
+    let promotedAudioPath: string | null = null;
+    if (includeAudio) {
+      if (!sourceAudioRaw) {
+        res.status(400).json({error: "Source lecture has no audioPath"});
+        return;
+      }
+      const sourceAudioPath = normalizeStorageObjectPath(sourceAudioRaw);
+      if (!sourceAudioPath) {
+        res.status(400).json({error: "Source audioPath is invalid"});
+        return;
+      }
+
+      const extensionRaw = path.extname(sourceAudioPath).toLowerCase();
+      const extension = /^[a-z0-9.]{2,8}$/.test(extensionRaw) ?
+        extensionRaw :
+        ".m4a";
+      const promotedKhutbahId = buildPromotedKhutbahId(
+        sourceUserId,
+        sourceLectureId
+      );
+      promotedAudioPath =
+        `masjid_audio/${masjidId}/${promotedKhutbahId}${extension}`;
+
+      const bucket = admin.storage().bucket(storageBucketName);
+      const promotedFile = bucket.file(promotedAudioPath);
+      if (sourceAudioPath !== promotedAudioPath) {
+        await bucket.file(sourceAudioPath).copy(promotedFile);
+      }
+      await promotedFile.setMetadata({
+        metadata: {
+          firebaseStorageDownloadTokens: randomUUID(),
+        },
+      });
+    }
+
+    const khutbahId = buildPromotedKhutbahId(sourceUserId, sourceLectureId);
+    const khutbahRef = masjidRef.collection("khutbahs").doc(khutbahId);
+    const existingKhutbahSnap = await khutbahRef.get();
+
+    const promotedData: Record<string, unknown> = {
+      title,
+      mainTheme: normalizedSummary.mainTheme,
+      keyPoints: normalizedSummary.keyPoints,
+      explicitAyatOrHadith: normalizedSummary.explicitAyatOrHadith,
+      weeklyActions: normalizedSummary.weeklyActions,
+      status: "ready",
+      sourceType: "user_lecture",
+      sourceUserId,
+      sourceLectureId,
+      sourceLecturePath: sourceLectureRef.path,
+      promotedByUid: uid,
+      promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdByUid: uid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      youtubeUrl: admin.firestore.FieldValue.delete(),
+      youtubeVideoId: admin.firestore.FieldValue.delete(),
+      durationSec: admin.firestore.FieldValue.delete(),
+      manualTranscript: admin.firestore.FieldValue.delete(),
+      errorStage: admin.firestore.FieldValue.delete(),
+      errorMessage: admin.firestore.FieldValue.delete(),
+    };
+    if (!existingKhutbahSnap.exists) {
+      promotedData.createdAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+    if (speaker) {
+      promotedData.speaker = speaker;
+    } else {
+      promotedData.speaker = admin.firestore.FieldValue.delete();
+    }
+    if (parsedDate) {
+      promotedData.date = parsedDate;
+    } else {
+      promotedData.date = admin.firestore.FieldValue.delete();
+    }
+    if (tags.length > 0) {
+      promotedData.tags = tags;
+    } else {
+      promotedData.tags = admin.firestore.FieldValue.delete();
+    }
+    if (promotedAudioPath) {
+      promotedData.audioPath = promotedAudioPath;
+      promotedData.sourceAudioPath = sourceAudioRaw;
+    } else {
+      promotedData.audioPath = admin.firestore.FieldValue.delete();
+      promotedData.sourceAudioPath = admin.firestore.FieldValue.delete();
+    }
+    if (transcriptText) {
+      promotedData.transcriptPreview = buildTranscriptPreview(transcriptText);
+      promotedData.transcriptCharCount = transcriptText.length;
+      promotedData.transcriptSource = transcriptOverride ?
+        "admin_manual" :
+        "promoted_user_lecture";
+      promotedData.transcriptLanguageCode = admin.firestore.FieldValue.delete();
+      promotedData.transcriptIsAutoGenerated =
+        admin.firestore.FieldValue.delete();
+    } else {
+      promotedData.transcriptPreview = admin.firestore.FieldValue.delete();
+      promotedData.transcriptRefPath = admin.firestore.FieldValue.delete();
+      promotedData.transcriptCharCount = admin.firestore.FieldValue.delete();
+      promotedData.transcriptSource = admin.firestore.FieldValue.delete();
+      promotedData.transcriptLanguageCode = admin.firestore.FieldValue.delete();
+      promotedData.transcriptIsAutoGenerated =
+        admin.firestore.FieldValue.delete();
+    }
+
+    const transcriptRef = khutbahRef.collection("artifacts").doc("transcript");
+    if (transcriptText) {
+      await transcriptRef.set({
+        text: transcriptText,
+        source: transcriptOverride ? "admin_manual" : "promoted_user_lecture",
+        charCount: transcriptText.length,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+      promotedData.transcriptRefPath = transcriptRef.path;
+    } else {
+      await transcriptRef.delete().catch(() => undefined);
+    }
+
+    await khutbahRef.set(promotedData, {merge: true});
+    await masjidRef.set({
+      lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    res.status(200).json({
+      ok: true,
+      masjidId,
+      khutbahId,
+      promotedFrom: sourceLectureRef.path,
+      hasTranscript: Boolean(transcriptText),
+      audioPath: promotedAudioPath,
     });
   }
 );

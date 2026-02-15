@@ -158,6 +158,7 @@ final class MasjidStore: ObservableObject {
             weeklyActions: data["weeklyActions"] as? [String] ?? [],
             tags: data["tags"] as? [String] ?? [],
             status: status,
+            audioPath: data["audioPath"] as? String,
             transcriptRefPath: data["transcriptRefPath"] as? String,
             transcriptPreview: data["transcriptPreview"] as? String,
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue()

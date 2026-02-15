@@ -1,0 +1,34 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User-private recordings and derived audio.
+    match /audio/{userId}/{allPaths=**} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Public masjid-channel audio (read-only from client apps).
+    match /masjid_audio/{masjidId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Seed/demo media.
+    match /demo/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Default deny.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

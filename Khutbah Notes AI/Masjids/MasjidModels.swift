@@ -33,6 +33,7 @@ struct MasjidKhutbah: Identifiable, Hashable {
     var weeklyActions: [String]
     var tags: [String]
     var status: MasjidKhutbahStatus
+    var audioPath: String?
     var transcriptRefPath: String?
     var transcriptPreview: String?
     var createdAt: Date?

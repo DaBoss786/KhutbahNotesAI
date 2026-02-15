@@ -1812,6 +1812,8 @@ final class LectureStore: ObservableObject {
             guard let durationSec = khutbah.durationSec else { return nil }
             return max(1, Int(ceil(Double(durationSec) / 60.0)))
         }()
+        let sharedAudioPath = khutbah.audioPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let summary = buildMasjidSummary(from: khutbah)
 
         var data: [String: Any] = [
@@ -1821,7 +1823,11 @@ final class LectureStore: ObservableObject {
             "status": "ready",
         ]
         data["durationMinutes"] = durationMinutes ?? NSNull()
-        data["audioPath"] = FieldValue.delete()
+        if let sharedAudioPath, !sharedAudioPath.isEmpty {
+            data["audioPath"] = sharedAudioPath
+        } else {
+            data["audioPath"] = FieldValue.delete()
+        }
         data["folderId"] = NSNull()
         data["folderName"] = NSNull()
         data["errorMessage"] = FieldValue.delete()
@@ -1862,7 +1868,7 @@ final class LectureStore: ObservableObject {
             transcript: transcript,
             transcriptFormatted: transcript,
             summary: summary,
-            audioPath: nil,
+            audioPath: sharedAudioPath,
             folderId: nil,
             folderName: nil
         )
@@ -2346,7 +2352,9 @@ final class LectureStore: ObservableObject {
         }
         
         // Delete audio blob if present
-        if let audioPath = lecture.audioPath, !audioPath.hasPrefix("demo/") {
+        if let audioPath = lecture.audioPath,
+           !audioPath.hasPrefix("demo/"),
+           audioPath.hasPrefix("audio/\(userId)/") {
             storage.reference(withPath: audioPath).delete { error in
                 if let error = error {
                     print("Error deleting audio file: \(error)")
