@@ -116,6 +116,13 @@ struct MasjidLectureView: View {
         .background(Theme.backgroundGradient.ignoresSafeArea())
         .navigationTitle("Lecture")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            AnalyticsManager.logMasjidKhutbahOpened(
+                masjidId: masjid.id,
+                khutbahId: khutbah.id,
+                source: "channel_list"
+            )
+        }
         .task(id: khutbah.id) {
             await loadTranscriptIfNeeded()
         }

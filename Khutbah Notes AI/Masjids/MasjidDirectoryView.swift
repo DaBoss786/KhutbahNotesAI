@@ -47,6 +47,7 @@ struct MasjidDirectoryView: View {
         }
         .onAppear {
             masjidStore.start()
+            AnalyticsManager.logMasjidDirectoryViewed(source: "tab_bar")
         }
     }
 
@@ -110,6 +111,7 @@ struct MasjidDirectoryView: View {
                 .focused($isSearchFocused)
                 .submitLabel(.search)
                 .onSubmit {
+                    logSearchEvent()
                     isSearchFocused = false
                 }
             if !trimmedQuery.isEmpty {
@@ -122,6 +124,7 @@ struct MasjidDirectoryView: View {
                 .buttonStyle(.plain)
             }
             Button {
+                logSearchEvent()
                 isSearchFocused = false
             } label: {
                 Text("Search")
@@ -189,6 +192,14 @@ struct MasjidDirectoryView: View {
                 } label: {
                     masjidRow(masjid)
                 }
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        AnalyticsManager.logMasjidSelected(
+                            masjidId: masjid.id,
+                            masjidName: masjid.name
+                        )
+                    }
+                )
                 .buttonStyle(.plain)
             }
         }
@@ -227,5 +238,13 @@ struct MasjidDirectoryView: View {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         return "Updated \(formatter.string(from: date))"
+    }
+
+    private func logSearchEvent() {
+        guard !trimmedQuery.isEmpty else { return }
+        AnalyticsManager.logMasjidSearchUsed(
+            queryLength: trimmedQuery.count,
+            resultsCount: filteredMasjids.count
+        )
     }
 }

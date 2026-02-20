@@ -34,6 +34,10 @@ struct MasjidChannelView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             masjidStore.observeKhutbahs(for: masjid.id)
+            AnalyticsManager.logMasjidChannelViewed(
+                masjidId: masjid.id,
+                khutbahCountReady: khutbahs.count
+            )
         }
     }
 

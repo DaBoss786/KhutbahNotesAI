@@ -20,6 +20,11 @@ enum AnalyticsEvent: String {
     case onboardingPaywallResult = "onboarding_paywall_result"
     case widgetTapOpenVerse = "widget_tap_open_verse"
     case widgetTapOpenRecordFriday = "widget_tap_open_record_friday"
+    case masjidDirectoryViewed = "masjid_directory_viewed"
+    case masjidSearchUsed = "masjid_search_used"
+    case masjidSelected = "masjid_selected"
+    case masjidChannelViewed = "masjid_channel_viewed"
+    case masjidKhutbahOpened = "masjid_khutbah_opened"
 }
 
 enum AudioUploadTrigger: String, Codable {
@@ -156,6 +161,12 @@ enum AnalyticsParameterKey {
     static let productId = "product_id"
     static let price = "price"
     static let currency = "currency"
+    static let masjidId = "masjid_id"
+    static let masjidName = "masjid_name"
+    static let khutbahId = "khutbah_id"
+    static let queryLength = "query_length"
+    static let resultsCount = "results_count"
+    static let khutbahCountReady = "khutbah_count_ready"
 }
 
 struct AnalyticsManager {
@@ -427,6 +438,45 @@ struct AnalyticsManager {
 
     static func logWidgetTapOpenRecordFriday() {
         log(.widgetTapOpenRecordFriday, parameters: [:])
+    }
+
+    static func logMasjidDirectoryViewed(source: String) {
+        log(.masjidDirectoryViewed, parameters: [
+            AnalyticsParameterKey.source: source
+        ])
+    }
+
+    static func logMasjidSearchUsed(queryLength: Int, resultsCount: Int) {
+        log(.masjidSearchUsed, parameters: [
+            AnalyticsParameterKey.queryLength: queryLength,
+            AnalyticsParameterKey.resultsCount: resultsCount
+        ])
+    }
+
+    static func logMasjidSelected(masjidId: String, masjidName: String) {
+        log(.masjidSelected, parameters: [
+            AnalyticsParameterKey.masjidId: masjidId,
+            AnalyticsParameterKey.masjidName: masjidName
+        ])
+    }
+
+    static func logMasjidChannelViewed(masjidId: String, khutbahCountReady: Int) {
+        log(.masjidChannelViewed, parameters: [
+            AnalyticsParameterKey.masjidId: masjidId,
+            AnalyticsParameterKey.khutbahCountReady: khutbahCountReady
+        ])
+    }
+
+    static func logMasjidKhutbahOpened(
+        masjidId: String,
+        khutbahId: String,
+        source: String
+    ) {
+        log(.masjidKhutbahOpened, parameters: [
+            AnalyticsParameterKey.masjidId: masjidId,
+            AnalyticsParameterKey.khutbahId: khutbahId,
+            AnalyticsParameterKey.source: source
+        ])
     }
     
     private static func log(_ event: AnalyticsEvent, parameters: [String: Any?]) {
