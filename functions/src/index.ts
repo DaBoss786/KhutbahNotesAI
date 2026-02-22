@@ -5363,6 +5363,10 @@ function isPlainRecord(value: unknown): value is RevenueCatEvent {
 
 // Your OneSignal App ID
 const ONESIGNAL_APP_ID = "290aa0ce-8c6c-4e7d-84c1-914fbdac66f1";
+const ONESIGNAL_IOS_BADGE_INCREMENT = {
+  ios_badgeType: "Increase",
+  ios_badgeCount: 1,
+} as const;
 const adminToken = defineSecret("ADMIN_TOKEN");
 const masjidAdminUids = defineSecret("ADMIN_UIDS");
 const FIRESTORE_BATCH_SIZE = 500;
@@ -5416,6 +5420,22 @@ interface WeeklyActionGroup {
   time: string;
   timezone: string;
   sendAfterUtc: string;
+}
+
+/**
+ * Apply OneSignal iOS badge increment fields to a push payload.
+ * Badge clearing on app-open is handled by OneSignal SDK defaults.
+ *
+ * @param {Record<string, unknown>} payload Notification payload.
+ * @return {Record<string, unknown>} Payload with iOS badge fields.
+ */
+function withOneSignalIosBadgeIncrement<T extends Record<string, unknown>>(
+  payload: T
+): T & typeof ONESIGNAL_IOS_BADGE_INCREMENT {
+  return {
+    ...payload,
+    ...ONESIGNAL_IOS_BADGE_INCREMENT,
+  };
 }
 
 interface ValidationResult {
@@ -5772,7 +5792,7 @@ async function sendJumuahNotification(
   sendAfterUtc: string,
   apiKey: string
 ): Promise<SendResult> {
-  const payload = {
+  const payload = withOneSignalIosBadgeIncrement({
     app_id: ONESIGNAL_APP_ID,
     include_aliases: {
       external_id: userIds,
@@ -5788,7 +5808,7 @@ async function sendJumuahNotification(
     collapse_id: `jumuah-${sendAfterUtc.substring(0, 16)}`,
     ttl: 7200,
     ios_interruption_level: "time_sensitive",
-  };
+  });
 
   try {
     const res = await fetch("https://api.onesignal.com/notifications?c=push", {
@@ -5845,7 +5865,7 @@ async function sendSummaryReadyNotification(
     "Your khutbah summary is ready.";
   const deepLinkUrl = `khutbahnotesai://lecture?lectureId=${encodeURIComponent(lectureId)}`;
 
-  const payload = {
+  const payload = withOneSignalIosBadgeIncrement({
     app_id: ONESIGNAL_APP_ID,
     include_aliases: {
       external_id: [userId],
@@ -5865,7 +5885,7 @@ async function sendSummaryReadyNotification(
     collapse_id: `summary-ready-${lectureId}`,
     ttl: 86400,
     ios_interruption_level: preference === "provisional" ? "passive" : "active",
-  };
+  });
 
   try {
     const res = await fetch("https://api.onesignal.com/notifications?c=push", {
@@ -5925,7 +5945,7 @@ async function sendWeeklyActionNotification(
     return {success: false, error: "weekly_action_empty"};
   }
 
-  const payload = {
+  const payload = withOneSignalIosBadgeIncrement({
     app_id: ONESIGNAL_APP_ID,
     include_aliases: {
       external_id: [userId],
@@ -5945,7 +5965,7 @@ async function sendWeeklyActionNotification(
     collapse_id: `weekly-action-${lectureId}`,
     ttl: 86400,
     ios_interruption_level: preference === "provisional" ? "passive" : "active",
-  };
+  });
 
   try {
     const res = await fetch("https://api.onesignal.com/notifications?c=push", {
@@ -7539,13 +7559,13 @@ export const testJumuahReminder = onRequest(
           "Authorization": `Key ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
+        body: JSON.stringify(withOneSignalIosBadgeIncrement({
           app_id: ONESIGNAL_APP_ID,
           include_aliases: {external_id: [userId]},
           target_channel: "push",
           headings: {en: "🧪 Test: Jumu'ah Reminder"},
           contents: {en: "Test notification - Try Khutbah Notes today."},
-        }),
+        })),
       });
 
       const data = await response.json();
