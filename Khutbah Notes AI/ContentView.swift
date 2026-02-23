@@ -1528,6 +1528,7 @@ struct LectureDetailView: View {
     @State private var isShareSheetPresented = false
     @State private var copyBannerMessage: String? = nil
     @State private var summaryRetryNow = Date()
+    @State private var isAudioRecapSheetPresented = false
     private let summaryRetryTimer =
         Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @AppStorage("didRequestDemoReview") private var didRequestDemoReview = false
@@ -1609,6 +1610,12 @@ struct LectureDetailView: View {
         default:
             return "Transcribing audio..."
         }
+    }
+
+    private var hasRecapTranscript: Bool {
+        let transcript = (displayLecture.transcriptFormatted ?? displayLecture.transcript)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !transcript.isEmpty
     }
 
     private var failedContentCard: some View {
@@ -1774,8 +1781,14 @@ struct LectureDetailView: View {
                                 }
                             } : nil,
                             selectedLanguage: $selectedSummaryLanguage,
-                            textSize: $selectedTextSize
-                        ) {
+                            textSize: $selectedTextSize,
+                            leadingControls: {
+                            AudioRecapTriggerButton(
+                                action: { isAudioRecapSheetPresented = true },
+                                isDisabled: !hasRecapTranscript
+                            )
+                        }
+                    ) {
                             ExportIconButtons(
                                 onCopy: {
                                     guard let text = exportableSummaryText(
@@ -1931,6 +1944,26 @@ struct LectureDetailView: View {
             if let items = shareItems {
                 ShareSheet(activityItems: items)
             }
+        }
+        .sheet(isPresented: $isAudioRecapSheetPresented) {
+            AudioRecapSheet(
+                title: displayLecture.title,
+                transcriptAvailable: hasRecapTranscript,
+                scope: "lecture",
+                initialState: store.recapState(for: displayLecture.id),
+                onGenerate: { options in
+                    await store.requestAudioRecap(
+                        for: displayLecture.id,
+                        options: options
+                    )
+                },
+                onRefresh: { options in
+                    await store.refreshAudioRecap(
+                        for: displayLecture.id,
+                        options: options
+                    )
+                }
+            )
         }
         .sheet(isPresented: $showRenameSheet, onDismiss: { renameText = "" }) {
             LectureRenameSheet(
@@ -2153,8 +2186,17 @@ private extension View {
 
 struct LectureAudioPlayerView: View {
     let audioPath: String?
+    let onPlayStarted: (() -> Void)?
     @StateObject private var viewModel = LectureAudioPlayerViewModel()
     private var secondaryControlsEnabled: Bool { viewModel.canPlay && !viewModel.isLoading }
+
+    init(
+        audioPath: String?,
+        onPlayStarted: (() -> Void)? = nil
+    ) {
+        self.audioPath = audioPath
+        self.onPlayStarted = onPlayStarted
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -2164,7 +2206,7 @@ struct LectureAudioPlayerView: View {
                         viewModel.seek(by: -10)
                     }
                     
-                    Button(action: { viewModel.togglePlayPause() }) {
+                    Button(action: { viewModel.togglePlayPause(onPlayStarted: onPlayStarted) }) {
                         ZStack {
                             Circle()
                                 .fill(
@@ -2180,6 +2222,10 @@ struct LectureAudioPlayerView: View {
                     }
                     .disabled(viewModel.isLoading)
                     .opacity(viewModel.isLoading ? 0.5 : 1)
+
+                    controlButton(systemName: "stop.fill") {
+                        viewModel.stop()
+                    }
                     
                     controlButton(systemName: "goforward.10") {
                         viewModel.seek(by: 10)
@@ -2366,7 +2412,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         addTimeObserver()
     }
     
-    func togglePlayPause() {
+    func togglePlayPause(onPlayStarted: (() -> Void)? = nil) {
         if isLoading { return }
         
         if !hasAudioPath || loadFailed {
@@ -2388,7 +2434,18 @@ final class LectureAudioPlayerViewModel: ObservableObject {
             player.play()
             player.rate = playbackRate
             isPlaying = true
+            onPlayStarted?()
         }
+    }
+
+    func stop() {
+        guard canPlay, let player else { return }
+        player.pause()
+        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        isPlaying = false
+        currentTime = 0
+        sliderValue = 0
+        deactivateAudioSessionIfNeeded()
     }
     
     func seek(by seconds: Double) {
@@ -2550,7 +2607,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     }
 }
 
-struct SummaryView<Actions: View>: View {
+struct SummaryView<LeadingControls: View, Actions: View>: View {
     let lectureId: String?
     let summary: LectureSummary?
     let isBaseSummaryReady: Bool
@@ -2561,6 +2618,7 @@ struct SummaryView<Actions: View>: View {
     let onRetrySummary: (() -> Void)?
     @Binding var selectedLanguage: SummaryTranslationLanguage
     @Binding var textSize: TextSizeOption
+    let leadingControls: LeadingControls
     let actions: Actions
     @State private var shareComposerData: ShareComposerData? = nil
     @EnvironmentObject private var quranNavigator: QuranNavigationCoordinator
@@ -2576,6 +2634,7 @@ struct SummaryView<Actions: View>: View {
         onRetrySummary: (() -> Void)? = nil,
         selectedLanguage: Binding<SummaryTranslationLanguage>,
         textSize: Binding<TextSizeOption>,
+        @ViewBuilder leadingControls: () -> LeadingControls = { EmptyView() },
         @ViewBuilder actions: () -> Actions = { EmptyView() }
     ) {
         self.lectureId = lectureId
@@ -2588,6 +2647,7 @@ struct SummaryView<Actions: View>: View {
         self.onRetrySummary = onRetrySummary
         self._selectedLanguage = selectedLanguage
         self._textSize = textSize
+        self.leadingControls = leadingControls()
         self.actions = actions()
     }
     
@@ -2613,7 +2673,9 @@ struct SummaryView<Actions: View>: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                leadingControls
+                    .layoutPriority(2)
                 Spacer()
                 TextSizeToggle(selection: $textSize, showsBackground: false)
                 languageMenu

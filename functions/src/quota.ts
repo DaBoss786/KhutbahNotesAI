@@ -25,6 +25,12 @@ export type UserData = {
   translationInFlightUpdatedAt?:
     | admin.firestore.Timestamp
     | admin.firestore.FieldValue;
+  recapMinuteKey?: string;
+  recapMinuteCount?: number;
+  recapInFlight?: number;
+  recapInFlightUpdatedAt?:
+    | admin.firestore.Timestamp
+    | admin.firestore.FieldValue;
 };
 
 /**

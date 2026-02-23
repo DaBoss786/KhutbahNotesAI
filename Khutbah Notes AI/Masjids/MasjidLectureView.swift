@@ -14,6 +14,7 @@ struct MasjidLectureView: View {
     @State private var isLoadingTranscript = false
     @State private var isSaving = false
     @State private var saveStateMessage: String?
+    @State private var isAudioRecapSheetPresented = false
 
     private let tabs = ["Summary", "Transcript"]
 
@@ -75,6 +76,16 @@ struct MasjidLectureView: View {
         return rawPath
     }
 
+    private var hasRecapTranscript: Bool {
+        let loaded = transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !loaded.isEmpty {
+            return true
+        }
+        let preview = khutbah.transcriptPreview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let ref = khutbah.transcriptRefPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !preview.isEmpty || !ref.isEmpty
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
@@ -99,7 +110,13 @@ struct MasjidLectureView: View {
                         isTranslationLoading: false,
                         translationError: nil,
                         selectedLanguage: $selectedSummaryLanguage,
-                        textSize: $selectedTextSize
+                        textSize: $selectedTextSize,
+                        leadingControls: {
+                            AudioRecapTriggerButton(
+                                action: { isAudioRecapSheetPresented = true },
+                                isDisabled: !hasRecapTranscript
+                            )
+                        }
                     )
                 } else {
                     transcriptCard
@@ -132,6 +149,29 @@ struct MasjidLectureView: View {
                     await loadTranscriptIfNeeded()
                 }
             }
+        }
+        .sheet(isPresented: $isAudioRecapSheetPresented) {
+            AudioRecapSheet(
+                title: khutbah.title,
+                transcriptAvailable: hasRecapTranscript,
+                scope: "masjid",
+                initialState: masjidStore.recapState(
+                    masjidId: masjid.id,
+                    khutbahId: khutbah.id
+                ),
+                onGenerate: { options in
+                    await masjidStore.requestAudioRecap(
+                        for: khutbah,
+                        options: options
+                    )
+                },
+                onRefresh: { options in
+                    await masjidStore.refreshAudioRecap(
+                        for: khutbah,
+                        options: options
+                    )
+                }
+            )
         }
     }
 

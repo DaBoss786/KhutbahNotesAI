@@ -121,6 +121,11 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+    match /users/{userId}/lectures/{lectureId}/recaps/{variantKey} {
+      allow read: if isOwner(userId);
+      allow create, update, delete: if false;
+    }
+
     match /users/{userId}/folders/{folderId} {
       allow read: if isOwner(userId);
 
@@ -148,6 +153,11 @@ service cloud.firestore {
     }
 
     match /masjids/{masjidId}/khutbahs/{khutbahId}/artifacts/{artifactId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if false;
+    }
+
+    match /masjids/{masjidId}/khutbahs/{khutbahId}/artifacts/{artifactId}/variants/{variantKey} {
       allow read: if request.auth != null;
       allow create, update, delete: if false;
     }

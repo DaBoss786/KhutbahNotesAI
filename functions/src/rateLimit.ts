@@ -41,6 +41,12 @@ export const TRANSLATION_RATE_LIMIT_FIELDS: RateLimitFields = {
   inFlight: "translationInFlight",
   inFlightUpdatedAt: "translationInFlightUpdatedAt",
 };
+export const RECAP_RATE_LIMIT_FIELDS: RateLimitFields = {
+  minuteKey: "recapMinuteKey",
+  minuteCount: "recapMinuteCount",
+  inFlight: "recapInFlight",
+  inFlightUpdatedAt: "recapInFlightUpdatedAt",
+};
 
 export const TRANSCRIBE_RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
   free: {perMinute: 2, maxInFlight: 2},
@@ -53,6 +59,10 @@ export const SUMMARY_RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
 export const TRANSLATION_RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
   free: {perMinute: 2, maxInFlight: 2},
   premium: {perMinute: 3, maxInFlight: 3},
+};
+export const RECAP_RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
+  free: {perMinute: 3, maxInFlight: 2},
+  premium: {perMinute: 6, maxInFlight: 4},
 };
 
 /**

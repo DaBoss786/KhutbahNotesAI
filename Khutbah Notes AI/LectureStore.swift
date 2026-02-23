@@ -79,6 +79,7 @@ final class LectureStore: ObservableObject {
     private var summarizationAnalytics: [String: SummarizationAnalyticsContext] = [:]
     private var transcriptionCorrelation: [String: TranscriptionCorrelationContext] = [:]
     @Published private(set) var activeUploads: Set<String> = []
+    @Published private(set) var lectureRecapStates: [String: AudioRecapState] = [:]
     
     init(seedMockData: Bool = false) {
         if seedMockData {
@@ -769,6 +770,122 @@ final class LectureStore: ObservableObject {
             print("Failed to retry summary: \(error.localizedDescription)")
         }
     }
+
+    func recapState(for lectureId: String) -> AudioRecapState? {
+        lectureRecapStates[lectureId]
+    }
+
+    @discardableResult
+    func requestAudioRecap(
+        for lectureId: String,
+        options: AudioRecapOptions
+    ) async -> AudioRecapState {
+        guard let lecture = lectures.first(where: { $0.id == lectureId }) else {
+            let unavailable = AudioRecapState.unavailable(
+                message: "Lecture not found.",
+                variantKey: ""
+            )
+            lectureRecapStates[lectureId] = unavailable
+            return unavailable
+        }
+
+        let transcript = (lecture.transcriptFormatted ?? lecture.transcript)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if transcript.isEmpty {
+            let unavailable = AudioRecapState.unavailable(
+                message: "Transcript unavailable. Generate transcript first.",
+                variantKey: ""
+            )
+            lectureRecapStates[lectureId] = unavailable
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: "lecture",
+                variantKey: unavailable.variantKey.isEmpty ? nil : unavailable.variantKey,
+                reason: unavailable.errorMessage
+            )
+            return unavailable
+        }
+
+        AnalyticsManager.logRecapRequest(
+            scope: "lecture",
+            voice: options.voice.rawValue,
+            style: options.style.rawValue,
+            lengthSec: options.clampedLengthSec
+        )
+
+        do {
+            let state = try await AudioRecapAPI.requestLectureRecap(
+                lectureId: lectureId,
+                options: options
+            )
+            lectureRecapStates[lectureId] = state
+            logRecapState(state, scope: "lecture")
+            return state
+        } catch {
+            let failed = AudioRecapState.unavailable(
+                message: error.localizedDescription,
+                variantKey: ""
+            )
+            lectureRecapStates[lectureId] = failed
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: "lecture",
+                variantKey: nil,
+                reason: error.localizedDescription
+            )
+            return failed
+        }
+    }
+
+    @discardableResult
+    func refreshAudioRecap(
+        for lectureId: String,
+        options: AudioRecapOptions
+    ) async -> AudioRecapState {
+        do {
+            let state = try await AudioRecapAPI.getLectureRecap(
+                lectureId: lectureId,
+                options: options
+            )
+            lectureRecapStates[lectureId] = state
+            logRecapState(state, scope: "lecture")
+            return state
+        } catch {
+            let failed = AudioRecapState.unavailable(
+                message: error.localizedDescription,
+                variantKey: ""
+            )
+            lectureRecapStates[lectureId] = failed
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: "lecture",
+                variantKey: nil,
+                reason: error.localizedDescription
+            )
+            return failed
+        }
+    }
+
+    private func logRecapState(_ state: AudioRecapState, scope: String) {
+        switch state.status {
+        case .generating, .processing:
+            AnalyticsManager.logRecapGenerationStarted(
+                scope: scope,
+                variantKey: state.variantKey.isEmpty ? nil : state.variantKey
+            )
+        case .ready:
+            AnalyticsManager.logRecapGenerationSucceeded(
+                scope: scope,
+                variantKey: state.variantKey.isEmpty ? nil : state.variantKey,
+                durationSec: state.durationSec
+            )
+        case .failed, .unavailable:
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: scope,
+                variantKey: state.variantKey.isEmpty ? nil : state.variantKey,
+                reason: state.errorMessage
+            )
+        case .missing, .stale:
+            break
+        }
+    }
     
     func saveJumuahStartTime(_ time: String, timezoneIdentifier: String) async {
         guard let userId else {
@@ -894,6 +1011,7 @@ final class LectureStore: ObservableObject {
         lectures = []
         folders = []
         userUsage = nil
+        lectureRecapStates = [:]
         userId = nil
         durationFetches.removeAll()
     }
@@ -937,6 +1055,7 @@ final class LectureStore: ObservableObject {
     func start(for userId: String) {
         self.userId = userId
         hasLoadedLectures = false
+        lectureRecapStates = [:]
         restorePendingRecordings(for: userId)
         resumePendingUploads()
         

@@ -25,6 +25,11 @@ enum AnalyticsEvent: String {
     case masjidSelected = "masjid_selected"
     case masjidChannelViewed = "masjid_channel_viewed"
     case masjidKhutbahOpened = "masjid_khutbah_opened"
+    case recapRequest = "recap_request"
+    case recapGenerationStarted = "recap_generation_started"
+    case recapGenerationSucceeded = "recap_generation_succeeded"
+    case recapGenerationFailed = "recap_generation_failed"
+    case recapPlayStarted = "recap_play_started"
 }
 
 enum AudioUploadTrigger: String, Codable {
@@ -167,6 +172,11 @@ enum AnalyticsParameterKey {
     static let queryLength = "query_length"
     static let resultsCount = "results_count"
     static let khutbahCountReady = "khutbah_count_ready"
+    static let scope = "scope"
+    static let variantKey = "variant_key"
+    static let recapVoice = "recap_voice"
+    static let recapStyle = "recap_style"
+    static let recapLengthSec = "recap_length_sec"
 }
 
 struct AnalyticsManager {
@@ -476,6 +486,58 @@ struct AnalyticsManager {
             AnalyticsParameterKey.masjidId: masjidId,
             AnalyticsParameterKey.khutbahId: khutbahId,
             AnalyticsParameterKey.source: source
+        ])
+    }
+
+    static func logRecapRequest(
+        scope: String,
+        voice: String,
+        style: String,
+        lengthSec: Int
+    ) {
+        log(.recapRequest, parameters: [
+            AnalyticsParameterKey.scope: scope,
+            AnalyticsParameterKey.recapVoice: voice,
+            AnalyticsParameterKey.recapStyle: style,
+            AnalyticsParameterKey.recapLengthSec: lengthSec
+        ])
+    }
+
+    static func logRecapGenerationStarted(scope: String, variantKey: String?) {
+        log(.recapGenerationStarted, parameters: [
+            AnalyticsParameterKey.scope: scope,
+            AnalyticsParameterKey.variantKey: variantKey
+        ])
+    }
+
+    static func logRecapGenerationSucceeded(
+        scope: String,
+        variantKey: String?,
+        durationSec: Int?
+    ) {
+        log(.recapGenerationSucceeded, parameters: [
+            AnalyticsParameterKey.scope: scope,
+            AnalyticsParameterKey.variantKey: variantKey,
+            AnalyticsParameterKey.fileDuration: durationSec
+        ])
+    }
+
+    static func logRecapGenerationFailed(
+        scope: String,
+        variantKey: String?,
+        reason: String?
+    ) {
+        log(.recapGenerationFailed, parameters: [
+            AnalyticsParameterKey.scope: scope,
+            AnalyticsParameterKey.variantKey: variantKey,
+            AnalyticsParameterKey.reason: reason
+        ])
+    }
+
+    static func logRecapPlayStarted(scope: String, variantKey: String?) {
+        log(.recapPlayStarted, parameters: [
+            AnalyticsParameterKey.scope: scope,
+            AnalyticsParameterKey.variantKey: variantKey
         ])
     }
     

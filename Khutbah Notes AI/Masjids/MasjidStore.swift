@@ -9,6 +9,7 @@ final class MasjidStore: ObservableObject {
     @Published private(set) var hasLoadedMasjids = false
     @Published private(set) var isAdmin = false
     @Published private(set) var hasCheckedAdminStatus = false
+    @Published private(set) var masjidRecapStates: [String: AudioRecapState] = [:]
 
     private let db = Firestore.firestore()
     private var masjidListener: ListenerRegistration?
@@ -98,6 +99,98 @@ final class MasjidStore: ObservableObject {
         return nil
     }
 
+    func recapState(masjidId: String, khutbahId: String) -> AudioRecapState? {
+        masjidRecapStates[recapStateKey(masjidId: masjidId, khutbahId: khutbahId)]
+    }
+
+    @discardableResult
+    func requestAudioRecap(
+        for khutbah: MasjidKhutbah,
+        options: AudioRecapOptions
+    ) async -> AudioRecapState {
+        let stateKey = recapStateKey(masjidId: khutbah.masjidId, khutbahId: khutbah.id)
+        let hasTranscriptHint = (khutbah.transcriptRefPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false) ||
+            (khutbah.transcriptPreview?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty == false)
+
+        if !hasTranscriptHint {
+            let unavailable = AudioRecapState.unavailable(
+                message: "Transcript unavailable for this lecture.",
+                variantKey: ""
+            )
+            masjidRecapStates[stateKey] = unavailable
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: "masjid",
+                variantKey: nil,
+                reason: unavailable.errorMessage
+            )
+            return unavailable
+        }
+
+        AnalyticsManager.logRecapRequest(
+            scope: "masjid",
+            voice: options.voice.rawValue,
+            style: options.style.rawValue,
+            lengthSec: options.clampedLengthSec
+        )
+
+        do {
+            let state = try await AudioRecapAPI.requestMasjidRecap(
+                masjidId: khutbah.masjidId,
+                khutbahId: khutbah.id,
+                options: options
+            )
+            masjidRecapStates[stateKey] = state
+            logRecapState(state, scope: "masjid")
+            return state
+        } catch {
+            let failed = AudioRecapState.unavailable(
+                message: error.localizedDescription,
+                variantKey: ""
+            )
+            masjidRecapStates[stateKey] = failed
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: "masjid",
+                variantKey: nil,
+                reason: error.localizedDescription
+            )
+            return failed
+        }
+    }
+
+    @discardableResult
+    func refreshAudioRecap(
+        for khutbah: MasjidKhutbah,
+        options: AudioRecapOptions
+    ) async -> AudioRecapState {
+        let stateKey = recapStateKey(masjidId: khutbah.masjidId, khutbahId: khutbah.id)
+        do {
+            let state = try await AudioRecapAPI.getMasjidRecap(
+                masjidId: khutbah.masjidId,
+                khutbahId: khutbah.id,
+                options: options
+            )
+            masjidRecapStates[stateKey] = state
+            logRecapState(state, scope: "masjid")
+            return state
+        } catch {
+            let failed = AudioRecapState.unavailable(
+                message: error.localizedDescription,
+                variantKey: ""
+            )
+            masjidRecapStates[stateKey] = failed
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: "masjid",
+                variantKey: nil,
+                reason: error.localizedDescription
+            )
+            return failed
+        }
+    }
+
     private func observeMasjids() {
         masjidListener?.remove()
         hasLoadedMasjids = false
@@ -169,5 +262,33 @@ final class MasjidStore: ObservableObject {
         let lhsDate = lhs.date ?? lhs.createdAt ?? .distantPast
         let rhsDate = rhs.date ?? rhs.createdAt ?? .distantPast
         return lhsDate > rhsDate
+    }
+
+    private func recapStateKey(masjidId: String, khutbahId: String) -> String {
+        "\(masjidId)#\(khutbahId)"
+    }
+
+    private func logRecapState(_ state: AudioRecapState, scope: String) {
+        switch state.status {
+        case .generating, .processing:
+            AnalyticsManager.logRecapGenerationStarted(
+                scope: scope,
+                variantKey: state.variantKey.isEmpty ? nil : state.variantKey
+            )
+        case .ready:
+            AnalyticsManager.logRecapGenerationSucceeded(
+                scope: scope,
+                variantKey: state.variantKey.isEmpty ? nil : state.variantKey,
+                durationSec: state.durationSec
+            )
+        case .failed, .unavailable:
+            AnalyticsManager.logRecapGenerationFailed(
+                scope: scope,
+                variantKey: state.variantKey.isEmpty ? nil : state.variantKey,
+                reason: state.errorMessage
+            )
+        case .missing, .stale:
+            break
+        }
     }
 }

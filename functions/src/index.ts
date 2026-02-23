@@ -29,6 +29,8 @@ import {
 } from "./quota";
 import {
   RateLimitError,
+  RECAP_RATE_LIMIT_FIELDS,
+  RECAP_RATE_LIMITS,
   TRANSLATION_RATE_LIMIT_FIELDS,
   TRANSLATION_RATE_LIMITS,
   TRANSCRIBE_RATE_LIMIT_FIELDS,
@@ -40,6 +42,7 @@ import {
   getRateLimitTier,
   type RateLimitFields,
   type RateLimitReason,
+  type RateLimitTier,
 } from "./rateLimit";
 import {
   isEntitlementActive,
@@ -47,6 +50,21 @@ import {
   resolveMonthlyMinutesUsed,
   type ExistingBillingState,
 } from "./revenuecat";
+import {
+  RECAP_LOCK_TTL_MS,
+  RECAP_TEXT_MODEL,
+  RECAP_TTS_MODEL,
+  clampRecapLengthSec,
+  computeTranscriptHash,
+  decideRecapAction,
+  hasReachedUniqueVariantCap,
+  normalizeRecapRequest,
+  normalizeTranscriptText as normalizeRecapTranscript,
+  targetWordBudget,
+  type NormalizedRecapRequest,
+  type RecapAction,
+  type RecapStateLite,
+} from "./recap";
 
 export {
   addOneMonth,
@@ -302,6 +320,34 @@ const TRANSLATION_ULTRA_COMPACT_RETRY_INSTRUCTIONS = [
 
 const RATE_LIMIT_ERROR_MESSAGE =
   "Rate limit exceeded. Please retry in a minute.";
+const RECAP_ERROR_MESSAGE_NO_TRANSCRIPT =
+  "Transcript unavailable. Generate a transcript first.";
+const RECAP_ERROR_MESSAGE_VARIANT_CAP =
+  "Recap option limit reached for this lecture. " +
+  "Try an existing voice/tone option.";
+const RECAP_AUDIO_CONTENT_TYPE = "audio/mpeg";
+const RECAP_GENERATING_STATUSES = new Set(["generating"]);
+const RECAP_MAX_UNIQUE_VARIANTS_BY_TIER: Record<RateLimitTier, number> = {
+  free: 2,
+  premium: 4,
+};
+const RECAP_TTS_VOICE_BY_LABEL: Record<string, string> = {
+  male: "cedar",
+  female: "marin",
+};
+const RECAP_SYSTEM_PROMPT = [
+  "You are a careful recap writer for Islamic khutbah transcripts.",
+  "Your ONLY source is the transcript content provided by the user.",
+  "",
+  "Hard constraints:",
+  "- Do NOT add facts, stories, quotes, verses, or advice not in transcript.",
+  "- Do NOT infer speaker intent beyond explicit transcript wording.",
+  "- If content is unclear or missing, briefly say it was not mentioned.",
+  "- Output plain text only (no markdown, no bullets, no headings).",
+  "- Write naturally for text-to-speech.",
+  "",
+  "Style instruction follows in a separate message. Respect it exactly.",
+].join("\n");
 
 
 /**
@@ -6799,6 +6845,1228 @@ async function logWeeklyActionRun(
     logger.error("Failed to log weekly action run:", e);
   }
 }
+
+type TranscriptPayload = {
+  text: string;
+  source: string;
+};
+
+type RecapHttpState = {
+  status: string;
+  variantKey: string;
+  audioPath: string | null;
+  script: string | null;
+  durationSec: number | null;
+  transcriptHash: string | null;
+  voice: string | null;
+  style: string | null;
+  language: string | null;
+  targetLengthSec: number | null;
+  promptVersion: string | null;
+  textModel: string | null;
+  ttsModel: string | null;
+  error: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  generatedAt: string | null;
+  stale: boolean;
+  path: string | null;
+};
+
+/**
+ * Resolve the best transcript source from a user lecture document.
+ *
+ * @param {Record<string, unknown>} lecture Lecture document data.
+ * @return {TranscriptPayload | null} Transcript payload or null.
+ */
+function resolveLectureTranscript(
+  lecture: Record<string, unknown>
+): TranscriptPayload | null {
+  const formatted = typeof lecture.transcriptFormatted === "string" ?
+    normalizeRecapTranscript(lecture.transcriptFormatted) :
+    "";
+  if (formatted) {
+    return {text: formatted, source: "lecture.transcriptFormatted"};
+  }
+  const raw = typeof lecture.transcript === "string" ?
+    normalizeRecapTranscript(lecture.transcript) :
+    "";
+  if (raw) {
+    return {text: raw, source: "lecture.transcript"};
+  }
+  return null;
+}
+
+/**
+ * Resolve transcript for a masjid khutbah from transcript artifact paths.
+ *
+ * @param {FirebaseFirestore.DocumentReference} khutbahRef Khutbah doc ref.
+ * @param {Record<string, unknown>} khutbah Khutbah doc data.
+ * @return {Promise<TranscriptPayload | null>} Transcript payload or null.
+ */
+async function resolveMasjidTranscript(
+  khutbahRef: FirebaseFirestore.DocumentReference,
+  khutbah: Record<string, unknown>
+): Promise<TranscriptPayload | null> {
+  const refs: FirebaseFirestore.DocumentReference[] = [];
+  const transcriptRefPath = typeof khutbah.transcriptRefPath === "string" ?
+    khutbah.transcriptRefPath.trim() :
+    "";
+  if (transcriptRefPath) {
+    refs.push(db.doc(transcriptRefPath));
+  }
+  refs.push(khutbahRef.collection("artifacts").doc("transcript"));
+
+  for (const ref of refs) {
+    try {
+      const snap = await ref.get();
+      if (!snap.exists) {
+        continue;
+      }
+      const text = typeof snap.data()?.text === "string" ?
+        normalizeRecapTranscript(snap.data()?.text as string) :
+        "";
+      if (text) {
+        return {text, source: ref.path};
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  const preview = typeof khutbah.transcriptPreview === "string" ?
+    normalizeRecapTranscript(khutbah.transcriptPreview) :
+    "";
+  if (preview) {
+    return {text: preview, source: "khutbah.transcriptPreview"};
+  }
+  return null;
+}
+
+/**
+ * Parse recap options from an HTTP request.
+ *
+ * @param {Request} req Express request.
+ * @return {NormalizedRecapRequest} Validated request options.
+ */
+function parseRecapOptionsFromRequest(req: Request): NormalizedRecapRequest {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const query = req.query && typeof req.query === "object" ? req.query : {};
+  return normalizeRecapRequest({
+    voice: typeof body.voice === "string" ? body.voice : query.voice,
+    style: typeof body.style === "string" ? body.style : query.style,
+    language:
+      typeof body.language === "string" ? body.language : query.language,
+    promptVersion:
+      typeof body.promptVersion === "string" ?
+        body.promptVersion :
+        typeof query.promptVersion === "string" ?
+          query.promptVersion :
+          undefined,
+  });
+}
+
+/**
+ * Convert recap metadata into an API-safe payload.
+ *
+ * @param {FirebaseFirestore.DocumentSnapshot} recapSnap Recap metadata doc.
+ * @param {string} variantKey Variant key.
+ * @param {boolean} stale Whether transcript hash is stale.
+ * @return {RecapHttpState} API payload.
+ */
+function buildRecapHttpState(
+  recapSnap: FirebaseFirestore.DocumentSnapshot,
+  variantKey: string,
+  stale: boolean
+): RecapHttpState {
+  const data = recapSnap.data() as Record<string, unknown> | undefined;
+  const rawStatus = typeof data?.status === "string" ? data.status : "missing";
+  const status = stale && rawStatus === "ready" ? "stale" : rawStatus;
+  const toNullableString = (value: unknown): string | null =>
+    typeof value === "string" && value.trim().length > 0 ? value : null;
+  const toNullableNumber = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const toIso = (value: unknown): string | null => {
+    const millis = getTimestampMillis(value);
+    return millis === null ? null : new Date(millis).toISOString();
+  };
+
+  return {
+    status,
+    variantKey,
+    audioPath: toNullableString(data?.audioPath),
+    script: toNullableString(data?.script),
+    durationSec: toNullableNumber(data?.durationSec),
+    transcriptHash: toNullableString(data?.transcriptHash),
+    voice: toNullableString(data?.voice),
+    style: toNullableString(data?.style),
+    language: toNullableString(data?.language),
+    targetLengthSec: toNullableNumber(data?.targetLengthSec),
+    promptVersion: toNullableString(data?.promptVersion),
+    textModel: toNullableString(data?.textModel),
+    ttsModel: toNullableString(data?.ttsModel),
+    error: toNullableString(data?.error),
+    createdAt: toIso(data?.createdAt),
+    updatedAt: toIso(data?.updatedAt),
+    generatedAt: toIso(data?.generatedAt),
+    stale,
+    path: recapSnap.ref.path,
+  };
+}
+
+/**
+ * Build a recap style instruction string for the text model.
+ *
+ * @param {NormalizedRecapRequest} options Normalized recap options.
+ * @param {number} wordBudget Target max words.
+ * @return {string} Style instruction prompt.
+ */
+function recapStyleInstruction(
+  options: NormalizedRecapRequest,
+  wordBudget: number
+): string {
+  const style =
+    options.style === "reflective" ?
+      "Use a warm reflective tone that helps the listener ponder." :
+      options.style === "action_focused" ?
+        "Focus on practical and explicit next steps mentioned by the speaker." :
+        "Keep it concise and straightforward.";
+
+  return [
+    `Target language: ${options.language}.`,
+    `Target length: about ${options.targetLengthSec} seconds.`,
+    `Maximum words: ${wordBudget}.`,
+    style,
+    "Output one connected conversational recap paragraph.",
+  ].join("\n");
+}
+
+/**
+ * Generate recap script text from transcript.
+ *
+ * @param {OpenAI} openai OpenAI client.
+ * @param {string} transcript Transcript text.
+ * @param {NormalizedRecapRequest} options Recap options.
+ * @return {Promise<string>} Script text.
+ */
+async function generateRecapScript(
+  openai: OpenAI,
+  transcript: string,
+  options: NormalizedRecapRequest
+): Promise<string> {
+  const wordBudget = targetWordBudget(options.targetLengthSec);
+  const response = await openai.responses.create({
+    model: RECAP_TEXT_MODEL,
+    input: [
+      {role: "system", content: RECAP_SYSTEM_PROMPT},
+      {role: "user", content: recapStyleInstruction(options, wordBudget)},
+      {role: "user", content: transcript},
+    ],
+    max_output_tokens: Math.min(1200, Math.max(500, wordBudget * 3)),
+  });
+
+  const {text, refusal} = extractTextOrRefusal(response);
+  if (!text) {
+    throw new Error(refusal ? `Recap generation refused: ${refusal}` :
+      "Recap generation returned empty output.");
+  }
+
+  let script = truncateWords(normalizeRecapTranscript(text), wordBudget).trim();
+  if (script.length > 4000) {
+    script = script.slice(0, 4000).trim();
+  }
+  if (!script) {
+    throw new Error("Recap generation returned empty script.");
+  }
+  return script;
+}
+
+/**
+ * Synthesize recap audio via TTS.
+ *
+ * @param {OpenAI} openai OpenAI client.
+ * @param {string} script Recap script.
+ * @param {NormalizedRecapRequest} options Recap options.
+ * @return {Promise<Buffer>} MP3 audio bytes.
+ */
+async function synthesizeRecapAudio(
+  openai: OpenAI,
+  script: string,
+  options: NormalizedRecapRequest
+): Promise<Buffer> {
+  const ttsVoice = RECAP_TTS_VOICE_BY_LABEL[options.voice] ?? "alloy";
+  const ttsResponse = await openai.audio.speech.create({
+    model: RECAP_TTS_MODEL,
+    voice: ttsVoice,
+    input: script,
+    response_format: "mp3",
+  });
+  const audioArrayBuffer = await ttsResponse.arrayBuffer();
+  return Buffer.from(audioArrayBuffer);
+}
+
+/**
+ * Estimate audio duration in seconds from an MP3 buffer.
+ *
+ * @param {Buffer} audioBuffer MP3 bytes.
+ * @return {Promise<number | null>} Rounded duration or null.
+ */
+async function estimateDurationSecFromMp3(
+  audioBuffer: Buffer
+): Promise<number | null> {
+  const tempPath = path.join(os.tmpdir(), `recap-${randomUUID()}.mp3`);
+  try {
+    fs.writeFileSync(tempPath, audioBuffer);
+    const metadata = await parseFile(tempPath);
+    const seconds = metadata.format.duration;
+    if (
+      typeof seconds !== "number" ||
+      !Number.isFinite(seconds) ||
+      seconds <= 0
+    ) {
+      return null;
+    }
+    return Math.max(1, Math.round(seconds));
+  } finally {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // Ignore cleanup failures.
+    }
+  }
+}
+
+/**
+ * Upload recap audio bytes to Firebase Storage.
+ *
+ * @param {string} objectPath Target storage object path.
+ * @param {Buffer} audioBuffer Audio bytes.
+ * @return {Promise<void>} Resolves once upload completes.
+ */
+async function uploadRecapAudio(
+  objectPath: string,
+  audioBuffer: Buffer
+): Promise<void> {
+  const bucket = admin.storage().bucket(storageBucketName);
+  const file = bucket.file(objectPath);
+  await file.save(audioBuffer, {
+    metadata: {
+      contentType: RECAP_AUDIO_CONTENT_TYPE,
+      cacheControl: "public, max-age=3600",
+      metadata: {
+        firebaseStorageDownloadTokens: randomUUID(),
+      },
+    },
+    resumable: false,
+  });
+}
+
+/**
+ * Process a recap generation job from a recap metadata document.
+ *
+ * @param {FirebaseFirestore.DocumentReference} recapRef Recap metadata doc.
+ * @param {function(): Promise<TranscriptPayload | null>} loadTranscript
+ *   Transcript loader.
+ * @param {string} defaultAudioPath Default storage path for output audio.
+ * @return {Promise<void>} Resolves once processing is complete.
+ */
+async function processRecapGenerationJob(
+  recapRef: FirebaseFirestore.DocumentReference,
+  loadTranscript: () => Promise<TranscriptPayload | null>,
+  defaultAudioPath: string
+): Promise<void> {
+  const lock = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(recapRef);
+    if (!snap.exists) {
+      return {acquired: false};
+    }
+    const data = snap.data() as Record<string, unknown> | undefined;
+    const status = typeof data?.status === "string" ? data.status : "";
+    if (status !== "generating") {
+      return {acquired: false};
+    }
+
+    const workerId = randomUUID();
+    tx.update(recapRef, {
+      status: "processing",
+      workerId,
+      lockExpiresAt: admin.firestore.Timestamp.fromMillis(
+        Date.now() + RECAP_LOCK_TTL_MS
+      ),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      error: admin.firestore.FieldValue.delete(),
+    });
+    return {acquired: true, workerId, data};
+  });
+
+  if (!lock.acquired) {
+    return;
+  }
+
+  const workerId = lock.workerId;
+  try {
+    const options = normalizeRecapRequest(lock.data);
+    const transcriptPayload = await loadTranscript();
+    if (!transcriptPayload) {
+      throw new Error(RECAP_ERROR_MESSAGE_NO_TRANSCRIPT);
+    }
+
+    const transcriptText = normalizeRecapTranscript(transcriptPayload.text);
+    if (!transcriptText) {
+      throw new Error(RECAP_ERROR_MESSAGE_NO_TRANSCRIPT);
+    }
+
+    const transcriptHash = computeTranscriptHash(transcriptText);
+    const audioPathFromDoc =
+      typeof lock.data?.audioPath === "string" ?
+        lock.data.audioPath.trim() :
+        "";
+    const audioPath = audioPathFromDoc || defaultAudioPath;
+
+    const openai = new OpenAI({
+      apiKey: openaiKey.value(),
+    });
+    const script = await generateRecapScript(openai, transcriptText, options);
+    const audioBuffer = await synthesizeRecapAudio(openai, script, options);
+    await uploadRecapAudio(audioPath, audioBuffer);
+
+    const durationSec =
+      await estimateDurationSecFromMp3(audioBuffer) ??
+      Math.max(1, Math.round(countWords(script) / 2.16));
+
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(recapRef);
+      if (!snap.exists) {
+        return;
+      }
+      const current = snap.data() as Record<string, unknown> | undefined;
+      if (current?.workerId !== workerId || current?.status !== "processing") {
+        return;
+      }
+      tx.update(recapRef, {
+        status: "ready",
+        audioPath,
+        script,
+        durationSec,
+        transcriptHash,
+        transcriptSource: transcriptPayload.source,
+        textModel: RECAP_TEXT_MODEL,
+        ttsModel: RECAP_TTS_MODEL,
+        generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        error: admin.firestore.FieldValue.delete(),
+        workerId: admin.firestore.FieldValue.delete(),
+        lockExpiresAt: admin.firestore.FieldValue.delete(),
+      });
+    });
+  } catch (error) {
+    const message = error instanceof Error ?
+      error.message :
+      "Recap generation failed.";
+    logger.error("Recap generation failed.", {
+      recapPath: recapRef.path,
+      error: message,
+    });
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(recapRef);
+      if (!snap.exists) {
+        return;
+      }
+      const current = snap.data() as Record<string, unknown> | undefined;
+      if (current?.workerId !== workerId || current?.status !== "processing") {
+        return;
+      }
+      tx.update(recapRef, {
+        status: "failed",
+        error: message,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        workerId: admin.firestore.FieldValue.delete(),
+        lockExpiresAt: admin.firestore.FieldValue.delete(),
+      });
+    });
+  }
+}
+
+/**
+ * Returns a recap metadata doc ref for a user lecture variant.
+ *
+ * @param {string} uid User uid.
+ * @param {string} lectureId Lecture id.
+ * @param {string} variantKey Variant key.
+ * @return {FirebaseFirestore.DocumentReference} Recap doc ref.
+ */
+function userLectureRecapRef(
+  uid: string,
+  lectureId: string,
+  variantKey: string
+): FirebaseFirestore.DocumentReference {
+  return db
+    .collection("users")
+    .doc(uid)
+    .collection("lectures")
+    .doc(lectureId)
+    .collection("recaps")
+    .doc(variantKey);
+}
+
+/**
+ * Returns a recap metadata doc ref for a masjid khutbah variant.
+ *
+ * @param {string} masjidId Masjid id.
+ * @param {string} khutbahId Khutbah id.
+ * @param {string} variantKey Variant key.
+ * @return {FirebaseFirestore.DocumentReference} Recap doc ref.
+ */
+function masjidKhutbahRecapRef(
+  masjidId: string,
+  khutbahId: string,
+  variantKey: string
+): FirebaseFirestore.DocumentReference {
+  return db
+    .collection("masjids")
+    .doc(masjidId)
+    .collection("khutbahs")
+    .doc(khutbahId)
+    .collection("artifacts")
+    .doc("recaps")
+    .collection("variants")
+    .doc(variantKey);
+}
+
+/**
+ * Request generation for a user-private lecture recap.
+ */
+export const requestLectureAudioRecap = onRequest(
+  {
+    timeoutSeconds: 60,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).send("POST only");
+      return;
+    }
+
+    const uid = await getUidFromBearerAuth(req);
+    if (!uid) {
+      res.status(401).json({error: "Unauthorized"});
+      return;
+    }
+
+    const lectureId = typeof req.body?.lectureId === "string" ?
+      req.body.lectureId.trim() :
+      "";
+    if (!lectureId) {
+      res.status(400).json({error: "lectureId is required"});
+      return;
+    }
+
+    let options: NormalizedRecapRequest;
+    try {
+      options = parseRecapOptionsFromRequest(req);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ?
+          error.message :
+          "Invalid recap options",
+      });
+      return;
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const lectureRef = userRef.collection("lectures").doc(lectureId);
+    let releaseRateLimit = false;
+
+    try {
+      const txResult = await db.runTransaction(async (tx) => {
+        const lectureSnap = await tx.get(lectureRef);
+        if (!lectureSnap.exists) {
+          return {type: "missing_lecture" as const, releaseRateLimit: false};
+        }
+        const lecture = lectureSnap.data() as Record<string, unknown>;
+        const transcriptPayload = resolveLectureTranscript(lecture);
+        if (!transcriptPayload) {
+          return {type: "no_transcript" as const, releaseRateLimit: false};
+        }
+        const transcriptHash = computeTranscriptHash(transcriptPayload.text);
+        const recapRef = userLectureRecapRef(
+          uid,
+          lectureId,
+          options.variantKey
+        );
+        const recapSnap = await tx.get(recapRef);
+        const existing = recapSnap.exists ?
+          (recapSnap.data() as Record<string, unknown>) :
+          null;
+        const action = decideRecapAction(
+          existing ?
+            {
+              status: existing.status,
+              transcriptHash: existing.transcriptHash,
+              updatedAtMs: getTimestampMillis(existing.updatedAt),
+              lockExpiresAtMs: getTimestampMillis(existing.lockExpiresAt),
+            } satisfies RecapStateLite :
+            null,
+          transcriptHash,
+          Date.now()
+        );
+
+        if (action === "cache_hit" || action === "in_progress") {
+          return {
+            type: action as RecapAction,
+            recapRefPath: recapRef.path,
+            releaseRateLimit: false,
+          };
+        }
+
+        const userSnap = await tx.get(userRef);
+        const userData = (userSnap.data() as UserData) ?? {};
+        const rateLimitTier = getRateLimitTier(userData);
+        const maxUniqueVariants =
+          RECAP_MAX_UNIQUE_VARIANTS_BY_TIER[rateLimitTier];
+        if (!recapSnap.exists) {
+          const recapVariantsQuery = lectureRef
+            .collection("recaps")
+            .limit(maxUniqueVariants + 1);
+          const recapVariantsSnap = await tx.get(recapVariantsQuery);
+          if (
+            hasReachedUniqueVariantCap(
+              recapVariantsSnap.size,
+              maxUniqueVariants
+            )
+          ) {
+            return {
+              type: "unique_variant_cap" as const,
+              maxUniqueVariants,
+              releaseRateLimit: false,
+            };
+          }
+        }
+        const rateDecision = evaluateRateLimit(
+          userData,
+          new Date(),
+          RECAP_RATE_LIMITS[rateLimitTier],
+          RECAP_RATE_LIMIT_FIELDS
+        );
+        if (!rateDecision.allowed) {
+          return {
+            type: "rate_limited" as const,
+            reason: rateDecision.reason,
+            retryAfterMs: rateDecision.retryAfterMs,
+            releaseRateLimit: false,
+          };
+        }
+        const shouldReleaseRateLimit = Boolean(rateDecision.updates);
+        if (rateDecision.updates) {
+          tx.set(userRef, rateDecision.updates, {merge: true});
+        }
+
+        const audioPath =
+          `audio/${uid}/recaps/${lectureId}/${options.variantKey}.mp3`;
+        tx.set(recapRef, {
+          status: "generating",
+          variantKey: options.variantKey,
+          voice: options.voice,
+          style: options.style,
+          language: options.language,
+          targetLengthSec: clampRecapLengthSec(options.targetLengthSec),
+          promptVersion: options.promptVersion,
+          transcriptHash,
+          transcriptSource: transcriptPayload.source,
+          audioPath,
+          textModel: RECAP_TEXT_MODEL,
+          ttsModel: RECAP_TTS_MODEL,
+          requestedByUid: uid,
+          requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: recapSnap.exists ?
+            (
+              existing?.createdAt ??
+              admin.firestore.FieldValue.serverTimestamp()
+            ) :
+            admin.firestore.FieldValue.serverTimestamp(),
+          error: admin.firestore.FieldValue.delete(),
+          workerId: admin.firestore.FieldValue.delete(),
+          lockExpiresAt: admin.firestore.Timestamp.fromMillis(
+            Date.now() + RECAP_LOCK_TTL_MS
+          ),
+        }, {merge: true});
+        return {
+          type: "queued" as const,
+          recapRefPath: recapRef.path,
+          releaseRateLimit: shouldReleaseRateLimit,
+        };
+      });
+      releaseRateLimit = txResult.releaseRateLimit === true;
+
+      if (txResult.type === "missing_lecture") {
+        res.status(404).json({error: "Lecture not found"});
+        return;
+      }
+      if (txResult.type === "no_transcript") {
+        res.status(400).json({error: RECAP_ERROR_MESSAGE_NO_TRANSCRIPT});
+        return;
+      }
+      if (txResult.type === "rate_limited") {
+        res.status(429).json({
+          error: RATE_LIMIT_ERROR_MESSAGE,
+          reason: txResult.reason ?? null,
+          retryAfterMs: txResult.retryAfterMs ?? null,
+        });
+        return;
+      }
+      if (txResult.type === "unique_variant_cap") {
+        res.status(429).json({
+          error: RECAP_ERROR_MESSAGE_VARIANT_CAP,
+          reason: "unique_variant_cap",
+          maxUniqueVariants: txResult.maxUniqueVariants ?? null,
+        });
+        return;
+      }
+
+      const recapSnap = await db.doc(txResult.recapRefPath).get();
+      const lectureSnap = await lectureRef.get();
+      const transcriptPayload = lectureSnap.exists ?
+        resolveLectureTranscript(
+          lectureSnap.data() as Record<string, unknown>
+        ) :
+        null;
+      const currentHash =
+        transcriptPayload ?
+          computeTranscriptHash(transcriptPayload.text) :
+          null;
+      const recapHash = recapSnap.data()?.transcriptHash;
+      const stale =
+        typeof recapHash === "string" &&
+        typeof currentHash === "string" &&
+        recapHash !== currentHash;
+      res.status(200).json({
+        ok: true,
+        scope: "lecture",
+        lectureId,
+        ...buildRecapHttpState(recapSnap, options.variantKey, stale),
+      });
+    } catch (error) {
+      logger.error("requestLectureAudioRecap failed", {
+        uid,
+        lectureId,
+        error: safeJson(error),
+      });
+      res.status(500).json({error: "Internal error"});
+    } finally {
+      if (releaseRateLimit) {
+        await releaseRateLimitSlot(userRef, RECAP_RATE_LIMIT_FIELDS);
+      }
+    }
+  }
+);
+
+/**
+ * Retrieve current state for a user lecture recap variant.
+ */
+export const getLectureAudioRecap = onRequest(
+  {
+    timeoutSeconds: 30,
+  },
+  async (req, res) => {
+    if (req.method !== "GET" && req.method !== "POST") {
+      res.status(405).send("GET or POST only");
+      return;
+    }
+
+    const uid = await getUidFromBearerAuth(req);
+    if (!uid) {
+      res.status(401).json({error: "Unauthorized"});
+      return;
+    }
+
+    const lectureId = typeof req.body?.lectureId === "string" ?
+      req.body.lectureId.trim() :
+      typeof req.query?.lectureId === "string" ?
+        req.query.lectureId.trim() :
+        "";
+    if (!lectureId) {
+      res.status(400).json({error: "lectureId is required"});
+      return;
+    }
+
+    let options: NormalizedRecapRequest;
+    try {
+      options = parseRecapOptionsFromRequest(req);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ?
+          error.message :
+          "Invalid recap options",
+      });
+      return;
+    }
+
+    const lectureRef = db.collection("users").doc(uid)
+      .collection("lectures").doc(lectureId);
+    const lectureSnap = await lectureRef.get();
+    if (!lectureSnap.exists) {
+      res.status(404).json({error: "Lecture not found"});
+      return;
+    }
+    const transcriptPayload = resolveLectureTranscript(
+      lectureSnap.data() as Record<string, unknown>
+    );
+    const currentHash =
+      transcriptPayload ? computeTranscriptHash(transcriptPayload.text) : null;
+
+    const recapSnap = await userLectureRecapRef(
+      uid,
+      lectureId,
+      options.variantKey
+    ).get();
+    const recapHash = recapSnap.data()?.transcriptHash;
+    const stale =
+      typeof recapHash === "string" &&
+      typeof currentHash === "string" &&
+      recapHash !== currentHash;
+
+    res.status(200).json({
+      ok: true,
+      scope: "lecture",
+      lectureId,
+      ...buildRecapHttpState(recapSnap, options.variantKey, stale),
+    });
+  }
+);
+
+/**
+ * Request generation for a shared masjid khutbah recap.
+ */
+export const requestMasjidAudioRecap = onRequest(
+  {
+    timeoutSeconds: 60,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).send("POST only");
+      return;
+    }
+
+    const uid = await getUidFromBearerAuth(req);
+    if (!uid) {
+      res.status(401).json({error: "Unauthorized"});
+      return;
+    }
+
+    const masjidId = typeof req.body?.masjidId === "string" ?
+      req.body.masjidId.trim() :
+      "";
+    const khutbahId = typeof req.body?.khutbahId === "string" ?
+      req.body.khutbahId.trim() :
+      "";
+    if (!masjidId || !khutbahId) {
+      res.status(400).json({error: "masjidId and khutbahId are required"});
+      return;
+    }
+
+    let options: NormalizedRecapRequest;
+    try {
+      options = parseRecapOptionsFromRequest(req);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ?
+          error.message :
+          "Invalid recap options",
+      });
+      return;
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const khutbahRef = db.collection("masjids")
+      .doc(masjidId)
+      .collection("khutbahs")
+      .doc(khutbahId);
+    let releaseRateLimit = false;
+
+    try {
+      const txResult = await db.runTransaction(async (tx) => {
+        const khutbahSnap = await tx.get(khutbahRef);
+        if (!khutbahSnap.exists) {
+          return {type: "missing_khutbah" as const, releaseRateLimit: false};
+        }
+        const khutbah = khutbahSnap.data() as Record<string, unknown>;
+        const transcriptPath = typeof khutbah.transcriptRefPath === "string" ?
+          khutbah.transcriptRefPath.trim() :
+          "";
+        let transcriptText = "";
+        let transcriptSource = "";
+        if (transcriptPath) {
+          const transcriptSnap = await tx.get(db.doc(transcriptPath));
+          if (
+            transcriptSnap.exists &&
+            typeof transcriptSnap.data()?.text === "string"
+          ) {
+            transcriptText = normalizeRecapTranscript(
+              transcriptSnap.data()?.text as string
+            );
+            transcriptSource = transcriptPath;
+          }
+        }
+        if (!transcriptText) {
+          const fallbackRef = khutbahRef
+            .collection("artifacts")
+            .doc("transcript");
+          const fallbackSnap = await tx.get(fallbackRef);
+          if (
+            fallbackSnap.exists &&
+            typeof fallbackSnap.data()?.text === "string"
+          ) {
+            transcriptText = normalizeRecapTranscript(
+              fallbackSnap.data()?.text as string
+            );
+            transcriptSource = fallbackRef.path;
+          }
+        }
+        if (!transcriptText) {
+          const preview = typeof khutbah.transcriptPreview === "string" ?
+            normalizeRecapTranscript(khutbah.transcriptPreview) :
+            "";
+          if (preview) {
+            transcriptText = preview;
+            transcriptSource = "khutbah.transcriptPreview";
+          }
+        }
+        if (!transcriptText) {
+          return {type: "no_transcript" as const, releaseRateLimit: false};
+        }
+
+        const transcriptHash = computeTranscriptHash(transcriptText);
+        const recapRef = masjidKhutbahRecapRef(
+          masjidId,
+          khutbahId,
+          options.variantKey
+        );
+        const recapSnap = await tx.get(recapRef);
+        const existing = recapSnap.exists ?
+          (recapSnap.data() as Record<string, unknown>) :
+          null;
+        const action = decideRecapAction(
+          existing ?
+            {
+              status: existing.status,
+              transcriptHash: existing.transcriptHash,
+              updatedAtMs: getTimestampMillis(existing.updatedAt),
+              lockExpiresAtMs: getTimestampMillis(existing.lockExpiresAt),
+            } satisfies RecapStateLite :
+            null,
+          transcriptHash,
+          Date.now()
+        );
+        if (action === "cache_hit" || action === "in_progress") {
+          return {
+            type: action as RecapAction,
+            recapRefPath: recapRef.path,
+            releaseRateLimit: false,
+          };
+        }
+
+        const userSnap = await tx.get(userRef);
+        const userData = (userSnap.data() as UserData) ?? {};
+        const rateLimitTier = getRateLimitTier(userData);
+        const rateDecision = evaluateRateLimit(
+          userData,
+          new Date(),
+          RECAP_RATE_LIMITS[rateLimitTier],
+          RECAP_RATE_LIMIT_FIELDS
+        );
+        if (!rateDecision.allowed) {
+          return {
+            type: "rate_limited" as const,
+            reason: rateDecision.reason,
+            retryAfterMs: rateDecision.retryAfterMs,
+            releaseRateLimit: false,
+          };
+        }
+        const shouldReleaseRateLimit = Boolean(rateDecision.updates);
+        if (rateDecision.updates) {
+          tx.set(userRef, rateDecision.updates, {merge: true});
+        }
+
+        const audioPath =
+          "masjid_audio/" +
+          `${masjidId}/recaps/${khutbahId}/${options.variantKey}.mp3`;
+        tx.set(recapRef, {
+          status: "generating",
+          variantKey: options.variantKey,
+          voice: options.voice,
+          style: options.style,
+          language: options.language,
+          targetLengthSec: clampRecapLengthSec(options.targetLengthSec),
+          promptVersion: options.promptVersion,
+          transcriptHash,
+          transcriptSource,
+          audioPath,
+          textModel: RECAP_TEXT_MODEL,
+          ttsModel: RECAP_TTS_MODEL,
+          requestedByUid: uid,
+          requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: recapSnap.exists ?
+            (
+              existing?.createdAt ??
+              admin.firestore.FieldValue.serverTimestamp()
+            ) :
+            admin.firestore.FieldValue.serverTimestamp(),
+          error: admin.firestore.FieldValue.delete(),
+          workerId: admin.firestore.FieldValue.delete(),
+          lockExpiresAt: admin.firestore.Timestamp.fromMillis(
+            Date.now() + RECAP_LOCK_TTL_MS
+          ),
+        }, {merge: true});
+        return {
+          type: "queued" as const,
+          recapRefPath: recapRef.path,
+          releaseRateLimit: shouldReleaseRateLimit,
+        };
+      });
+      releaseRateLimit = txResult.releaseRateLimit === true;
+
+      if (txResult.type === "missing_khutbah") {
+        res.status(404).json({error: "Khutbah not found"});
+        return;
+      }
+      if (txResult.type === "no_transcript") {
+        res.status(400).json({error: RECAP_ERROR_MESSAGE_NO_TRANSCRIPT});
+        return;
+      }
+      if (txResult.type === "rate_limited") {
+        res.status(429).json({
+          error: RATE_LIMIT_ERROR_MESSAGE,
+          reason: txResult.reason ?? null,
+          retryAfterMs: txResult.retryAfterMs ?? null,
+        });
+        return;
+      }
+
+      const recapSnap = await db.doc(txResult.recapRefPath).get();
+      const khutbahSnap = await khutbahRef.get();
+      const transcriptPayload =
+        khutbahSnap.exists ?
+          await resolveMasjidTranscript(
+            khutbahRef,
+            khutbahSnap.data() as Record<string, unknown>
+          ) :
+          null;
+      const currentHash =
+        transcriptPayload ?
+          computeTranscriptHash(transcriptPayload.text) :
+          null;
+      const recapHash = recapSnap.data()?.transcriptHash;
+      const stale =
+        typeof recapHash === "string" &&
+        typeof currentHash === "string" &&
+        recapHash !== currentHash;
+      res.status(200).json({
+        ok: true,
+        scope: "masjid",
+        masjidId,
+        khutbahId,
+        ...buildRecapHttpState(recapSnap, options.variantKey, stale),
+      });
+    } catch (error) {
+      logger.error("requestMasjidAudioRecap failed", {
+        uid,
+        masjidId,
+        khutbahId,
+        error: safeJson(error),
+      });
+      res.status(500).json({error: "Internal error"});
+    } finally {
+      if (releaseRateLimit) {
+        await releaseRateLimitSlot(userRef, RECAP_RATE_LIMIT_FIELDS);
+      }
+    }
+  }
+);
+
+/**
+ * Retrieve current state for a masjid khutbah recap variant.
+ */
+export const getMasjidAudioRecap = onRequest(
+  {
+    timeoutSeconds: 30,
+  },
+  async (req, res) => {
+    if (req.method !== "GET" && req.method !== "POST") {
+      res.status(405).send("GET or POST only");
+      return;
+    }
+
+    const uid = await getUidFromBearerAuth(req);
+    if (!uid) {
+      res.status(401).json({error: "Unauthorized"});
+      return;
+    }
+
+    const masjidId = typeof req.body?.masjidId === "string" ?
+      req.body.masjidId.trim() :
+      typeof req.query?.masjidId === "string" ?
+        req.query.masjidId.trim() :
+        "";
+    const khutbahId = typeof req.body?.khutbahId === "string" ?
+      req.body.khutbahId.trim() :
+      typeof req.query?.khutbahId === "string" ?
+        req.query.khutbahId.trim() :
+        "";
+    if (!masjidId || !khutbahId) {
+      res.status(400).json({error: "masjidId and khutbahId are required"});
+      return;
+    }
+
+    let options: NormalizedRecapRequest;
+    try {
+      options = parseRecapOptionsFromRequest(req);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ?
+          error.message :
+          "Invalid recap options",
+      });
+      return;
+    }
+
+    const khutbahRef = db.collection("masjids")
+      .doc(masjidId)
+      .collection("khutbahs")
+      .doc(khutbahId);
+    const khutbahSnap = await khutbahRef.get();
+    if (!khutbahSnap.exists) {
+      res.status(404).json({error: "Khutbah not found"});
+      return;
+    }
+    const transcriptPayload = await resolveMasjidTranscript(
+      khutbahRef,
+      khutbahSnap.data() as Record<string, unknown>
+    );
+    const currentHash =
+      transcriptPayload ? computeTranscriptHash(transcriptPayload.text) : null;
+
+    const recapSnap =
+      await masjidKhutbahRecapRef(
+        masjidId,
+        khutbahId,
+        options.variantKey
+      ).get();
+    const recapHash = recapSnap.data()?.transcriptHash;
+    const stale =
+      typeof recapHash === "string" &&
+      typeof currentHash === "string" &&
+      recapHash !== currentHash;
+
+    res.status(200).json({
+      ok: true,
+      scope: "masjid",
+      masjidId,
+      khutbahId,
+      ...buildRecapHttpState(recapSnap, options.variantKey, stale),
+    });
+  }
+);
+
+/**
+ * Background worker: generate private user lecture recap variants.
+ */
+export const processUserLectureAudioRecap = onDocumentWritten(
+  {
+    document: "users/{userId}/lectures/{lectureId}/recaps/{variantKey}",
+    region: "us-central1",
+    secrets: [openaiKey],
+    timeoutSeconds: 540,
+    memory: "1GiB",
+  },
+  async (event) => {
+    const afterSnap = event.data?.after;
+    if (!afterSnap?.exists) {
+      return;
+    }
+    const status = afterSnap.get("status");
+    if (typeof status !== "string" || !RECAP_GENERATING_STATUSES.has(status)) {
+      return;
+    }
+
+    const {userId, lectureId, variantKey} = event.params;
+    const lectureRef = db.collection("users")
+      .doc(userId)
+      .collection("lectures")
+      .doc(lectureId);
+    const recapRef = userLectureRecapRef(userId, lectureId, variantKey);
+    const defaultAudioPath =
+      `audio/${userId}/recaps/${lectureId}/${variantKey}.mp3`;
+
+    await processRecapGenerationJob(
+      recapRef,
+      async () => {
+        const lectureSnap = await lectureRef.get();
+        if (!lectureSnap.exists) {
+          return null;
+        }
+        return resolveLectureTranscript(
+          lectureSnap.data() as Record<string, unknown>
+        );
+      },
+      defaultAudioPath
+    );
+  }
+);
+
+/**
+ * Background worker: generate shared masjid khutbah recap variants.
+ */
+export const processMasjidAudioRecap = onDocumentWritten(
+  {
+    document:
+      "masjids/{masjidId}/khutbahs/{khutbahId}/artifacts/" +
+      "{artifactId}/variants/{variantKey}",
+    region: "us-central1",
+    secrets: [openaiKey],
+    timeoutSeconds: 540,
+    memory: "1GiB",
+  },
+  async (event) => {
+    if (event.params.artifactId !== "recaps") {
+      return;
+    }
+    const afterSnap = event.data?.after;
+    if (!afterSnap?.exists) {
+      return;
+    }
+    const status = afterSnap.get("status");
+    if (typeof status !== "string" || !RECAP_GENERATING_STATUSES.has(status)) {
+      return;
+    }
+
+    const {masjidId, khutbahId, variantKey} = event.params;
+    const khutbahRef = db.collection("masjids")
+      .doc(masjidId)
+      .collection("khutbahs")
+      .doc(khutbahId);
+    const recapRef = masjidKhutbahRecapRef(masjidId, khutbahId, variantKey);
+    const defaultAudioPath =
+      `masjid_audio/${masjidId}/recaps/${khutbahId}/${variantKey}.mp3`;
+
+    await processRecapGenerationJob(
+      recapRef,
+      async () => {
+        const khutbahSnap = await khutbahRef.get();
+        if (!khutbahSnap.exists) {
+          return null;
+        }
+        return resolveMasjidTranscript(
+          khutbahRef,
+          khutbahSnap.data() as Record<string, unknown>
+        );
+      },
+      defaultAudioPath
+    );
+  }
+);
 
 // ============== ADMIN-ONLY ENDPOINTS ==============
 
