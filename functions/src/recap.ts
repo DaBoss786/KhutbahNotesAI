@@ -16,6 +16,7 @@ export const RECAP_STYLES = [
 ] as const;
 export type RecapVoice = typeof RECAP_VOICES[number];
 export type RecapStyle = typeof RECAP_STYLES[number];
+export const RECAP_FIXED_STYLE: RecapStyle = "concise";
 
 export type RecapVariantInput = {
   voice: RecapVoice;
@@ -100,8 +101,6 @@ export function normalizeRecapRequest(
 
   const voiceCandidate =
     typeof payload.voice === "string" ? payload.voice.trim().toLowerCase() : "";
-  const styleCandidate =
-    typeof payload.style === "string" ? payload.style.trim().toLowerCase() : "";
   const languageCandidate =
     typeof payload.language === "string" ?
       payload.language.trim().toLowerCase() :
@@ -115,18 +114,13 @@ export function normalizeRecapRequest(
   if (!RECAP_VOICES.includes(voiceCandidate as RecapVoice)) {
     throw new Error("Invalid voice. Allowed: male, female.");
   }
-  if (!RECAP_STYLES.includes(styleCandidate as RecapStyle)) {
-    throw new Error(
-      "Invalid style. Allowed: concise, reflective, action_focused."
-    );
-  }
   if (!/^[a-z]{2}(?:-[a-z0-9]{2,8})?$/.test(languageCandidate)) {
     throw new Error("Invalid language code.");
   }
 
   const targetLengthSec = clampRecapLengthSec(payload.targetLengthSec);
   const voice = voiceCandidate as RecapVoice;
-  const style = styleCandidate as RecapStyle;
+  const style = RECAP_FIXED_STYLE;
   const language = languageCandidate;
   const promptVersion = promptVersionCandidate;
   const variantKey = buildRecapVariantKey({

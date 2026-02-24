@@ -130,12 +130,9 @@ struct AudioRecapSheet: View {
                 Text("Recap style")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(Theme.mutedText)
-                Picker("Recap style", selection: $options.style) {
-                    ForEach(AudioRecapStyle.allCases, id: \.self) { style in
-                        Text(style.label).tag(style)
-                    }
-                }
-                .pickerStyle(.segmented)
+                Text("Concise (fixed)")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.black)
             }
 
             VStack(alignment: .leading, spacing: 6) {

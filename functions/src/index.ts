@@ -60,6 +60,7 @@ import {
   hasReachedUniqueVariantCap,
   normalizeRecapRequest,
   normalizeTranscriptText as normalizeRecapTranscript,
+  RECAP_FIXED_STYLE,
   targetWordBudget,
   type NormalizedRecapRequest,
   type RecapAction,
@@ -6954,7 +6955,7 @@ function parseRecapOptionsFromRequest(req: Request): NormalizedRecapRequest {
   const query = req.query && typeof req.query === "object" ? req.query : {};
   return normalizeRecapRequest({
     voice: typeof body.voice === "string" ? body.voice : query.voice,
-    style: typeof body.style === "string" ? body.style : query.style,
+    style: RECAP_FIXED_STYLE,
     language:
       typeof body.language === "string" ? body.language : query.language,
     promptVersion:

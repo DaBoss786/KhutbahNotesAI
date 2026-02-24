@@ -35,7 +35,7 @@ test("clampRecapLengthSec enforces product limits", () => {
   assert.equal(clampRecapLengthSec("bad"), 180);
 });
 
-test("normalizeRecapRequest validates and computes variant key", () => {
+test("normalizeRecapRequest enforces concise style and computes variant key", () => {
   const parsed = normalizeRecapRequest({
     voice: "female",
     style: "action_focused",
@@ -44,7 +44,7 @@ test("normalizeRecapRequest validates and computes variant key", () => {
   });
 
   assert.equal(parsed.voice, "female");
-  assert.equal(parsed.style, "action_focused");
+  assert.equal(parsed.style, "concise");
   assert.equal(parsed.language, "en");
   assert.equal(parsed.targetLengthSec, 180);
   assert.ok(parsed.variantKey);
@@ -76,7 +76,7 @@ test("hasReachedUniqueVariantCap returns expected decisions", () => {
   assert.equal(hasReachedUniqueVariantCap(5, 4), true);
 });
 
-test("normalizeRecapRequest rejects invalid enums", () => {
+test("normalizeRecapRequest rejects invalid voice", () => {
   assert.throws(
     () =>
       normalizeRecapRequest({
@@ -85,15 +85,14 @@ test("normalizeRecapRequest rejects invalid enums", () => {
       }),
     /Invalid voice/
   );
+});
 
-  assert.throws(
-    () =>
-      normalizeRecapRequest({
-        voice: "male",
-        style: "rambling",
-      }),
-    /Invalid style/
-  );
+test("normalizeRecapRequest ignores invalid style and forces concise", () => {
+  const parsed = normalizeRecapRequest({
+    voice: "male",
+    style: "rambling",
+  });
+  assert.equal(parsed.style, "concise");
 });
 
 test("decideRecapAction returns cache_hit for ready matching hash", () => {
