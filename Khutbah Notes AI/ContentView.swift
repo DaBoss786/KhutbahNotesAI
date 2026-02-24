@@ -2189,6 +2189,9 @@ struct LectureAudioPlayerView: View {
     let onPlayStarted: (() -> Void)?
     @StateObject private var viewModel = LectureAudioPlayerViewModel()
     private var secondaryControlsEnabled: Bool { viewModel.canPlay && !viewModel.isLoading }
+    private let controlButtonSize: CGFloat = 36
+    private let playButtonSize: CGFloat = 44
+    private let speedButtonSize: CGFloat = 30
 
     init(
         audioPath: String?,
@@ -2200,57 +2203,7 @@ struct LectureAudioPlayerView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 12) {
-                HStack(spacing: 10) {
-                    controlButton(systemName: "gobackward.10") {
-                        viewModel.seek(by: -10)
-                    }
-                    
-                    Button(action: { viewModel.togglePlayPause(onPlayStarted: onPlayStarted) }) {
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(colors: [Theme.primaryGreen.opacity(0.85), Theme.secondaryGreen.opacity(0.9)],
-                                                   startPoint: .topLeading,
-                                                   endPoint: .bottomTrailing)
-                                )
-                                .frame(width: 48, height: 48)
-                            Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .disabled(viewModel.isLoading)
-                    .opacity(viewModel.isLoading ? 0.5 : 1)
-
-                    controlButton(systemName: "stop.fill") {
-                        viewModel.stop()
-                    }
-                    
-                    controlButton(systemName: "goforward.10") {
-                        viewModel.seek(by: 10)
-                    }
-                }
-                .disabled(!secondaryControlsEnabled)
-                .opacity(secondaryControlsEnabled ? 1 : 0.4)
-                
-                Spacer()
-                
-                HStack(spacing: 8) {
-                    speedButton(systemName: "minus") {
-                        viewModel.adjustRate(by: -0.25)
-                    }
-                    Text(viewModel.rateLabel)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(.black)
-                        .frame(minWidth: 48)
-                    speedButton(systemName: "plus") {
-                        viewModel.adjustRate(by: 0.25)
-                    }
-                }
-                .disabled(!viewModel.canAdjustRate)
-                .opacity(viewModel.canAdjustRate ? 1 : 0.5)
-            }
+            controlsRow
             
             Slider(
                 value: Binding(
@@ -2310,13 +2263,73 @@ struct LectureAudioPlayerView: View {
             viewModel.cleanup()
         }
     }
+
+    private var controlsRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            transportControls
+            Spacer(minLength: 0)
+            speedControls
+        }
+    }
+
+    private var transportControls: some View {
+        HStack(spacing: 8) {
+            controlButton(systemName: "gobackward.10") {
+                viewModel.seek(by: -10)
+            }
+            
+            Button(action: { viewModel.togglePlayPause(onPlayStarted: onPlayStarted) }) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(colors: [Theme.primaryGreen.opacity(0.85), Theme.secondaryGreen.opacity(0.9)],
+                                           startPoint: .topLeading,
+                                           endPoint: .bottomTrailing)
+                        )
+                        .frame(width: playButtonSize, height: playButtonSize)
+                    Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                }
+            }
+            .disabled(viewModel.isLoading)
+            .opacity(viewModel.isLoading ? 0.5 : 1)
+
+            controlButton(systemName: "stop.fill") {
+                viewModel.stop()
+            }
+            
+            controlButton(systemName: "goforward.10") {
+                viewModel.seek(by: 10)
+            }
+        }
+        .disabled(!secondaryControlsEnabled)
+        .opacity(secondaryControlsEnabled ? 1 : 0.4)
+    }
+
+    private var speedControls: some View {
+        HStack(spacing: 6) {
+            speedButton(systemName: "minus") {
+                viewModel.adjustRate(by: -0.25)
+            }
+            Text(viewModel.rateLabel)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundColor(.black)
+                .frame(minWidth: 38)
+            speedButton(systemName: "plus") {
+                viewModel.adjustRate(by: 0.25)
+            }
+        }
+        .disabled(!viewModel.canAdjustRate)
+        .opacity(viewModel.canAdjustRate ? 1 : 0.5)
+    }
     
     private func controlButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(Theme.primaryGreen)
-                .frame(width: 40, height: 40)
+                .frame(width: controlButtonSize, height: controlButtonSize)
                 .background(Color.white.opacity(0.9))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .shadow(color: Theme.shadow, radius: 5, x: 0, y: 3)
@@ -2326,9 +2339,9 @@ struct LectureAudioPlayerView: View {
     private func speedButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundColor(.white)
-                .frame(width: 32, height: 32)
+                .frame(width: speedButtonSize, height: speedButtonSize)
                 .background(
                     LinearGradient(colors: [Theme.primaryGreen, Theme.secondaryGreen],
                                    startPoint: .topLeading,
