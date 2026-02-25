@@ -126,24 +126,6 @@ struct AudioRecapSheet: View {
                 .pickerStyle(.segmented)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Recap style")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Theme.mutedText)
-                Text("Concise (fixed)")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.black)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Length")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Theme.mutedText)
-                Text("Up to 3 minutes (fixed)")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.black)
-            }
-
             Button {
                 Task {
                     await generate()
