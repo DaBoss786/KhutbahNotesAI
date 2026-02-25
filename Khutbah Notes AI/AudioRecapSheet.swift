@@ -217,7 +217,7 @@ struct AudioRecapSheet: View {
                     }
                 )
                 if let script = recapState?.script, !script.isEmpty {
-                    Text(script)
+                    Text(formattedDisplayScript(script))
                         .font(.system(size: 14, weight: .regular, design: .rounded))
                         .foregroundColor(.black)
                         .fixedSize(horizontal: false, vertical: true)
@@ -309,6 +309,71 @@ struct AudioRecapSheet: View {
                 }
             }
         }
+    }
+
+    private func formattedDisplayScript(_ script: String) -> String {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return script }
+
+        // If backend already returned paragraphs, keep them.
+        if trimmed.contains("\n\n") {
+            return trimmed
+        }
+
+        let normalized = trimmed
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let sentenceRegex = try? NSRegularExpression(
+            pattern: #"[^.!?]+[.!?]+|[^.!?]+$"#,
+            options: []
+        )
+        let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+        let parts = sentenceRegex?
+            .matches(in: normalized, options: [], range: range)
+            .compactMap { match -> String? in
+                guard let sentenceRange = Range(match.range, in: normalized) else { return nil }
+                let sentence = String(normalized[sentenceRange]).trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                return sentence.isEmpty ? nil : sentence
+            } ?? []
+
+        guard parts.count >= 4 else {
+            return normalized
+        }
+
+        let paragraphCount: Int
+        if parts.count >= 12 {
+            paragraphCount = 4
+        } else if parts.count >= 8 {
+            paragraphCount = 3
+        } else {
+            paragraphCount = 2
+        }
+
+        let base = parts.count / paragraphCount
+        let remainder = parts.count % paragraphCount
+        var paragraphs: [String] = []
+        var cursor = 0
+        for index in 0..<paragraphCount {
+            let size = base + (index < remainder ? 1 : 0)
+            guard size > 0 else { continue }
+            let end = min(parts.count, cursor + size)
+            let paragraph = parts[cursor..<end].joined(separator: " ")
+            paragraphs.append(paragraph)
+            cursor = end
+        }
+
+        let joined = paragraphs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        return joined.isEmpty ? normalized : joined
     }
 }
 
