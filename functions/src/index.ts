@@ -3191,9 +3191,7 @@ async function runJsonSummaryRequest(
     text: {format: {type: "json_object"}},
   });
 
-  const incomplete =
-    (response as {incomplete_details?: {reason?: string}})
-      .incomplete_details?.reason;
+  const incomplete = responseIncompleteReason(response);
   if (incomplete) {
     throw new Error(`${stage}: OpenAI stopped early: ${incomplete}`);
   }
@@ -3751,6 +3749,44 @@ function truncateWords(text: string, maxWords: number): string {
 }
 
 /**
+ * Return OpenAI incomplete reason when present.
+ *
+ * @param {unknown} response OpenAI Responses API payload.
+ * @return {string | null} Incomplete reason when available.
+ */
+function responseIncompleteReason(response: unknown): string | null {
+  const anyResp = response as {
+    status?: unknown;
+    incomplete_details?: {reason?: unknown};
+  };
+  const reason = anyResp.incomplete_details?.reason;
+  if (typeof reason === "string" && reason.trim().length > 0) {
+    return reason.trim();
+  }
+  if (
+    typeof anyResp.status === "string" &&
+    anyResp.status.toLowerCase() === "incomplete"
+  ) {
+    return "incomplete";
+  }
+  return null;
+}
+
+/**
+ * Heuristic: recap appears cut off if it lacks terminal punctuation.
+ *
+ * @param {string} text Generated recap script.
+ * @return {boolean} True when output looks abruptly truncated.
+ */
+function looksAbruptlyCut(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 120) {
+    return false;
+  }
+  return !/[.!?]["')\]]*$/.test(trimmed);
+}
+
+/**
  * Extract plain text or refusal reason from an OpenAI Responses API response.
  *
  * @param {*} response Raw response payload from OpenAI Responses API.
@@ -3762,7 +3798,12 @@ function truncateWords(text: string, maxWords: number): string {
 function extractTextOrRefusal(response: unknown): {
   text: string | null;
   refusal: string | null;
-  debug: {hasOutputText: boolean; outputLength: number};
+  debug: {
+    hasOutputText: boolean;
+    outputLength: number;
+    outputTextChunkCount: number;
+    selectedSource: "output_text" | "joined_output" | "none";
+  };
 } {
   const anyResp = response as {
     output_text?: string | null;
@@ -3776,50 +3817,71 @@ function extractTextOrRefusal(response: unknown): {
     }>;
   };
 
+  let refusalReason: string | null = null;
+  const outputTextChunks: string[] = [];
+  if (Array.isArray(anyResp.output)) {
+    for (const item of anyResp.output) {
+      if (
+        !refusalReason &&
+        typeof item?.refusal === "string" &&
+        item.refusal.trim().length > 0
+      ) {
+        refusalReason = item.refusal.trim();
+      }
+      if (!item || !Array.isArray(item.content)) {
+        continue;
+      }
+      for (const piece of item.content) {
+        if (typeof piece?.text === "string" && piece.text.trim().length > 0) {
+          outputTextChunks.push(piece.text);
+          continue;
+        }
+        if (
+          !refusalReason &&
+          (piece?.type === "refusal" || typeof piece?.refusal === "string")
+        ) {
+          refusalReason =
+            (typeof piece.refusal === "string" &&
+              piece.refusal.trim().length > 0 ?
+              piece.refusal.trim() :
+              null) ??
+            "Refusal with no reason provided";
+        }
+      }
+    }
+  }
+  const joinedOutputText = outputTextChunks.join("").trim();
+  const convenienceText =
+    typeof anyResp.output_text === "string" ?
+      anyResp.output_text.trim() :
+      "";
+
+  const selectedSource: "output_text" | "joined_output" | "none" =
+    convenienceText.length > 0 || joinedOutputText.length > 0 ?
+      (
+        convenienceText.length >= joinedOutputText.length ?
+          "output_text" :
+          "joined_output"
+      ) :
+      "none";
+
   const debug = {
-    hasOutputText:
-      typeof anyResp.output_text === "string" &&
-      anyResp.output_text.trim().length > 0,
+    hasOutputText: convenienceText.length > 0,
     outputLength: Array.isArray(anyResp.output) ? anyResp.output.length : 0,
+    outputTextChunkCount: outputTextChunks.length,
+    selectedSource,
   };
 
-  // 1) Prefer the convenience helper if present (documented in OpenAI JS SDK)
-  if (
-    typeof anyResp.output_text === "string" &&
-    anyResp.output_text.trim().length > 0
-  ) {
-    return {text: anyResp.output_text.trim(), refusal: null, debug};
+  if (selectedSource === "output_text") {
+    return {text: convenienceText, refusal: null, debug};
   }
 
-  // 2) Fallback: walk the output array manually
-  if (!Array.isArray(anyResp.output) || anyResp.output.length === 0) {
-    return {text: null, refusal: null, debug};
+  if (selectedSource === "joined_output") {
+    return {text: joinedOutputText, refusal: null, debug};
   }
 
-  for (const item of anyResp.output) {
-    if (typeof item?.refusal === "string" && item.refusal.trim().length > 0) {
-      return {text: null, refusal: item.refusal.trim(), debug};
-    }
-
-    if (!item || !Array.isArray(item.content)) {
-      continue;
-    }
-
-    for (const piece of item.content) {
-      if (typeof piece?.text === "string" && piece.text.trim().length > 0) {
-        return {text: piece.text.trim(), refusal: null, debug};
-      }
-
-      if (piece?.type === "refusal" || typeof piece?.refusal === "string") {
-        const reason =
-          (typeof piece.refusal === "string" &&
-            piece.refusal.trim().length > 0 ?
-            piece.refusal.trim() :
-            null) ??
-          "Refusal with no reason provided";
-        return {text: null, refusal: reason, debug};
-      }
-    }
+  if (refusalReason) {
+    return {text: null, refusal: refusalReason, debug};
   }
 
   return {text: null, refusal: null, debug};
@@ -7066,7 +7128,7 @@ async function generateRecapScript(
     max_output_tokens: Math.min(1200, Math.max(500, wordBudget * 3)),
   });
 
-  const {text, refusal} = extractTextOrRefusal(response);
+  const {text, refusal, debug} = extractTextOrRefusal(response);
   if (!text) {
     throw new Error(refusal ? `Recap generation refused: ${refusal}` :
       "Recap generation returned empty output.");
@@ -7078,6 +7140,26 @@ async function generateRecapScript(
   }
   if (!script) {
     throw new Error("Recap generation returned empty script.");
+  }
+
+  const incompleteReason = responseIncompleteReason(response);
+  const abruptEnding = looksAbruptlyCut(script);
+  if (incompleteReason || abruptEnding) {
+    logger.warn("Recap output may be incomplete.", {
+      variantKey: options.variantKey,
+      voice: options.voice,
+      style: options.style,
+      language: options.language,
+      targetLengthSec: options.targetLengthSec,
+      wordBudget,
+      wordCount: countWords(script),
+      scriptLength: script.length,
+      abruptEnding,
+      incompleteReason: incompleteReason ?? null,
+      selectedSource: debug.selectedSource,
+      outputLength: debug.outputLength,
+      outputTextChunkCount: debug.outputTextChunkCount,
+    });
   }
   return script;
 }
