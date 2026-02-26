@@ -349,6 +349,16 @@ const RECAP_SYSTEM_PROMPT = [
   "",
   "Style instruction follows in a separate message. Respect it exactly.",
 ].join("\n");
+const RECAP_SUMMARY_FALLBACK_PROMPT = [
+  "You are a careful recap writer for Islamic khutbah content.",
+  "Your ONLY source is the structured summary notes provided by the user.",
+  "",
+  "Hard constraints:",
+  "- Do NOT add facts, stories, quotes, verses, or advice.",
+  "- Keep the recap faithful to the provided summary notes.",
+  "- Output plain text only (no markdown, no bullets, no headings).",
+  "- Write naturally for text-to-speech.",
+].join("\n");
 
 
 /**
@@ -7105,27 +7115,100 @@ function recapStyleInstruction(
 }
 
 /**
- * Generate recap script text from transcript.
+ * Build retry instructions for recap regeneration.
+ *
+ * @param {number} wordBudget Target max words.
+ * @return {string} Retry instruction prompt.
+ */
+function recapRetryInstruction(wordBudget: number): string {
+  return [
+    "Previous recap output was incomplete.",
+    `Retry with maximum ${wordBudget} words.`,
+    "Keep all important points concise and complete.",
+    "Avoid long enumerations and redundancy.",
+    "End with a complete sentence.",
+  ].join("\n");
+}
+
+/**
+ * Build fallback instructions when using summary notes.
+ *
+ * @param {NormalizedRecapRequest} options Recap options.
+ * @param {number} wordBudget Target max words.
+ * @return {string} Summary fallback instruction prompt.
+ */
+function recapSummaryFallbackInstruction(
+  options: NormalizedRecapRequest,
+  wordBudget: number
+): string {
+  return [
+    `Target language: ${options.language}.`,
+    `Target length: about ${options.targetLengthSec} seconds.`,
+    `Maximum words: ${wordBudget}.`,
+    "Use all major points from the provided summary notes.",
+    "Output one connected conversational recap paragraph.",
+    "End with a complete sentence.",
+  ].join("\n");
+}
+
+type RecapAttemptKind = "initial" | "retry" | "fallback";
+type RecapAttemptSource = "transcript" | "summary";
+
+type RecapScriptResult = {
+  script: string;
+  incompleteReason: string | null;
+  abruptEnding: boolean;
+  wordBudget: number;
+  wordCount: number;
+  scriptLength: number;
+  outputLength: number;
+  outputTextChunkCount: number;
+  selectedSource: "output_text" | "joined_output" | "none";
+};
+
+/**
+ * Generate one recap script attempt.
  *
  * @param {OpenAI} openai OpenAI client.
- * @param {string} transcript Transcript text.
+ * @param {string} sourceText Transcript or summary source text.
  * @param {NormalizedRecapRequest} options Recap options.
- * @return {Promise<string>} Script text.
+ * @param {RecapAttemptKind} attempt Attempt stage.
+ * @param {RecapAttemptSource} source Source type for logging/prompting.
+ * @return {Promise<RecapScriptResult>} Generated script and diagnostics.
  */
-async function generateRecapScript(
+async function generateRecapScriptAttempt(
   openai: OpenAI,
-  transcript: string,
-  options: NormalizedRecapRequest
-): Promise<string> {
+  sourceText: string,
+  options: NormalizedRecapRequest,
+  attempt: RecapAttemptKind,
+  source: RecapAttemptSource
+): Promise<RecapScriptResult> {
   const wordBudget = targetWordBudget(options.targetLengthSec);
+  const instruction = source === "summary" ?
+    recapSummaryFallbackInstruction(options, wordBudget) :
+    (
+      attempt === "retry" ?
+        [recapStyleInstruction(options, wordBudget),
+          recapRetryInstruction(wordBudget)].join("\n\n") :
+        recapStyleInstruction(options, wordBudget)
+    );
+  const systemPrompt = source === "summary" ?
+    RECAP_SUMMARY_FALLBACK_PROMPT :
+    RECAP_SYSTEM_PROMPT;
+  const maxOutputTokens = attempt === "retry" ?
+    Math.min(2000, Math.max(900, wordBudget * 4)) :
+    attempt === "fallback" ?
+      Math.min(1500, Math.max(700, wordBudget * 3)) :
+      Math.min(1200, Math.max(500, wordBudget * 3));
+
   const response = await openai.responses.create({
     model: RECAP_TEXT_MODEL,
     input: [
-      {role: "system", content: RECAP_SYSTEM_PROMPT},
-      {role: "user", content: recapStyleInstruction(options, wordBudget)},
-      {role: "user", content: transcript},
+      {role: "system", content: systemPrompt},
+      {role: "user", content: instruction},
+      {role: "user", content: sourceText},
     ],
-    max_output_tokens: Math.min(1200, Math.max(500, wordBudget * 3)),
+    max_output_tokens: maxOutputTokens,
   });
 
   const {text, refusal, debug} = extractTextOrRefusal(response);
@@ -7146,6 +7229,8 @@ async function generateRecapScript(
   const abruptEnding = looksAbruptlyCut(script);
   if (incompleteReason || abruptEnding) {
     logger.warn("Recap output may be incomplete.", {
+      attempt,
+      source,
       variantKey: options.variantKey,
       voice: options.voice,
       style: options.style,
@@ -7161,7 +7246,126 @@ async function generateRecapScript(
       outputTextChunkCount: debug.outputTextChunkCount,
     });
   }
-  return script;
+  return {
+    script,
+    incompleteReason,
+    abruptEnding,
+    wordBudget,
+    wordCount: countWords(script),
+    scriptLength: script.length,
+    outputLength: debug.outputLength,
+    outputTextChunkCount: debug.outputTextChunkCount,
+    selectedSource: debug.selectedSource,
+  };
+}
+
+/**
+ * Build recap source text from structured summary data.
+ *
+ * @param {unknown} rawSummary Summary-shaped object.
+ * @return {string | null} Formatted summary source text or null.
+ */
+function buildRecapSummaryFallbackContext(rawSummary: unknown): string | null {
+  const summary = normalizePromotedSummary(rawSummary);
+  if (!summary) {
+    return null;
+  }
+
+  const lines: string[] = [`Main theme: ${summary.mainTheme}`];
+  if (summary.keyPoints.length > 0) {
+    lines.push("Key points:");
+    for (const point of summary.keyPoints) {
+      lines.push(`- ${point}`);
+    }
+  }
+  if (summary.weeklyActions.length > 0) {
+    lines.push("Weekly actions:");
+    for (const action of summary.weeklyActions) {
+      lines.push(`- ${action}`);
+    }
+  }
+  if (summary.explicitAyatOrHadith.length > 0) {
+    lines.push("Explicit citations:");
+    for (const citation of summary.explicitAyatOrHadith) {
+      lines.push(`- ${citation}`);
+    }
+  }
+
+  const context = lines.join("\n").trim();
+  return context.length > 0 ? context : null;
+}
+
+/**
+ * Generate recap script with retry + optional summary fallback.
+ *
+ * @param {OpenAI} openai OpenAI client.
+ * @param {string} transcript Transcript source text.
+ * @param {NormalizedRecapRequest} options Recap options.
+ * @param {function(): Promise<string | null>} loadSummaryFallback
+ *   Loader for structured summary fallback source.
+ * @return {Promise<string>} Final recap script.
+ */
+async function generateRecapScriptWithRecovery(
+  openai: OpenAI,
+  transcript: string,
+  options: NormalizedRecapRequest,
+  loadSummaryFallback: () => Promise<string | null>
+): Promise<string> {
+  const initial = await generateRecapScriptAttempt(
+    openai,
+    transcript,
+    options,
+    "initial",
+    "transcript"
+  );
+  if (!initial.incompleteReason && !initial.abruptEnding) {
+    return initial.script;
+  }
+
+  const retry = await generateRecapScriptAttempt(
+    openai,
+    transcript,
+    options,
+    "retry",
+    "transcript"
+  );
+  if (!retry.incompleteReason && !retry.abruptEnding) {
+    return retry.script;
+  }
+
+  let fallbackSource: string | null = null;
+  try {
+    fallbackSource = await loadSummaryFallback();
+  } catch (error) {
+    logger.warn("Recap summary fallback load failed.", {
+      variantKey: options.variantKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (!fallbackSource) {
+    logger.warn("Recap retry incomplete; no summary fallback available.", {
+      variantKey: options.variantKey,
+      voice: options.voice,
+      style: options.style,
+      language: options.language,
+    });
+    return retry.script;
+  }
+
+  logger.warn("Recap retry incomplete; using summary fallback source.", {
+    variantKey: options.variantKey,
+    voice: options.voice,
+    style: options.style,
+    language: options.language,
+  });
+  const fallback = await generateRecapScriptAttempt(
+    openai,
+    fallbackSource,
+    options,
+    "fallback",
+    "summary"
+  );
+  return fallback.script;
 }
 
 /**
@@ -7253,12 +7457,15 @@ async function uploadRecapAudio(
  * @param {function(): Promise<TranscriptPayload | null>} loadTranscript
  *   Transcript loader.
  * @param {string} defaultAudioPath Default storage path for output audio.
+ * @param {function(): Promise<string | null>} loadSummaryFallback
+ *   Structured summary fallback loader.
  * @return {Promise<void>} Resolves once processing is complete.
  */
 async function processRecapGenerationJob(
   recapRef: FirebaseFirestore.DocumentReference,
   loadTranscript: () => Promise<TranscriptPayload | null>,
-  defaultAudioPath: string
+  defaultAudioPath: string,
+  loadSummaryFallback: () => Promise<string | null>
 ): Promise<void> {
   const lock = await db.runTransaction(async (tx) => {
     const snap = await tx.get(recapRef);
@@ -7311,7 +7518,12 @@ async function processRecapGenerationJob(
     const openai = new OpenAI({
       apiKey: openaiKey.value(),
     });
-    const script = await generateRecapScript(openai, transcriptText, options);
+    const script = await generateRecapScriptWithRecovery(
+      openai,
+      transcriptText,
+      options,
+      loadSummaryFallback
+    );
     const audioBuffer = await synthesizeRecapAudio(openai, script, options);
     await uploadRecapAudio(audioPath, audioBuffer);
 
@@ -8094,7 +8306,15 @@ export const processUserLectureAudioRecap = onDocumentWritten(
           lectureSnap.data() as Record<string, unknown>
         );
       },
-      defaultAudioPath
+      defaultAudioPath,
+      async () => {
+        const lectureSnap = await lectureRef.get();
+        if (!lectureSnap.exists) {
+          return null;
+        }
+        const lecture = lectureSnap.data() as Record<string, unknown>;
+        return buildRecapSummaryFallbackContext(lecture.summary);
+      }
     );
   }
 );
@@ -8146,7 +8366,20 @@ export const processMasjidAudioRecap = onDocumentWritten(
           khutbahSnap.data() as Record<string, unknown>
         );
       },
-      defaultAudioPath
+      defaultAudioPath,
+      async () => {
+        const khutbahSnap = await khutbahRef.get();
+        if (!khutbahSnap.exists) {
+          return null;
+        }
+        const khutbah = khutbahSnap.data() as Record<string, unknown>;
+        return buildRecapSummaryFallbackContext({
+          mainTheme: khutbah.mainTheme,
+          keyPoints: khutbah.keyPoints,
+          explicitAyatOrHadith: khutbah.explicitAyatOrHadith,
+          weeklyActions: khutbah.weeklyActions,
+        });
+      }
     );
   }
 );
