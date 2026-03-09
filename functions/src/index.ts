@@ -1437,7 +1437,7 @@ export const onAudioUpload = onObjectFinalized(
       const maxAttempts = 3;
       const sleep = (ms: number) =>
         new Promise((resolve) => setTimeout(resolve, ms));
-      const primaryTranscriptionModel = "gpt-4o-mini-transcribe";
+      const primaryTranscriptionModel = "whisper-1";
       const fallbackTranscriptionModel = "gpt-4o-transcribe";
       type ChunkResult = {
         text: string;
@@ -1551,8 +1551,7 @@ export const onAudioUpload = onObjectFinalized(
             chunkPath,
             chunkIndex,
             totalChunks,
-            fallbackTranscriptionModel,
-            TRANSCRIBE_MULTILINGUAL_PROMPT
+            fallbackTranscriptionModel
           );
         }
 
@@ -1755,8 +1754,7 @@ export const onAudioUpload = onObjectFinalized(
               chunkPath,
               chunkIndex,
               totalChunks,
-              fallbackTranscriptionModel,
-              TRANSCRIBE_MULTILINGUAL_PROMPT
+              fallbackTranscriptionModel
             );
             chunkResults[index] = {
               text: chunkText,
@@ -5491,6 +5489,7 @@ const masjidAdminUids = defineSecret("ADMIN_UIDS");
 const FIRESTORE_BATCH_SIZE = 500;
 const WEEKLY_ACTION_TIME = "21:00";
 const WEEKLY_ACTION_WEEKDAY = 2;
+const JUMUAH_REMINDER_MINUTES_BEFORE = 10;
 const WEEKLY_ACTION_PLACEHOLDER =
   /^(no action mentioned|not mentioned)[.!?]*$/i;
 
@@ -5783,7 +5782,7 @@ function calculateWeeklyActionSendTime(
 function calculateSendTime(
   jumuahTime: string,
   timezone: string,
-  minutesBefore = 3,
+  minutesBefore = JUMUAH_REMINDER_MINUTES_BEFORE,
   referenceDate?: DateTime
 ): string | null {
   if (!isValidTimezone(timezone)) {
@@ -6519,7 +6518,12 @@ async function runJumuahReminderScheduling(
           continue;
         }
 
-        const sendAfterUtc = calculateSendTime(jumuahTime, timezone, 3, now);
+        const sendAfterUtc = calculateSendTime(
+          jumuahTime,
+          timezone,
+          JUMUAH_REMINDER_MINUTES_BEFORE,
+          now
+        );
         if (!sendAfterUtc) {
           skippedInvalidTime++;
           continue;
@@ -6743,7 +6747,12 @@ export const scheduleJumuahReminderOnPreferenceChange = onDocumentWritten(
       return;
     }
 
-    const sendAfterUtc = calculateSendTime(jumuahTime, timezone, 3, now);
+    const sendAfterUtc = calculateSendTime(
+      jumuahTime,
+      timezone,
+      JUMUAH_REMINDER_MINUTES_BEFORE,
+      now
+    );
     if (!sendAfterUtc) {
       return;
     }
@@ -9214,7 +9223,7 @@ export const previewJumuahReminders = onRequest(
         const sendAfterUtc = calculateSendTime(
           prefs.jumuahStartTime,
           prefs.jumuahTimezone,
-          3,
+          JUMUAH_REMINDER_MINUTES_BEFORE,
           now
         );
         if (!sendAfterUtc) {
