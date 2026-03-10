@@ -259,18 +259,69 @@ struct OnboardingTimedFade: ViewModifier {
     @Binding var revealAll: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
+    @State private var pendingRevealWorkItem: DispatchWorkItem?
 
     func body(content: Content) -> some View {
-        let shouldAnimate = !reduceMotion
+        let shouldAnimate = !reduceMotion && !revealAll
+        let shouldShowContent = isVisible || revealAll || reduceMotion
         return content
-            .opacity((isVisible || revealAll || reduceMotion) ? 1 : 0)
+            .opacity(shouldShowContent ? 1 : 0)
             .animation(
-                shouldAnimate && !revealAll ? .easeOut(duration: duration).delay(delay) : nil,
-                value: isVisible
+                shouldAnimate ? .easeOut(duration: duration) : nil,
+                value: shouldShowContent
             )
             .onAppear {
+                scheduleRevealIfNeeded()
+            }
+            .onChange(of: revealAll) { shouldRevealAll in
+                if shouldRevealAll {
+                    revealImmediately()
+                }
+            }
+            .onChange(of: reduceMotion) { shouldReduceMotion in
+                if shouldReduceMotion {
+                    revealImmediately()
+                } else {
+                    scheduleRevealIfNeeded()
+                }
+            }
+            .onDisappear {
+                cancelPendingReveal()
+            }
+    }
+
+    private func scheduleRevealIfNeeded() {
+        cancelPendingReveal()
+        guard !isVisible, !revealAll, !reduceMotion else {
+            isVisible = true
+            return
+        }
+
+        guard delay > 0 else {
+            isVisible = true
+            return
+        }
+
+        let workItem = DispatchWorkItem {
+            pendingRevealWorkItem = nil
+            if !isVisible {
                 isVisible = true
             }
+        }
+        pendingRevealWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func revealImmediately() {
+        cancelPendingReveal()
+        if !isVisible {
+            isVisible = true
+        }
+    }
+
+    private func cancelPendingReveal() {
+        pendingRevealWorkItem?.cancel()
+        pendingRevealWorkItem = nil
     }
 }
 
@@ -380,6 +431,7 @@ struct OnboardingRememberView: View {
                 .onboardingTimedFade(delay: 5.8, revealAll: $revealAll, duration: fadeDuration)
             }
         )
+        .contentShape(Rectangle())
         .simultaneousGesture(
             TapGesture().onEnded {
                 revealAllContent()
@@ -504,6 +556,7 @@ struct OnboardingWelcomeView: View {
                 .onboardingTimedFade(delay: 5.6, revealAll: $revealAll, duration: fadeDuration)
             }
         )
+        .contentShape(Rectangle())
         .simultaneousGesture(
             TapGesture().onEnded {
                 revealAllContent()
