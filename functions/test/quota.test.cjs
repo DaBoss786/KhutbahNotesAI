@@ -4,6 +4,7 @@ const admin = require("firebase-admin");
 
 const {
   checkAndDebitQuota,
+  durationMinutesFromSeconds,
   getMonthlyKey,
   resetMonthlyIfNeeded,
   QuotaError,
@@ -29,6 +30,14 @@ test("checkAndDebitQuota rejects recordings over 70 minutes", () => {
     (err) => err instanceof QuotaError && err.reason === "per_file_cap"
   );
   assert.equal(tx.updates.length, 0);
+});
+
+test("durationMinutesFromSeconds floors with minimum one minute", () => {
+  assert.equal(durationMinutesFromSeconds(1), 1);
+  assert.equal(durationMinutesFromSeconds(59), 1);
+  assert.equal(durationMinutesFromSeconds(90), 1);
+  assert.equal(durationMinutesFromSeconds(120), 2);
+  assert.equal(durationMinutesFromSeconds(0), 1);
 });
 
 test("checkAndDebitQuota rejects free plan lifetime cap", () => {

@@ -302,6 +302,13 @@ struct RecordLectureView: View {
         }
         
         let finalTitle = titleText.isEmpty ? defaultTitle() : titleText
+        if !persistRecording(withTitle: finalTitle, recordingURL: url) {
+            onShowToast?("Couldn't save this recording. Please try again.", nil, nil)
+        }
+    }
+    
+    @discardableResult
+    private func persistRecording(withTitle title: String, recordingURL: URL, onCreateFailure: (() -> Void)? = nil) -> Bool {
         var createdLectureId: String?
         func handleUploadError(_ message: String) {
             guard let lectureId = createdLectureId else {
@@ -315,22 +322,58 @@ struct RecordLectureView: View {
                 )
             }
         }
+        
         createdLectureId = store.createLecture(
-            withTitle: finalTitle,
-            recordingURL: url,
+            withTitle: title,
+            recordingURL: recordingURL,
             onError: handleUploadError
         )
+        
+        guard createdLectureId != nil else {
+            onCreateFailure?()
+            return false
+        }
         
         recordingManager.clearLastRecording()
         hasSavedRecording = true
         showTitleSheet = false
         titleText = ""
+        resetLimitState()
         onShowToast?(
             "Audio saved. Transcription and summary will be available in a few minutes.",
             nil,
             nil
         )
         selectedTab = 0
+        return true
+    }
+
+    private func autoSaveLimitReachedRecording(for limit: RecordingLimit) {
+        let finalTitle = titleText.isEmpty ? defaultTitle() : titleText
+        onShowToast?(
+            "Recording stopped at your \(limitLabel(for: limit.kind)). Saving now...",
+            nil,
+            nil
+        )
+        
+        guard let recordingURL = recordingManager.stopRecording() else {
+            onShowToast?("Recording stopped, but we couldn't access the audio file.", nil, nil)
+            return
+        }
+        
+        _ = persistRecording(
+            withTitle: finalTitle,
+            recordingURL: recordingURL
+        ) {
+            limitReachedMessage = limitReachedSheetMessage(for: limit.kind)
+            titleText = finalTitle
+            showTitleSheet = true
+            onShowToast?(
+                "We couldn't auto-save. Please tap Save to process this recording.",
+                nil,
+                nil
+            )
+        }
     }
 
     private func impactHaptic() {
@@ -530,13 +573,7 @@ struct RecordLectureView: View {
 
         if remaining <= 0, !didAutoStopForLimit {
             didAutoStopForLimit = true
-            limitReachedMessage = limitReachedSheetMessage(for: limit.kind)
-            finishRecordingTapped()
-            onShowToast?(
-                "Recording stopped at your \(limitLabel(for: limit.kind)).",
-                nil,
-                nil
-            )
+            autoSaveLimitReachedRecording(for: limit)
         }
     }
 

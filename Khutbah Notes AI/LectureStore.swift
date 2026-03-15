@@ -2781,7 +2781,7 @@ extension LectureStore {
     
     nonisolated static func durationMinutes(fromSeconds seconds: Double) -> Int? {
         guard seconds.isFinite, seconds > 0 else { return nil }
-        let minutes = Int((seconds / 60).rounded())
+        let minutes = Int(floor(seconds / 60))
         return max(1, minutes)
     }
     

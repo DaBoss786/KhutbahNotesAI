@@ -90,6 +90,19 @@ function toDate(value: unknown): Date | null {
 }
 
 /**
+ * Convert duration seconds into billable whole minutes.
+ *
+ * @param {number} seconds Audio duration in seconds.
+ * @return {number} Whole minutes, floored with a minimum of 1.
+ */
+export function durationMinutesFromSeconds(seconds: number): number {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(seconds / 60));
+}
+
+/**
  * Reset the user's monthly counters when crossing the renew date.
  *
  * For premium, the cycle is anchored to periodStart/renewsAt (subscription

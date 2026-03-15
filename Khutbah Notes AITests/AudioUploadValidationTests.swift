@@ -46,9 +46,9 @@ final class AudioUploadValidationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
-    func testDurationMinutesRoundsWithMinimumOne() {
+    func testDurationMinutesFloorsWithMinimumOne() {
         XCTAssertEqual(LectureStore.durationMinutes(fromSeconds: 1), 1)
         XCTAssertEqual(LectureStore.durationMinutes(fromSeconds: 59), 1)
-        XCTAssertEqual(LectureStore.durationMinutes(fromSeconds: 90), 2)
+        XCTAssertEqual(LectureStore.durationMinutes(fromSeconds: 90), 1)
     }
 }

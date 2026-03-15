@@ -22,6 +22,7 @@ import {DateTime} from "luxon";
 import {
   addOneMonth,
   checkAndDebitQuota,
+  durationMinutesFromSeconds,
   getMonthlyKey,
   resetMonthlyIfNeeded,
   QuotaError,
@@ -371,14 +372,14 @@ const RECAP_SUMMARY_FALLBACK_PROMPT = [
  * Compute audio duration in whole minutes from a file path.
  *
  * @param {string} filePath Absolute path to the audio file.
- * @return {Promise<number>} Rounded minutes, minimum of 1.
+ * @return {Promise<number>} Floored minutes, minimum of 1.
  */
 export async function getAudioDurationMinutes(
   filePath: string
 ): Promise<number> {
   const metadata = await parseFile(filePath);
   const seconds = metadata.format.duration ?? 0;
-  return Math.max(1, Math.round(seconds / 60));
+  return durationMinutesFromSeconds(seconds);
 }
 
 /**
