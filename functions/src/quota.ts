@@ -5,6 +5,10 @@ export type UserData = {
   monthlyKey?: string;
   monthlyMinutesUsed?: number;
   freeLifetimeMinutesUsed?: number;
+  freeLifetimeCapMinutes?: number;
+  freeTierGrandfathered?: boolean;
+  freeTierPolicyVersion?: string;
+  freeLifetimeMinutesRemaining?: number;
   periodStart?: admin.firestore.Timestamp | admin.firestore.FieldValue;
   renewsAt?: admin.firestore.Timestamp | admin.firestore.FieldValue;
   transcribeMinuteKey?: string;
@@ -48,6 +52,62 @@ export class QuotaError extends Error {
     this.name = "QuotaError";
     this.reason = reason;
   }
+}
+
+export const LEGACY_FREE_LIFETIME_CAP_MINUTES = 60;
+export const NEW_FREE_LIFETIME_CAP_MINUTES = 30;
+export type FreeLifetimeCapMinutes =
+  | typeof LEGACY_FREE_LIFETIME_CAP_MINUTES
+  | typeof NEW_FREE_LIFETIME_CAP_MINUTES;
+
+const VALID_FREE_LIFETIME_CAP_MINUTES = new Set([
+  LEGACY_FREE_LIFETIME_CAP_MINUTES,
+  NEW_FREE_LIFETIME_CAP_MINUTES,
+]);
+
+/**
+ * Check whether a value is a supported free-plan cap minute count.
+ *
+ * @param {unknown} value Candidate cap value.
+ * @return {boolean} True when value is a supported cap.
+ */
+export function isValidFreeLifetimeCapMinutes(
+  value: unknown
+): value is FreeLifetimeCapMinutes {
+  return (
+    typeof value === "number" &&
+    VALID_FREE_LIFETIME_CAP_MINUTES.has(value)
+  );
+}
+
+/**
+ * Normalize free cap value with a deterministic fallback.
+ *
+ * @param {unknown} value Candidate cap value.
+ * @param {number} fallback Fallback cap when value is invalid.
+ * @return {number} Normalized cap value.
+ */
+export function normalizeFreeLifetimeCapMinutes(
+  value: unknown,
+  fallback: number = LEGACY_FREE_LIFETIME_CAP_MINUTES
+): number {
+  return isValidFreeLifetimeCapMinutes(value) ? value : fallback;
+}
+
+/**
+ * Compute remaining free-plan lifetime minutes.
+ *
+ * @param {number} used Used lifetime minutes.
+ * @param {number} cap Free lifetime cap minutes.
+ * @return {number} Remaining minutes (minimum 0).
+ */
+export function computeFreeLifetimeMinutesRemaining(
+  used: number,
+  cap: number
+): number {
+  const normalizedUsed =
+    typeof used === "number" && Number.isFinite(used) ? used : 0;
+  return Math.max(0, cap - normalizedUsed);
 }
 
 /**
@@ -182,6 +242,7 @@ export function resetMonthlyIfNeeded(
  * @param {UserData} userData User snapshot data.
  * @param {number} durationMinutes Rounded minutes of the recording.
  * @param {Date} now Current time.
+ * @param {number} freeLifetimeCapMinutes Effective free lifetime cap minutes.
  * @return {number} Charged minutes (equals durationMinutes if successful).
  */
 export function checkAndDebitQuota(
@@ -189,7 +250,8 @@ export function checkAndDebitQuota(
   userRef: FirebaseFirestore.DocumentReference,
   userData: UserData,
   durationMinutes: number,
-  now: Date = new Date()
+  now: Date = new Date(),
+  freeLifetimeCapMinutes: number = LEGACY_FREE_LIFETIME_CAP_MINUTES
 ): number {
   if (durationMinutes > 70) {
     throw new QuotaError(
@@ -208,13 +270,16 @@ export function checkAndDebitQuota(
   } = resetMonthlyIfNeeded(tx, userRef, userData, now);
 
   if (plan === "free") {
+    const effectiveFreeLifetimeCapMinutes = normalizeFreeLifetimeCapMinutes(
+      freeLifetimeCapMinutes
+    );
     const lifetimeUsed =
       typeof userData.freeLifetimeMinutesUsed === "number" ?
         userData.freeLifetimeMinutesUsed :
         0;
     const newLifetimeTotal = lifetimeUsed + durationMinutes;
 
-    if (newLifetimeTotal > 60) {
+    if (newLifetimeTotal > effectiveFreeLifetimeCapMinutes) {
       throw new QuotaError(
         "Free plan lifetime minutes exceeded.",
         "free_lifetime_exceeded"
@@ -226,6 +291,11 @@ export function checkAndDebitQuota(
     tx.update(userRef, {
       plan,
       freeLifetimeMinutesUsed: newLifetimeTotal,
+      freeLifetimeCapMinutes: effectiveFreeLifetimeCapMinutes,
+      freeLifetimeMinutesRemaining: computeFreeLifetimeMinutesRemaining(
+        newLifetimeTotal,
+        effectiveFreeLifetimeCapMinutes
+      ),
       monthlyMinutesUsed: newMonthlyTotal,
       monthlyKey,
       periodStart: admin.firestore.Timestamp.fromDate(periodStart),

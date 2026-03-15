@@ -1381,7 +1381,7 @@ struct RamadanGiftBannerView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(Theme.primaryGreen)
 
-            Text("Ramadan gift! Enjoy 60 minutes full access.")
+            Text("Your gift: 30 free minutes for recording, transcripts, and summaries.")
                 .font(.footnote.weight(.semibold))
                 .foregroundColor(Theme.primaryGreen)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1397,7 +1397,7 @@ struct RamadanGiftBannerView: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss Ramadan gift banner")
+            .accessibilityLabel("Dismiss gift banner")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

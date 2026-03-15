@@ -6,6 +6,8 @@ const {
   checkAndDebitQuota,
   durationMinutesFromSeconds,
   getMonthlyKey,
+  LEGACY_FREE_LIFETIME_CAP_MINUTES,
+  NEW_FREE_LIFETIME_CAP_MINUTES,
   resetMonthlyIfNeeded,
   QuotaError,
 } = require("../lib/quota.js");
@@ -40,7 +42,7 @@ test("durationMinutesFromSeconds floors with minimum one minute", () => {
   assert.equal(durationMinutesFromSeconds(0), 1);
 });
 
-test("checkAndDebitQuota rejects free plan lifetime cap", () => {
+test("checkAndDebitQuota rejects legacy free plan lifetime cap at 60", () => {
   const tx = createTx();
   const userRef = {path: "users/u1"};
   const periodStart = new Date("2024-02-01T00:00:00Z");
@@ -55,7 +57,45 @@ test("checkAndDebitQuota rejects free plan lifetime cap", () => {
   const now = new Date("2024-02-10T12:00:00Z");
 
   assert.throws(
-    () => checkAndDebitQuota(tx, userRef, userData, 6, now),
+    () =>
+      checkAndDebitQuota(
+        tx,
+        userRef,
+        userData,
+        6,
+        now,
+        LEGACY_FREE_LIFETIME_CAP_MINUTES
+      ),
+    (err) =>
+      err instanceof QuotaError &&
+      err.reason === "free_lifetime_exceeded"
+  );
+  assert.equal(tx.updates.length, 0);
+});
+
+test("checkAndDebitQuota rejects new free plan lifetime cap at 30", () => {
+  const tx = createTx();
+  const userRef = {path: "users/u1"};
+  const periodStart = new Date("2024-02-01T00:00:00Z");
+  const renewsAt = new Date("2024-03-01T00:00:00Z");
+  const userData = {
+    plan: "free",
+    freeLifetimeMinutesUsed: 29,
+    monthlyKey: getMonthlyKey(periodStart),
+    periodStart: admin.firestore.Timestamp.fromDate(periodStart),
+    renewsAt: admin.firestore.Timestamp.fromDate(renewsAt),
+  };
+
+  assert.throws(
+    () =>
+      checkAndDebitQuota(
+        tx,
+        userRef,
+        userData,
+        2,
+        new Date("2024-02-10T12:00:00Z"),
+        NEW_FREE_LIFETIME_CAP_MINUTES
+      ),
     (err) =>
       err instanceof QuotaError &&
       err.reason === "free_lifetime_exceeded"
@@ -82,13 +122,51 @@ test("checkAndDebitQuota updates counters for free plan", () => {
     userRef,
     userData,
     7,
-    new Date("2024-02-10T12:00:00Z")
+    new Date("2024-02-10T12:00:00Z"),
+    LEGACY_FREE_LIFETIME_CAP_MINUTES
   );
 
   assert.equal(charged, 7);
   assert.equal(tx.updates.length, 1);
   const update = tx.updates[0].data;
   assert.equal(update.freeLifetimeMinutesUsed, 17);
+  assert.equal(update.freeLifetimeCapMinutes, 60);
+  assert.equal(update.freeLifetimeMinutesRemaining, 43);
+  assert.equal(update.monthlyMinutesUsed, 12);
+  assert.equal(update.monthlyKey, getMonthlyKey(periodStart));
+  assert.ok(update.periodStart instanceof admin.firestore.Timestamp);
+  assert.ok(update.renewsAt instanceof admin.firestore.Timestamp);
+});
+
+test("checkAndDebitQuota updates counters for new free cap", () => {
+  const tx = createTx();
+  const userRef = {path: "users/u1"};
+  const periodStart = new Date("2024-02-01T00:00:00Z");
+  const renewsAt = new Date("2024-03-01T00:00:00Z");
+  const userData = {
+    plan: "free",
+    freeLifetimeMinutesUsed: 10,
+    monthlyMinutesUsed: 5,
+    monthlyKey: getMonthlyKey(periodStart),
+    periodStart: admin.firestore.Timestamp.fromDate(periodStart),
+    renewsAt: admin.firestore.Timestamp.fromDate(renewsAt),
+  };
+
+  const charged = checkAndDebitQuota(
+    tx,
+    userRef,
+    userData,
+    7,
+    new Date("2024-02-10T12:00:00Z"),
+    NEW_FREE_LIFETIME_CAP_MINUTES
+  );
+
+  assert.equal(charged, 7);
+  assert.equal(tx.updates.length, 1);
+  const update = tx.updates[0].data;
+  assert.equal(update.freeLifetimeMinutesUsed, 17);
+  assert.equal(update.freeLifetimeCapMinutes, 30);
+  assert.equal(update.freeLifetimeMinutesRemaining, 13);
   assert.equal(update.monthlyMinutesUsed, 12);
   assert.equal(update.monthlyKey, getMonthlyKey(periodStart));
   assert.ok(update.periodStart instanceof admin.firestore.Timestamp);

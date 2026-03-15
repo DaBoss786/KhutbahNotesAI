@@ -18,12 +18,17 @@ struct AccountSheetView: View {
         max(0, store.userUsage?.minutesRemaining ?? 0)
     }
 
+    private var freeLifetimeCapMinutes: Int {
+        let cap = store.userUsage?.freeLifetimeCapMinutes ?? 60
+        return [30, 60].contains(cap) ? cap : 60
+    }
+
     private var freeLifetimeMinutesRemaining: Int {
         if let remaining = store.userUsage?.freeLifetimeMinutesRemaining {
             return max(0, remaining)
         }
         let used = store.userUsage?.freeLifetimeMinutesUsed ?? 0
-        return max(0, 60 - used)
+        return max(0, freeLifetimeCapMinutes - used)
     }
 
     private var userIdText: String {
@@ -83,7 +88,11 @@ struct AccountSheetView: View {
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundColor(Theme.primaryGreen)
                 if !isPremiumPlan {
-                    Text("Free plan includes 60 lifetime minutes.")
+                    Text(
+                        freeLifetimeCapMinutes == 60 ?
+                            "Legacy free plan includes 60 lifetime minutes." :
+                            "Free plan includes 30 lifetime minutes."
+                    )
                         .font(.footnote)
                         .foregroundColor(Theme.mutedText)
                 }

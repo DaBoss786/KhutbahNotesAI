@@ -22,8 +22,12 @@ import {DateTime} from "luxon";
 import {
   addOneMonth,
   checkAndDebitQuota,
+  computeFreeLifetimeMinutesRemaining,
   durationMinutesFromSeconds,
   getMonthlyKey,
+  isValidFreeLifetimeCapMinutes,
+  LEGACY_FREE_LIFETIME_CAP_MINUTES,
+  NEW_FREE_LIFETIME_CAP_MINUTES,
   resetMonthlyIfNeeded,
   QuotaError,
   type UserData,
@@ -92,6 +96,10 @@ const onesignalApiKey = defineSecret("ONESIGNAL_API_KEY");
 
 const storageBucketName = "khutbah-notes-ai.firebasestorage.app";
 const REVENUECAT_ENTITLEMENT_ID = "Khutbah Notes Pro";
+const FREE_TIER_POLICY_CUTOFF_ISO = "2026-03-20T00:00:00Z";
+const FREE_TIER_POLICY_VERSION = "2026-03-20";
+const FREE_TIER_POLICY_CUTOFF_MS =
+  Date.parse(FREE_TIER_POLICY_CUTOFF_ISO);
 
 const SUMMARY_SYSTEM_PROMPT = [
   "You are a careful summarization engine for Islamic khutbah (sermon)",
@@ -1095,23 +1103,153 @@ async function chunkAudio(
 }
 
 /**
- * Reset the user's monthly counters when crossing the renew date.
+ * Resolve policy values for the free-tier cap rollout.
+ */
+type FreeTierPolicy = {
+  capMinutes: number;
+  grandfathered: boolean;
+  policyVersion: string;
+};
+
+/**
+ * Parse Firebase Auth creation time into epoch millis.
  *
- * For premium, the cycle is anchored to periodStart/renewsAt (subscription
- * anniversary). For free, it still honors periodStart if present; otherwise it
- * starts from "now".
+ * @param {string|undefined} creationTime Auth metadata creation time.
+ * @return {number|null} Epoch millis when valid.
+ */
+function parseAuthCreationTimeMillis(
+  creationTime: string | undefined
+): number | null {
+  if (!creationTime) {
+    return null;
+  }
+  const parsed = Date.parse(creationTime);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Build free-tier policy values from account creation timestamp.
+ *
+ * @param {number} creationMs Account creation epoch millis.
+ * @return {FreeTierPolicy} Effective policy values.
+ */
+function resolveFreeTierPolicyFromCreationMs(
+  creationMs: number
+): FreeTierPolicy {
+  if (!Number.isFinite(FREE_TIER_POLICY_CUTOFF_MS)) {
+    throw new Error("Invalid free-tier policy cutoff timestamp.");
+  }
+
+  const grandfathered = creationMs < FREE_TIER_POLICY_CUTOFF_MS;
+  return {
+    capMinutes:
+      grandfathered ?
+        LEGACY_FREE_LIFETIME_CAP_MINUTES :
+        NEW_FREE_LIFETIME_CAP_MINUTES,
+    grandfathered,
+    policyVersion: FREE_TIER_POLICY_VERSION,
+  };
+}
+
+/**
+ * Resolve free-tier policy from Firebase Auth account metadata.
+ *
+ * @param {string} userId Firebase Auth UID.
+ * @return {Promise<FreeTierPolicy>} Resolved policy.
+ */
+async function resolveFreeTierPolicyFromAuth(
+  userId: string
+): Promise<FreeTierPolicy> {
+  const authUser = await admin.auth().getUser(userId);
+  const creationMs = parseAuthCreationTimeMillis(
+    authUser.metadata.creationTime
+  );
+  if (creationMs === null) {
+    throw new Error("Auth creation timestamp missing or invalid.");
+  }
+  return resolveFreeTierPolicyFromCreationMs(creationMs);
+}
+
+/**
+ * Resolve and persist free-tier cap fields when missing or incomplete.
  *
  * @param {FirebaseFirestore.Transaction} tx Firestore transaction.
  * @param {FirebaseFirestore.DocumentReference} userRef User document ref.
+ * @param {string} userId Firebase Auth UID.
  * @param {UserData} userData User snapshot data.
- * @param {Date} now Current time.
- * @return {{
- *   monthlyKey: string,
- *   monthlyMinutesUsed: number,
- *   periodStart: Date,
- *   renewsAt: Date,
- * }} Updated period info.
+ * @return {Promise<FreeTierPolicy>} Effective policy values.
  */
+async function ensureFreeTierPolicyFields(
+  tx: FirebaseFirestore.Transaction,
+  userRef: FirebaseFirestore.DocumentReference,
+  userId: string,
+  userData: UserData
+): Promise<FreeTierPolicy> {
+  const lifetimeUsed =
+    typeof userData.freeLifetimeMinutesUsed === "number" ?
+      userData.freeLifetimeMinutesUsed :
+      0;
+
+  if (isValidFreeLifetimeCapMinutes(userData.freeLifetimeCapMinutes)) {
+    const capMinutes = userData.freeLifetimeCapMinutes;
+    const grandfathered =
+      typeof userData.freeTierGrandfathered === "boolean" ?
+        userData.freeTierGrandfathered :
+        capMinutes === LEGACY_FREE_LIFETIME_CAP_MINUTES;
+    const policyVersion =
+      typeof userData.freeTierPolicyVersion === "string" &&
+      userData.freeTierPolicyVersion.trim().length > 0 ?
+        userData.freeTierPolicyVersion :
+        FREE_TIER_POLICY_VERSION;
+    const remaining = computeFreeLifetimeMinutesRemaining(
+      lifetimeUsed,
+      capMinutes
+    );
+    const storedRemaining =
+      typeof userData.freeLifetimeMinutesRemaining === "number" ?
+        userData.freeLifetimeMinutesRemaining :
+        null;
+
+    if (
+      storedRemaining !== remaining ||
+      typeof userData.freeTierGrandfathered !== "boolean" ||
+      typeof userData.freeTierPolicyVersion !== "string"
+    ) {
+      tx.set(
+        userRef,
+        {
+          freeLifetimeCapMinutes: capMinutes,
+          freeTierGrandfathered: grandfathered,
+          freeTierPolicyVersion: policyVersion,
+          freeLifetimeMinutesRemaining: remaining,
+        },
+        {merge: true}
+      );
+    }
+
+    return {capMinutes, grandfathered, policyVersion};
+  }
+
+  const policy = await resolveFreeTierPolicyFromAuth(userId);
+  const remaining = computeFreeLifetimeMinutesRemaining(
+    lifetimeUsed,
+    policy.capMinutes
+  );
+
+  tx.set(
+    userRef,
+    {
+      freeLifetimeCapMinutes: policy.capMinutes,
+      freeTierGrandfathered: policy.grandfathered,
+      freeTierPolicyVersion: policy.policyVersion,
+      freeLifetimeMinutesRemaining: remaining,
+    },
+    {merge: true}
+  );
+
+  return policy;
+}
+
 /**
  * Refund previously charged transcription minutes.
  *
@@ -1163,10 +1301,25 @@ async function refundChargedMinutes(
           typeof data.freeLifetimeMinutesUsed === "number" ?
             data.freeLifetimeMinutesUsed :
             0;
-        updates.freeLifetimeMinutesUsed = Math.max(
+        const updatedLifetimeUsed = Math.max(
           0,
           lifetimeUsed - chargedMinutes
         );
+        const freeTierPolicy = await ensureFreeTierPolicyFields(
+          tx,
+          userRef,
+          userRef.id,
+          data
+        );
+        updates.freeLifetimeMinutesUsed = updatedLifetimeUsed;
+        updates.freeLifetimeCapMinutes = freeTierPolicy.capMinutes;
+        updates.freeTierGrandfathered = freeTierPolicy.grandfathered;
+        updates.freeTierPolicyVersion = freeTierPolicy.policyVersion;
+        updates.freeLifetimeMinutesRemaining =
+          computeFreeLifetimeMinutesRemaining(
+            updatedLifetimeUsed,
+            freeTierPolicy.capMinutes
+          );
       }
 
       tx.update(userRef, updates);
@@ -1354,12 +1507,20 @@ export const onAudioUpload = onObjectFinalized(
           tx.set(userRef, rateLimitDecision.updates, {merge: true});
         }
 
+        const freeTierPolicy = await ensureFreeTierPolicyFields(
+          tx,
+          userRef,
+          userId,
+          userData
+        );
+
         chargedMinutes = checkAndDebitQuota(
           tx,
           userRef,
           userData,
           durationMinutes,
-          now
+          now,
+          freeTierPolicy.capMinutes
         );
 
         tx.set(
@@ -5171,6 +5332,19 @@ export const revenueCatWebhook = onRequest(
         const existingData = existingSnap.exists ?
           (existingSnap.data() as Record<string, unknown>) :
           null;
+        const existingUserData = existingData ?
+          (existingData as UserData) :
+          {};
+        const freeTierPolicy = await ensureFreeTierPolicyFields(
+          tx,
+          userRef,
+          uid,
+          existingUserData
+        );
+        const freeLifetimeUsed =
+          typeof existingUserData.freeLifetimeMinutesUsed === "number" ?
+            existingUserData.freeLifetimeMinutesUsed :
+            0;
         const existingMonthlyUsed =
           existingData && typeof existingData.monthlyMinutesUsed === "number" ?
             existingData.monthlyMinutesUsed :
@@ -5209,6 +5383,14 @@ export const revenueCatWebhook = onRequest(
           plan,
           monthlyKey,
           monthlyMinutesUsed,
+          freeLifetimeCapMinutes: freeTierPolicy.capMinutes,
+          freeTierGrandfathered: freeTierPolicy.grandfathered,
+          freeTierPolicyVersion: freeTierPolicy.policyVersion,
+          freeLifetimeMinutesRemaining:
+            computeFreeLifetimeMinutesRemaining(
+              freeLifetimeUsed,
+              freeTierPolicy.capMinutes
+            ),
           periodStart: admin.firestore.Timestamp.fromDate(periodStart),
           renewsAt: admin.firestore.Timestamp.fromDate(renewsAt),
           ...metadata,
@@ -9149,6 +9331,156 @@ export const adminPromoteLectureToMasjid = onRequest(
       hasTranscript: Boolean(transcriptText),
       audioPath: promotedAudioPath,
     });
+  }
+);
+
+/**
+ * Admin-only endpoint to backfill free-tier policy fields on user docs.
+ */
+export const adminBackfillFreeTierCaps = onRequest(
+  {
+    secrets: [adminToken],
+    timeoutSeconds: 540,
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    const providedToken = req.headers["x-admin-token"] as string | undefined;
+    const expectedToken = adminToken.value();
+
+    if (!expectedToken) {
+      if (process.env.FUNCTIONS_EMULATOR !== "true") {
+        res.status(403).json({error: "Endpoint disabled in production"});
+        return;
+      }
+    } else if (providedToken !== expectedToken) {
+      res.status(403).json({error: "Invalid admin token"});
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).send("POST only");
+      return;
+    }
+
+    const MAX_BATCH_SIZE = 400;
+    const DEFAULT_BATCH_SIZE = 100;
+    const rawBatchSize = req.body?.batchSize;
+    const batchSize =
+      typeof rawBatchSize === "number" && Number.isFinite(rawBatchSize) ?
+        Math.min(
+          MAX_BATCH_SIZE,
+          Math.max(1, Math.floor(rawBatchSize))
+        ) :
+        DEFAULT_BATCH_SIZE;
+
+    const dryRun = req.body?.dryRun === true;
+    const cursor =
+      typeof req.body?.cursor === "string" ? req.body.cursor.trim() : "";
+
+    try {
+      let query = db
+        .collection("users")
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(batchSize);
+      if (cursor) {
+        query = query.startAfter(cursor);
+      }
+
+      const snapshot = await query.get();
+      let updated = 0;
+      let alreadyConfigured = 0;
+      let failed = 0;
+      const sample: Array<Record<string, unknown>> = [];
+      const batch = !dryRun ? db.batch() : null;
+
+      for (const doc of snapshot.docs) {
+        const data = (doc.data() as UserData) ?? {};
+        const lifetimeUsed =
+          typeof data.freeLifetimeMinutesUsed === "number" ?
+            data.freeLifetimeMinutesUsed :
+            0;
+        const hasCap = isValidFreeLifetimeCapMinutes(
+          data.freeLifetimeCapMinutes
+        );
+        const hasGrandfathered =
+          typeof data.freeTierGrandfathered === "boolean";
+        const hasPolicyVersion =
+          typeof data.freeTierPolicyVersion === "string" &&
+          data.freeTierPolicyVersion.trim().length > 0;
+        const expectedRemaining = hasCap ?
+          computeFreeLifetimeMinutesRemaining(
+            lifetimeUsed,
+            data.freeLifetimeCapMinutes as number
+          ) :
+          null;
+        const hasRemaining =
+          typeof data.freeLifetimeMinutesRemaining === "number" &&
+          expectedRemaining !== null &&
+          data.freeLifetimeMinutesRemaining === expectedRemaining;
+
+        if (hasCap && hasGrandfathered && hasPolicyVersion && hasRemaining) {
+          alreadyConfigured += 1;
+          continue;
+        }
+
+        try {
+          const policy = await resolveFreeTierPolicyFromAuth(doc.id);
+          const nextRemaining = computeFreeLifetimeMinutesRemaining(
+            lifetimeUsed,
+            policy.capMinutes
+          );
+          const updatePayload = {
+            freeLifetimeCapMinutes: policy.capMinutes,
+            freeTierGrandfathered: policy.grandfathered,
+            freeTierPolicyVersion: policy.policyVersion,
+            freeLifetimeMinutesRemaining: nextRemaining,
+          };
+
+          if (dryRun) {
+            if (sample.length < 25) {
+              sample.push({
+                userId: doc.id,
+                ...updatePayload,
+              });
+            }
+          } else if (batch) {
+            batch.set(doc.ref, updatePayload, {merge: true});
+          }
+
+          updated += 1;
+        } catch (err: unknown) {
+          failed += 1;
+          if (sample.length < 25) {
+            sample.push({
+              userId: doc.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+
+      if (!dryRun && batch && updated > 0) {
+        await batch.commit();
+      }
+
+      const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+      const nextCursor = snapshot.size < batchSize ? null : lastDoc.id;
+
+      res.status(200).json({
+        ok: true,
+        dryRun,
+        batchSize,
+        cursor: cursor || null,
+        nextCursor,
+        processed: snapshot.size,
+        updated,
+        alreadyConfigured,
+        failed,
+        sample,
+      });
+    } catch (error) {
+      res.status(500).json({error: String(error)});
+    }
   }
 );
 

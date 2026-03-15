@@ -17,18 +17,18 @@ struct RamadanGiftModalView: View {
                 AnimatedGiftBoxView()
                     .padding(.top, 6)
 
-                Text("Ramadan Gift!")
+                Text("A Gift for You")
                     .font(.system(size: 24, weight: .bold, design: .serif))
                     .foregroundColor(BrandPalette.deepGreen)
                     .multilineTextAlignment(.center)
 
-                Text("Enjoy 60 minutes of free recording and full access to transcripts, summaries, and translations.")
+                Text("Try Khutbah Notes with 30 free minutes of recording, transcripts, and summaries - on us.")
                     .font(.system(size: 16, weight: .regular))
                     .foregroundColor(BrandPalette.deepGreen.opacity(0.85))
                     .multilineTextAlignment(.center)
 
                 Button(action: handleDismiss) {
-                    Text("Get Started!")
+                    Text("Continue")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SolidGreenButtonStyle())

@@ -14,13 +14,13 @@ enum PlaceholderCopy {
     Khutbah Notes is an iOS app that records uploaded audio and generates a transcript, summary, and key takeaways. Translation is available on demand.
 
     **2) What do I get for free?**
-    Free users receive 60 minutes total of transcription + summarization to try the app.
+    New free accounts include 30 lifetime minutes of transcription + summarization. Accounts created before March 20, 2026 keep 60 lifetime minutes.
 
     **3) What do I get with Premium?**
     Premium includes 500 minutes per month of transcription + summarization. (Translation features, if used, may be processed separately within the app's available options.)
 
     **4) Do free minutes reset each month?**
-    The free tier is a one-time 60-minute allotment. Premium minutes reset monthly.
+    The free tier is a one-time lifetime allotment (30 minutes for new accounts, 60 minutes for grandfathered accounts created before March 20, 2026). Premium minutes reset monthly.
 
     **5) What happens if I run out of minutes?**
     If you reach your limit, you won't be able to process additional audio until your Premium minutes reset or you upgrade (if you're on the free tier).

@@ -40,10 +40,14 @@ struct RecordLectureView: View {
     }
     
     private let warningThresholdSeconds: TimeInterval = 180
-    private let freeLifetimeCapMinutes = 60
     private let premiumMonthlyCapMinutes = 500
     private let perRecordingCapMinutes = 70
     private let lowRemainingWarningMinutes = 20
+    
+    private var freeLifetimeCapMinutes: Int {
+        let cap = store.userUsage?.freeLifetimeCapMinutes ?? 60
+        return [30, 60].contains(cap) ? cap : 60
+    }
     
     var body: some View {
         ZStack {

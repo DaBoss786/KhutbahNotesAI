@@ -1196,6 +1196,13 @@ final class LectureStore: ObservableObject {
                 let monthlyMinutesUsed = data["monthlyMinutesUsed"] as? Int ?? 0
                 let monthlyKey = data["monthlyKey"] as? String
                 let freeLifetimeMinutesUsed = data["freeLifetimeMinutesUsed"] as? Int ?? 0
+                let freeLifetimeCapRaw = data["freeLifetimeCapMinutes"] as? Int
+                let freeLifetimeCapMinutes: Int
+                if let freeLifetimeCapRaw, [30, 60].contains(freeLifetimeCapRaw) {
+                    freeLifetimeCapMinutes = freeLifetimeCapRaw
+                } else {
+                    freeLifetimeCapMinutes = 60
+                }
                 let freeLifetimeMinutesRemaining = data["freeLifetimeMinutesRemaining"] as? Int
                 let periodStart = (data["periodStart"] as? Timestamp)?.dateValue()
                 let renewsAt = (data["renewsAt"] as? Timestamp)?.dateValue()
@@ -1205,6 +1212,7 @@ final class LectureStore: ObservableObject {
                     monthlyMinutesUsed: monthlyMinutesUsed,
                     monthlyKey: monthlyKey,
                     freeLifetimeMinutesUsed: freeLifetimeMinutesUsed,
+                    freeLifetimeCapMinutes: freeLifetimeCapMinutes,
                     freeLifetimeMinutesRemaining: freeLifetimeMinutesRemaining,
                     periodStart: periodStart,
                     renewsAt: renewsAt
@@ -2850,6 +2858,7 @@ struct UserUsage {
     let monthlyMinutesUsed: Int
     let monthlyKey: String?
     let freeLifetimeMinutesUsed: Int
+    let freeLifetimeCapMinutes: Int
     let freeLifetimeMinutesRemaining: Int?
     let periodStart: Date?
     let renewsAt: Date?
@@ -2858,7 +2867,7 @@ struct UserUsage {
         if plan == "premium" {
             return max(0, 500 - monthlyMinutesUsed)
         } else {
-            return max(0, 60 - freeLifetimeMinutesUsed)
+            return max(0, freeLifetimeCapMinutes - freeLifetimeMinutesUsed)
         }
     }
 }
