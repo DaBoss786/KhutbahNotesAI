@@ -30,6 +30,7 @@ enum AnalyticsEvent: String {
     case recapGenerationSucceeded = "recap_generation_succeeded"
     case recapGenerationFailed = "recap_generation_failed"
     case recapPlayStarted = "recap_play_started"
+    case recapPaywallRedirect = "recap_paywall_redirect"
 }
 
 enum AudioUploadTrigger: String, Codable {
@@ -538,6 +539,12 @@ struct AnalyticsManager {
         log(.recapPlayStarted, parameters: [
             AnalyticsParameterKey.scope: scope,
             AnalyticsParameterKey.variantKey: variantKey
+        ])
+    }
+
+    static func logRecapPaywallRedirect(scope: String) {
+        log(.recapPaywallRedirect, parameters: [
+            AnalyticsParameterKey.scope: scope
         ])
     }
     

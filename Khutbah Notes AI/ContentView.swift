@@ -1529,6 +1529,8 @@ struct LectureDetailView: View {
     @State private var copyBannerMessage: String? = nil
     @State private var summaryRetryNow = Date()
     @State private var isAudioRecapSheetPresented = false
+    @State private var isResolvingRecapAccess = false
+    @State private var showPaywall = false
     private let summaryRetryTimer =
         Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @AppStorage("didRequestDemoReview") private var didRequestDemoReview = false
@@ -1616,6 +1618,24 @@ struct LectureDetailView: View {
         let transcript = (displayLecture.transcriptFormatted ?? displayLecture.transcript)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !transcript.isEmpty
+    }
+
+    private func handleAudioRecapTap() {
+        guard hasRecapTranscript else { return }
+        guard !isResolvingRecapAccess else { return }
+
+        Task {
+            isResolvingRecapAccess = true
+            defer { isResolvingRecapAccess = false }
+
+            let hasPremiumAccess = await store.resolvePremiumRecapAccess()
+            if hasPremiumAccess {
+                isAudioRecapSheetPresented = true
+            } else {
+                AnalyticsManager.logRecapPaywallRedirect(scope: "lecture")
+                showPaywall = true
+            }
+        }
     }
 
     private var failedContentCard: some View {
@@ -1784,8 +1804,9 @@ struct LectureDetailView: View {
                             textSize: $selectedTextSize,
                             leadingControls: {
                             AudioRecapTriggerButton(
-                                action: { isAudioRecapSheetPresented = true },
-                                isDisabled: !hasRecapTranscript
+                                action: handleAudioRecapTap,
+                                isDisabled: !hasRecapTranscript || isResolvingRecapAccess,
+                                isLoading: isResolvingRecapAccess
                             )
                         }
                     ) {
@@ -1964,6 +1985,11 @@ struct LectureDetailView: View {
                     )
                 }
             )
+        }
+        .sheet(isPresented: $showPaywall) {
+            OnboardingPaywallView { _ in
+                showPaywall = false
+            }
         }
         .sheet(isPresented: $showRenameSheet, onDismiss: { renameText = "" }) {
             LectureRenameSheet(

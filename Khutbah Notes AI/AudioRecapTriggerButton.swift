@@ -3,12 +3,20 @@ import SwiftUI
 struct AudioRecapTriggerButton: View {
     let action: () -> Void
     var isDisabled: Bool = false
+    var isLoading: Bool = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 13, weight: .semibold))
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(0.7)
+                } else {
+                    Image(systemName: "waveform.badge.mic")
+                        .font(.system(size: 13, weight: .semibold))
+                }
                 Text("Audio Recap")
                     .fixedSize(horizontal: true, vertical: false)
             }
@@ -46,7 +54,7 @@ struct AudioRecapTriggerButton: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
+        .disabled(isDisabled || isLoading)
         .accessibilityLabel("Audio Recap")
     }
 }

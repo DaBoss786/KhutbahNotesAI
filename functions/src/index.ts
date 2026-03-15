@@ -341,6 +341,9 @@ const RECAP_ERROR_MESSAGE_NO_TRANSCRIPT =
 const RECAP_ERROR_MESSAGE_VARIANT_CAP =
   "Recap option limit reached for this lecture. " +
   "Try an existing voice/tone option.";
+const RECAP_ERROR_MESSAGE_PREMIUM_REQUIRED =
+  "Audio recap is available on Premium.";
+const RECAP_ERROR_CODE_PREMIUM_REQUIRED = "premium_required";
 const RECAP_AUDIO_CONTENT_TYPE = "audio/mpeg";
 const RECAP_GENERATING_STATUSES = new Set(["generating"]);
 const RECAP_MAX_UNIQUE_VARIANTS_BY_TIER: Record<RateLimitTier, number> = {
@@ -7327,6 +7330,41 @@ function buildRecapHttpState(
 }
 
 /**
+ * Enforce premium access for recap endpoints.
+ *
+ * @param {string} uid Authenticated user ID.
+ * @param {Response} res Express response.
+ * @param {string} endpoint Endpoint name for logging.
+ * @return {Promise<boolean>} True when user has premium access.
+ */
+async function enforceRecapPremiumAccess(
+  uid: string,
+  res: Response,
+  endpoint: string
+): Promise<boolean> {
+  try {
+    const userSnap = await db.collection("users").doc(uid).get();
+    const userData = userSnap.data() as UserData | undefined;
+    if (userData?.plan === "premium") {
+      return true;
+    }
+    res.status(403).json({
+      error: RECAP_ERROR_MESSAGE_PREMIUM_REQUIRED,
+      code: RECAP_ERROR_CODE_PREMIUM_REQUIRED,
+    });
+    return false;
+  } catch (error) {
+    logger.error("enforceRecapPremiumAccess failed", {
+      endpoint,
+      uid,
+      error: safeJson(error),
+    });
+    res.status(500).json({error: "Internal error"});
+    return false;
+  }
+}
+
+/**
  * Build a recap style instruction string for the text model.
  *
  * @param {NormalizedRecapRequest} options Normalized recap options.
@@ -7887,6 +7925,13 @@ export const requestLectureAudioRecap = onRequest(
       res.status(401).json({error: "Unauthorized"});
       return;
     }
+    if (!await enforceRecapPremiumAccess(
+      uid,
+      res,
+      "requestLectureAudioRecap"
+    )) {
+      return;
+    }
 
     const lectureId = typeof req.body?.lectureId === "string" ?
       req.body.lectureId.trim() :
@@ -8114,6 +8159,13 @@ export const getLectureAudioRecap = onRequest(
       res.status(401).json({error: "Unauthorized"});
       return;
     }
+    if (!await enforceRecapPremiumAccess(
+      uid,
+      res,
+      "getLectureAudioRecap"
+    )) {
+      return;
+    }
 
     const lectureId = typeof req.body?.lectureId === "string" ?
       req.body.lectureId.trim() :
@@ -8186,6 +8238,13 @@ export const requestMasjidAudioRecap = onRequest(
     const uid = await getUidFromBearerAuth(req);
     if (!uid) {
       res.status(401).json({error: "Unauthorized"});
+      return;
+    }
+    if (!await enforceRecapPremiumAccess(
+      uid,
+      res,
+      "requestMasjidAudioRecap"
+    )) {
       return;
     }
 
@@ -8436,6 +8495,13 @@ export const getMasjidAudioRecap = onRequest(
     const uid = await getUidFromBearerAuth(req);
     if (!uid) {
       res.status(401).json({error: "Unauthorized"});
+      return;
+    }
+    if (!await enforceRecapPremiumAccess(
+      uid,
+      res,
+      "getMasjidAudioRecap"
+    )) {
       return;
     }
 

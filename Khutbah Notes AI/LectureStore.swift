@@ -775,6 +775,25 @@ final class LectureStore: ObservableObject {
         lectureRecapStates[lectureId]
     }
 
+    func resolvePremiumRecapAccess(timeoutSeconds: TimeInterval = 1.5) async -> Bool {
+        if userUsage?.plan == "premium" {
+            return true
+        }
+
+        let deadline = Date().addingTimeInterval(max(0, timeoutSeconds))
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            if userUsage?.plan == "premium" {
+                return true
+            }
+            if userUsage != nil {
+                return false
+            }
+        }
+
+        return false
+    }
+
     @discardableResult
     func requestAudioRecap(
         for lectureId: String,
@@ -820,6 +839,14 @@ final class LectureStore: ObservableObject {
             lectureRecapStates[lectureId] = state
             logRecapState(state, scope: "lecture")
             return state
+        } catch AudioRecapAPIError.premiumRequired(let message) {
+            let unavailable = AudioRecapState.unavailable(
+                message: message,
+                variantKey: ""
+            )
+            lectureRecapStates[lectureId] = unavailable
+            AnalyticsManager.logRecapPaywallRedirect(scope: "lecture")
+            return unavailable
         } catch {
             let failed = AudioRecapState.unavailable(
                 message: error.localizedDescription,
@@ -848,6 +875,14 @@ final class LectureStore: ObservableObject {
             lectureRecapStates[lectureId] = state
             logRecapState(state, scope: "lecture")
             return state
+        } catch AudioRecapAPIError.premiumRequired(let message) {
+            let unavailable = AudioRecapState.unavailable(
+                message: message,
+                variantKey: ""
+            )
+            lectureRecapStates[lectureId] = unavailable
+            AnalyticsManager.logRecapPaywallRedirect(scope: "lecture")
+            return unavailable
         } catch {
             let failed = AudioRecapState.unavailable(
                 message: error.localizedDescription,

@@ -15,6 +15,8 @@ struct MasjidLectureView: View {
     @State private var isSaving = false
     @State private var saveStateMessage: String?
     @State private var isAudioRecapSheetPresented = false
+    @State private var isResolvingRecapAccess = false
+    @State private var showPaywall = false
 
     private let tabs = ["Summary", "Transcript"]
 
@@ -113,8 +115,9 @@ struct MasjidLectureView: View {
                         textSize: $selectedTextSize,
                         leadingControls: {
                             AudioRecapTriggerButton(
-                                action: { isAudioRecapSheetPresented = true },
-                                isDisabled: !hasRecapTranscript
+                                action: handleAudioRecapTap,
+                                isDisabled: !hasRecapTranscript || isResolvingRecapAccess,
+                                isLoading: isResolvingRecapAccess
                             )
                         }
                     )
@@ -172,6 +175,11 @@ struct MasjidLectureView: View {
                     )
                 }
             )
+        }
+        .sheet(isPresented: $showPaywall) {
+            OnboardingPaywallView { _ in
+                showPaywall = false
+            }
         }
     }
 
@@ -323,6 +331,24 @@ struct MasjidLectureView: View {
         isLoadingTranscript = true
         defer { isLoadingTranscript = false }
         transcriptText = await masjidStore.fetchTranscript(for: khutbah)
+    }
+
+    private func handleAudioRecapTap() {
+        guard hasRecapTranscript else { return }
+        guard !isResolvingRecapAccess else { return }
+
+        Task {
+            isResolvingRecapAccess = true
+            defer { isResolvingRecapAccess = false }
+
+            let hasPremiumAccess = await lectureStore.resolvePremiumRecapAccess()
+            if hasPremiumAccess {
+                isAudioRecapSheetPresented = true
+            } else {
+                AnalyticsManager.logRecapPaywallRedirect(scope: "masjid")
+                showPaywall = true
+            }
+        }
     }
 
     private func saveToNotes() async {

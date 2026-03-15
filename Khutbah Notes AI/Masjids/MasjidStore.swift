@@ -146,6 +146,14 @@ final class MasjidStore: ObservableObject {
             masjidRecapStates[stateKey] = state
             logRecapState(state, scope: "masjid")
             return state
+        } catch AudioRecapAPIError.premiumRequired(let message) {
+            let unavailable = AudioRecapState.unavailable(
+                message: message,
+                variantKey: ""
+            )
+            masjidRecapStates[stateKey] = unavailable
+            AnalyticsManager.logRecapPaywallRedirect(scope: "masjid")
+            return unavailable
         } catch {
             let failed = AudioRecapState.unavailable(
                 message: error.localizedDescription,
@@ -176,6 +184,14 @@ final class MasjidStore: ObservableObject {
             masjidRecapStates[stateKey] = state
             logRecapState(state, scope: "masjid")
             return state
+        } catch AudioRecapAPIError.premiumRequired(let message) {
+            let unavailable = AudioRecapState.unavailable(
+                message: message,
+                variantKey: ""
+            )
+            masjidRecapStates[stateKey] = unavailable
+            AnalyticsManager.logRecapPaywallRedirect(scope: "masjid")
+            return unavailable
         } catch {
             let failed = AudioRecapState.unavailable(
                 message: error.localizedDescription,

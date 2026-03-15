@@ -7,6 +7,7 @@ enum AudioRecapAPIError: LocalizedError {
     case missingProjectId
     case invalidURL
     case invalidResponse
+    case premiumRequired(String)
     case server(String)
     case decoding
 
@@ -20,6 +21,8 @@ enum AudioRecapAPIError: LocalizedError {
             return "Invalid API URL."
         case .invalidResponse:
             return "Unexpected server response."
+        case .premiumRequired(let message):
+            return message
         case .server(let message):
             return message
         case .decoding:
@@ -78,10 +81,24 @@ enum AudioRecapAPI {
             throw AudioRecapAPIError.invalidResponse
         }
         guard 200..<300 ~= http.statusCode else {
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = json["error"] as? String,
-               !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                throw AudioRecapAPIError.server(error)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let message = (json["error"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if http.statusCode == 403,
+                   (json["code"] as? String) == "premium_required" {
+                    let premiumMessage = {
+                        if let message, !message.isEmpty {
+                            return message
+                        }
+                        return "Audio recap is available on Premium."
+                    }()
+                    throw AudioRecapAPIError.premiumRequired(
+                        premiumMessage
+                    )
+                }
+                if let message, !message.isEmpty {
+                    throw AudioRecapAPIError.server(message)
+                }
             }
             let message = String(data: data, encoding: .utf8) ?? "Request failed."
             throw AudioRecapAPIError.server(message)
@@ -137,4 +154,3 @@ enum AudioRecapAPI {
         return AudioRecapStateParser.parse(from: json)
     }
 }
-
