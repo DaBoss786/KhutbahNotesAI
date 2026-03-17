@@ -1778,7 +1778,10 @@ struct LectureDetailView: View {
                     .font(Theme.bodyFont)
                     .foregroundColor(Theme.mutedText)
 
-                    LectureAudioPlayerView(audioPath: displayLecture.audioPath)
+                    LectureAudioPlayerView(
+                        audioPath: displayLecture.audioPath,
+                        showsExportButton: true
+                    )
                     
                     Divider()
                     
@@ -2213,7 +2216,10 @@ private extension View {
 struct LectureAudioPlayerView: View {
     let audioPath: String?
     let onPlayStarted: (() -> Void)?
+    let showsExportButton: Bool
     @StateObject private var viewModel = LectureAudioPlayerViewModel()
+    @State private var exportShareItems: [Any]? = nil
+    @State private var isExportSheetPresented = false
     private var secondaryControlsEnabled: Bool { viewModel.canPlay && !viewModel.isLoading }
     private let controlButtonSize: CGFloat = 36
     private let playButtonSize: CGFloat = 44
@@ -2221,10 +2227,12 @@ struct LectureAudioPlayerView: View {
 
     init(
         audioPath: String?,
-        onPlayStarted: (() -> Void)? = nil
+        onPlayStarted: (() -> Void)? = nil,
+        showsExportButton: Bool = false
     ) {
         self.audioPath = audioPath
         self.onPlayStarted = onPlayStarted
+        self.showsExportButton = showsExportButton
     }
     
     var body: some View {
@@ -2244,7 +2252,7 @@ struct LectureAudioPlayerView: View {
             .tint(Theme.primaryGreen)
             .disabled(!secondaryControlsEnabled)
 
-            HStack {
+            HStack(spacing: 8) {
                 Text(viewModel.elapsedTimeLabel)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundColor(Theme.mutedText)
@@ -2252,6 +2260,9 @@ struct LectureAudioPlayerView: View {
                 Text(viewModel.totalTimeLabel)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundColor(Theme.mutedText)
+                if showsExportButton {
+                    exportButton
+                }
             }
             
             if viewModel.isLoading {
@@ -2287,6 +2298,11 @@ struct LectureAudioPlayerView: View {
         }
         .onDisappear {
             viewModel.cleanup()
+        }
+        .sheet(isPresented: $isExportSheetPresented, onDismiss: handleExportSheetDismissed) {
+            if let items = exportShareItems {
+                ShareSheet(activityItems: items, onComplete: handleExportSheetDismissed)
+            }
         }
     }
 
@@ -2349,6 +2365,42 @@ struct LectureAudioPlayerView: View {
         .disabled(!viewModel.canAdjustRate)
         .opacity(viewModel.canAdjustRate ? 1 : 0.5)
     }
+
+    private var exportButton: some View {
+        Button {
+            Task {
+                if let fileURL = await viewModel.prepareAudioForShare() {
+                    exportShareItems = [fileURL]
+                    isExportSheetPresented = true
+                }
+            }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: 28, height: 28)
+                    .shadow(color: Theme.shadow, radius: 4, x: 0, y: 2)
+                if viewModel.isExporting {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                        .tint(Theme.primaryGreen)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.primaryGreen)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(
+            viewModel.isLoading || viewModel.isExporting || !viewModel.canExportAudio
+        )
+        .opacity(
+            (viewModel.isLoading || viewModel.isExporting || !viewModel.canExportAudio) ? 0.45 : 1
+        )
+        .accessibilityLabel("Export audio")
+    }
     
     private func controlButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -2376,12 +2428,18 @@ struct LectureAudioPlayerView: View {
                 .clipShape(Circle())
         }
     }
+
+    private func handleExportSheetDismissed() {
+        exportShareItems = nil
+        viewModel.removePreparedShareFile()
+    }
 }
 
 @MainActor
 final class LectureAudioPlayerViewModel: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
+    @Published private(set) var isExporting = false
     @Published private(set) var playbackRate: Float = 1.0
     @Published private(set) var statusText: String = ""
     @Published private(set) var canPlay = false
@@ -2402,7 +2460,10 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     }
     
     var canAdjustRate: Bool { canPlay }
+    var canExportAudio: Bool { hasAudioPath }
     private let missingAudioMessage = "This audio file is unavailable. It may have been removed, including after the 180-day retention window."
+    private let exportUnavailableMessage = "Audio file unavailable for export."
+    private let exportFailedMessage = "Couldn't prepare audio file to share. Please try again."
     
     private var player: AVPlayer?
     private let audioSession = AVAudioSession.sharedInstance()
@@ -2413,6 +2474,8 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     private var hasAudioPath = false
     private var isScrubbing = false
     private var isAudioSessionActive = false
+    private var shareFileURL: URL?
+    private var exportTask: Task<URL?, Never>?
     
     func prepareIfNeeded(with audioPath: String?) {
         guard audioPath != currentPath || player == nil else { return }
@@ -2509,12 +2572,44 @@ final class LectureAudioPlayerViewModel: ObservableObject {
             player?.rate = newRate
         }
     }
+
+    func prepareAudioForShare() async -> URL? {
+        statusText = ""
+        guard hasAudioPath,
+              let audioPath = currentPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !audioPath.isEmpty else {
+            statusText = exportUnavailableMessage
+            return nil
+        }
+
+        if let existingTask = exportTask {
+            return await existingTask.value
+        }
+
+        let task = Task<URL?, Never> {
+            await self.downloadAudioForShare(from: audioPath)
+        }
+        exportTask = task
+        let result = await task.value
+        exportTask = nil
+        return result
+    }
+
+    func removePreparedShareFile() {
+        guard let shareFileURL else { return }
+        removeFileIfExists(at: shareFileURL)
+        self.shareFileURL = nil
+    }
     
     func cleanup() {
         player?.pause()
         deactivateAudioSessionIfNeeded()
         removeEndObserver()
         removeTimeObserver()
+        exportTask?.cancel()
+        exportTask = nil
+        isExporting = false
+        removePreparedShareFile()
         player = nil
         canPlay = false
         isPlaying = false
@@ -2532,6 +2627,10 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         removeTimeObserver()
         player?.pause()
         deactivateAudioSessionIfNeeded()
+        exportTask?.cancel()
+        exportTask = nil
+        isExporting = false
+        removePreparedShareFile()
         player = nil
         canPlay = false
         isPlaying = false
@@ -2631,6 +2730,78 @@ final class LectureAudioPlayerViewModel: ObservableObject {
         let target = CMTime(seconds: targetSeconds, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
         updateSlider(to: targetSeconds)
+    }
+
+    private func downloadAudioForShare(from audioPath: String) async -> URL? {
+        isExporting = true
+        defer { isExporting = false }
+
+        let fileExtension = Self.exportFileExtension(from: audioPath)
+        let tempFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lecture-audio-\(UUID().uuidString)")
+            .appendingPathExtension(fileExtension)
+        removeFileIfExists(at: tempFileURL)
+
+        do {
+            let reference = Storage.storage().reference(withPath: audioPath)
+            _ = try await writeToFileAsync(
+                reference: reference,
+                destinationURL: tempFileURL
+            )
+            removePreparedShareFile()
+            shareFileURL = tempFileURL
+            return tempFileURL
+        } catch {
+            removeFileIfExists(at: tempFileURL)
+            statusText = exportFailedMessage
+            print("Error preparing audio export: \(error)")
+            return nil
+        }
+    }
+
+    private func writeToFileAsync(
+        reference: StorageReference,
+        destinationURL: URL
+    ) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            reference.write(toFile: destinationURL) { url, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                if let url {
+                    continuation.resume(returning: url)
+                    return
+                }
+                continuation.resume(
+                    throwing: NSError(
+                        domain: "LectureAudioPlayerViewModel",
+                        code: -1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Audio export failed without a specific error."
+                        ]
+                    )
+                )
+            }
+        }
+    }
+
+    private func removeFileIfExists(at url: URL) {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            print("Failed to remove temporary audio export file: \(error)")
+        }
+    }
+
+    private static func exportFileExtension(from audioPath: String) -> String {
+        let fileExtension = URL(fileURLWithPath: audioPath).pathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return fileExtension.isEmpty ? "m4a" : fileExtension
     }
 
     private func formatTime(_ seconds: Double) -> String {
@@ -3593,9 +3764,17 @@ struct CopyBanner: View {
 
 struct ShareSheet: UIViewControllerRepresentable {
     let activityItems: [Any]
+    var onComplete: (() -> Void)? = nil
     
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+        let controller = UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: nil
+        )
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            onComplete?()
+        }
+        return controller
     }
     
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) { }
