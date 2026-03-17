@@ -2402,7 +2402,7 @@ final class LectureAudioPlayerViewModel: ObservableObject {
     }
     
     var canAdjustRate: Bool { canPlay }
-    private let missingAudioMessage = "The audio file does not exist or was deleted after 30 days"
+    private let missingAudioMessage = "This audio file is unavailable. It may have been removed, including after the 180-day retention window."
     
     private var player: AVPlayer?
     private let audioSession = AVAudioSession.sharedInstance()

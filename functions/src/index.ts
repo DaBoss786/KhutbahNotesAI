@@ -72,6 +72,10 @@ import {
   type RecapStateLite,
 } from "./recap";
 import {
+  buildLectureMetadataPatch,
+  parseLectureAudioUploadPath,
+} from "./lectureMetadata";
+import {
   isPromptEcho,
   normalizeForComparison,
   sanitizeChunkTranscript,
@@ -1364,6 +1368,31 @@ async function releaseRateLimitSlot(
   }
 }
 
+/**
+ * Backfill minimal lecture metadata fields when malformed/missing.
+ *
+ * @param {FirebaseFirestore.DocumentReference} lectureRef Lecture document ref.
+ * @param {Record<string, unknown> | undefined} data Current lecture data.
+ * @param {Date} now Fallback timestamp source.
+ * @return {Promise<Record<string, unknown>>} Merged lecture data snapshot.
+ */
+async function selfHealLectureMetadata(
+  lectureRef: FirebaseFirestore.DocumentReference,
+  data: Record<string, unknown> | undefined,
+  now: Date = new Date()
+): Promise<Record<string, unknown>> {
+  const patch = buildLectureMetadataPatch(data, now);
+  if (!patch) {
+    return data ?? {};
+  }
+
+  await lectureRef.set(patch, {merge: true});
+  return {
+    ...(data ?? {}),
+    ...patch,
+  };
+}
+
 export const onAudioUpload = onObjectFinalized(
   {
     bucket: storageBucketName,
@@ -1418,15 +1447,14 @@ export const onAudioUpload = onObjectFinalized(
       return;
     }
 
-    const parts = filePath.split("/");
-    if (parts.length < 3) {
-      console.error("Unexpected audio path format:", filePath);
+    const parsedPath = parseLectureAudioUploadPath(filePath);
+    if (!parsedPath) {
+      console.log("Ignoring unexpected lecture audio path:", filePath);
       return;
     }
 
-    const userId = parts[1];
-    const fileName = parts[2];
-    const lectureId = fileName.replace(path.extname(fileName), "");
+    const {userId, lectureId} = parsedPath;
+    const now = new Date();
 
     const lectureRef = db
       .collection("users")
@@ -1435,11 +1463,20 @@ export const onAudioUpload = onObjectFinalized(
       .doc(lectureId);
     const userRef = db.collection("users").doc(userId);
 
-    // Idempotency check: if we've already completed this once, skip
+    // Ensure minimum fields exist even if client metadata write failed.
     const existingDoc = await lectureRef.get();
+    const existingData =
+      existingDoc.data() as Record<string, unknown> | undefined;
+    const healedData = await selfHealLectureMetadata(
+      lectureRef,
+      existingData,
+      now
+    );
+
+    // Idempotency check: if we've already completed this once, skip
     if (
       existingDoc.exists &&
-      existingDoc.data()?.status === "transcribed"
+      healedData.status === "transcribed"
     ) {
       console.log("Lecture already processed, skipping:", lectureId);
       return;
@@ -1450,7 +1487,6 @@ export const onAudioUpload = onObjectFinalized(
       os.tmpdir(),
       path.basename(filePath)
     );
-    const now = new Date();
     let durationMinutes = 0;
     let chargedMinutes = 0;
     let chunkPaths: string[] = [];
@@ -3088,10 +3124,16 @@ export const notifySummaryReady = onDocumentWritten(
       return;
     }
     const afterStatus = afterData.status;
+    const docRef = afterSnap.ref;
 
     if (afterStatus !== "ready" || beforeStatus === "ready") {
       return;
     }
+
+    const healedAfterData = await selfHealLectureMetadata(
+      docRef,
+      afterData as Record<string, unknown>
+    );
 
     if (!afterData.summary) {
       logger.warn("Summary ready without summary content", {
@@ -3106,7 +3148,6 @@ export const notifySummaryReady = onDocumentWritten(
     }
 
     const {userId, lectureId} = event.params;
-    const docRef = afterSnap.ref;
 
     const lockAcquired = await db.runTransaction(async (tx) => {
       const snap = await tx.get(docRef);
@@ -3171,7 +3212,9 @@ export const notifySummaryReady = onDocumentWritten(
     }
 
     const lectureTitle =
-      typeof afterData.title === "string" ? afterData.title.trim() : "";
+      typeof healedAfterData.title === "string" ?
+        healedAfterData.title.trim() :
+        "";
 
     const result = await sendSummaryReadyNotification(
       userId,
@@ -9541,6 +9584,190 @@ export const adminBackfillFreeTierCaps = onRequest(
         processed: snapshot.size,
         updated,
         alreadyConfigured,
+        failed,
+        sample,
+      });
+    } catch (error) {
+      res.status(500).json({error: String(error)});
+    }
+  }
+);
+
+/**
+ * Parse user ID from a `users/{uid}/lectures/{lectureId}` path.
+ *
+ * @param {string} docPath Firestore document path.
+ * @return {string|null} Parsed user ID.
+ */
+function parseLecturePathUserId(docPath: string): string | null {
+  const parts = docPath.split("/");
+  if (parts.length < 4) {
+    return null;
+  }
+  if (parts[0] !== "users" || parts[2] !== "lectures") {
+    return null;
+  }
+  return parts[1] || null;
+}
+
+/**
+ * Admin-only endpoint to backfill missing lecture metadata fields.
+ */
+export const adminBackfillLectureMetadata = onRequest(
+  {
+    secrets: [adminToken],
+    timeoutSeconds: 540,
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    const providedToken = req.headers["x-admin-token"] as string | undefined;
+    const expectedToken = adminToken.value();
+
+    if (!expectedToken) {
+      if (process.env.FUNCTIONS_EMULATOR !== "true") {
+        res.status(403).json({error: "Endpoint disabled in production"});
+        return;
+      }
+    } else if (providedToken !== expectedToken) {
+      res.status(403).json({error: "Invalid admin token"});
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).send("POST only");
+      return;
+    }
+
+    const MAX_BATCH_SIZE = 300;
+    const DEFAULT_BATCH_SIZE = 100;
+    const rawBatchSize = req.body?.batchSize;
+    const batchSize =
+      typeof rawBatchSize === "number" && Number.isFinite(rawBatchSize) ?
+        Math.min(
+          MAX_BATCH_SIZE,
+          Math.max(1, Math.floor(rawBatchSize))
+        ) :
+        DEFAULT_BATCH_SIZE;
+
+    const dryRun = req.body?.dryRun !== false;
+    const cursor =
+      typeof req.body?.cursor === "string" ? req.body.cursor.trim() : "";
+    const rawUserIds: unknown[] = Array.isArray(req.body?.userIds) ?
+      (req.body.userIds as unknown[]) :
+      [];
+    const userIds: string[] = Array.from(
+      new Set(
+        rawUserIds
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      )
+    );
+
+    try {
+      let processed = 0;
+      let updated = 0;
+      let skipped = 0;
+      let failed = 0;
+      let nextCursor: string | null = null;
+      const sample: Array<Record<string, unknown>> = [];
+      let batch = !dryRun ? db.batch() : null;
+      let pendingBatchWrites = 0;
+
+      const queueWrite = async (
+        ref: FirebaseFirestore.DocumentReference,
+        payload: Record<string, unknown>
+      ): Promise<void> => {
+        if (dryRun) {
+          return;
+        }
+        if (!batch) {
+          batch = db.batch();
+        }
+        batch.set(ref, payload, {merge: true});
+        pendingBatchWrites += 1;
+        if (pendingBatchWrites >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          pendingBatchWrites = 0;
+        }
+      };
+
+      const processLectureDoc = async (
+        doc: FirebaseFirestore.QueryDocumentSnapshot
+      ): Promise<void> => {
+        processed += 1;
+        try {
+          const data = doc.data() as Record<string, unknown> | undefined;
+          const patch = buildLectureMetadataPatch(data);
+          if (!patch) {
+            skipped += 1;
+            return;
+          }
+
+          updated += 1;
+          if (sample.length < 25) {
+            sample.push({
+              path: doc.ref.path,
+              userId: parseLecturePathUserId(doc.ref.path),
+              fields: Object.keys(patch),
+            });
+          }
+          await queueWrite(doc.ref, patch);
+        } catch (err: unknown) {
+          failed += 1;
+          if (sample.length < 25) {
+            sample.push({
+              path: doc.ref.path,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      };
+
+      if (userIds.length > 0) {
+        for (const userId of userIds) {
+          const lecturesSnap = await db
+            .collection("users")
+            .doc(userId)
+            .collection("lectures")
+            .get();
+          for (const doc of lecturesSnap.docs) {
+            await processLectureDoc(doc);
+          }
+        }
+      } else {
+        let query = db
+          .collectionGroup("lectures")
+          .orderBy(admin.firestore.FieldPath.documentId())
+          .limit(batchSize);
+        if (cursor) {
+          query = query.startAfter(cursor);
+        }
+
+        const snapshot = await query.get();
+        for (const doc of snapshot.docs) {
+          await processLectureDoc(doc);
+        }
+
+        const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+        nextCursor =
+          snapshot.size < batchSize || !lastDoc ? null : lastDoc.ref.path;
+      }
+
+      if (!dryRun && batch && pendingBatchWrites > 0) {
+        await batch.commit();
+      }
+
+      res.status(200).json({
+        ok: true,
+        dryRun,
+        batchSize,
+        cursor: cursor || null,
+        nextCursor,
+        processed,
+        updated,
+        skipped,
         failed,
         sample,
       });

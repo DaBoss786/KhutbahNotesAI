@@ -1122,17 +1122,19 @@ final class LectureStore: ObservableObject {
                 for lecture in self.lectures {
                     previousById[lecture.id] = lecture
                 }
-                let updatedLectures: [Lecture] = documents.compactMap { doc in
+                let updatedLectures: [Lecture] = documents.map { doc in
                     let data = doc.data()
                     let id = doc.documentID
                     
-                    guard let title = data["title"] as? String,
-                          let timestamp = data["date"] as? Timestamp,
-                          let statusString = data["status"] as? String else {
-                        return nil
-                    }
-                    
-                    let date = timestamp.dateValue()
+                    let rawTitle =
+                        (data["title"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let title = rawTitle.isEmpty ? "Khutbah Summary" : rawTitle
+                    let date =
+                        (data["date"] as? Timestamp)?.dateValue() ??
+                        (data["processedAt"] as? Timestamp)?.dateValue() ??
+                        (data["summarizedAt"] as? Timestamp)?.dateValue() ??
+                        Date()
                     let durationMinutes = data["durationMinutes"] as? Int
                     let chargedMinutes = data["chargedMinutes"] as? Int
                     let isFavorite = data["isFavorite"] as? Bool ?? false
@@ -1163,6 +1165,10 @@ final class LectureStore: ObservableObject {
                     let translationErrors = LectureSummaryParser.parseTranslationErrors(
                         from: data["summaryTranslationErrors"] as? [String: Any]
                     )
+                    let statusString =
+                        (data["status"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased() ?? ""
                     
                     let status: LectureStatus
                     switch statusString {
@@ -1173,7 +1179,24 @@ final class LectureStore: ObservableObject {
                     case "ready": status = .ready
                     case "blocked_quota": status = .blockedQuota
                     case "failed": status = .failed
-                    default: status = .processing
+                    default:
+                        let transcriptText =
+                            (transcriptFormatted ?? transcript)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let hasTranscript = !transcriptText.isEmpty
+                        let hasError =
+                            !(errorMessage?
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                                .isEmpty ?? true)
+                        if summary != nil {
+                            status = .ready
+                        } else if hasTranscript {
+                            status = .transcribed
+                        } else if hasError {
+                            status = .failed
+                        } else {
+                            status = .processing
+                        }
                     }
                     
                     return Lecture(
@@ -2632,7 +2655,9 @@ private extension LectureStore {
     
     func mergePendingLectures(into remoteLectures: [Lecture]) -> [Lecture] {
         let pending = pendingUploads.values.compactMap { $0.recording }
-        guard !pending.isEmpty else { return remoteLectures }
+        guard !pending.isEmpty else {
+            return remoteLectures.sorted { $0.date > $1.date }
+        }
         
         let remoteIds = Set(remoteLectures.map { $0.id })
         var merged = remoteLectures

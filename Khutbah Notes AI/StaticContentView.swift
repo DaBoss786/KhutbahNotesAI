@@ -38,7 +38,7 @@ enum PlaceholderCopy {
     Yes. Arabic and Urdu translations are provided in Arabic and Urdu letters (not transliteration).
 
     **10) Do you store my audio?**
-    Yes. Audio will be stored for up to 30 days, then it may be deleted automatically. You can delete recordings sooner within the app.
+    Yes. Audio will be stored for up to 180 days, then it may be deleted automatically. You can delete recordings sooner within the app.
 
     **11) Do you store transcripts and summaries?**
     Yes. Transcripts, summaries, translations, and related metadata are saved to your library so you can revisit them later (until you delete them). Limited backup retention may apply.
@@ -91,7 +91,7 @@ enum PlaceholderCopy {
     static let terms = """
     **Terms of Service - Khutbah Notes**
 
-    - **Effective Date:** December 23, 2025
+    - **Effective Date:** March 17, 2026
     - **App Name:** Khutbah Notes ("Khutbah Notes," "we," "us," or "our")
     - **Support Contact:** support@khutbah-notes.com
 
@@ -148,7 +148,7 @@ enum PlaceholderCopy {
 
     **7) Audio Storage and Retention**
 
-    Audio recordings and uploads may be stored on our servers for up to 30 days, after which they may be deleted automatically (unless you delete them sooner).
+    Audio recordings and uploads may be stored on our servers for up to 180 days, after which they may be deleted automatically (unless you delete them sooner).
 
     Transcripts, summaries, translations, and related metadata may be retained as long as you keep them in your library (or until you delete them), subject to limited backup retention.
 
@@ -231,7 +231,7 @@ enum PlaceholderCopy {
     static let privacy = """
     **Privacy Policy - Khutbah Notes**
 
-    - **Effective Date:** December 23, 2025
+    - **Effective Date:** March 17, 2026
     - **App Name:** Khutbah Notes ("Khutbah Notes," "we," "us," or "our")
     - **Support Contact:** support@khutbah-notes.com
 
@@ -314,7 +314,7 @@ enum PlaceholderCopy {
     If we are involved in a merger, acquisition, financing, reorganization, or sale of assets, information may be transferred as part of that transaction.
 
     **5) Data Retention**
-    - Audio files: We store audio for up to 30 days, after which it may be deleted from our systems unless you delete it sooner.
+    - Audio files: We store audio for up to 180 days, after which it may be deleted from our systems unless you delete it sooner.
     - Transcripts, summaries, translations, and metadata: We retain these as long as you keep them in your library (or until you delete them), unless a longer retention period is required by law or for legitimate business needs (e.g., limited backups).
     - Analytics & notification logs: Retention is governed by our provider configurations and may be retained for a period of time for reporting, security, and troubleshooting.
 
