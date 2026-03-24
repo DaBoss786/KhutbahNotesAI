@@ -76,10 +76,7 @@ import {
   parseLectureAudioUploadPath,
 } from "./lectureMetadata";
 import {
-  isPromptEcho,
   normalizeForComparison,
-  sanitizeChunkTranscript,
-  stripPromptEchoLeakage,
 } from "./transcriptSanitizer";
 
 export {
@@ -222,9 +219,6 @@ const DEFAULT_TITLE_PREFIX = "Khutbah - ";
 const SUMMARY_IN_PROGRESS_TTL_MS = 15 * 60 * 1000;
 const SUMMARY_TRANSLATION_MAX_OUTPUT_TOKENS = MAX_SUMMARY_OUTPUT_TOKENS;
 const TRANSCRIBE_CHUNK_SECONDS = 240; // shorter chunks improve code-switching
-const TRANSCRIBE_MULTILINGUAL_PROMPT =
-  "Audio may include multiple languages. Transcribe each segment " +
-  "in its original language as spoken. Do not translate.";
 const SILENCE_CHECK_SAMPLE_SECONDS = 120;
 const SILENCE_DB_THRESHOLD = -45;
 const SILENCE_MIN_NON_SILENT_SECONDS = 1.5;
@@ -474,28 +468,6 @@ function areNearIdentical(a: string, b: string): boolean {
   const union = new Set([...aWords, ...bWords]).size;
   const similarity = union > 0 ? intersection / union : 0;
   return similarity >= 0.95;
-}
-
-/**
- * Detect prompt echoing across transcript and chunks.
- *
- * @param {string} transcriptText Full transcript text.
- * @param {string[]} chunkTranscripts Per-chunk transcript text.
- * @return {boolean} True when prompt echo is detected.
- */
-function isPromptEchoTranscript(
-  transcriptText: string,
-  chunkTranscripts: string[]
-): boolean {
-  if (isPromptEcho(transcriptText, TRANSCRIBE_MULTILINGUAL_PROMPT)) {
-    return true;
-  }
-  if (chunkTranscripts.length === 0) {
-    return false;
-  }
-  return chunkTranscripts.every((chunk) =>
-    isPromptEcho(chunk, TRANSCRIBE_MULTILINGUAL_PROMPT)
-  );
 }
 
 type RepetitionMetrics = {
@@ -1606,8 +1578,8 @@ export const onAudioUpload = onObjectFinalized(
       const maxAttempts = 3;
       const sleep = (ms: number) =>
         new Promise((resolve) => setTimeout(resolve, ms));
-      const primaryTranscriptionModel = "whisper-1";
-      const fallbackTranscriptionModel = "gpt-4o-transcribe";
+      const primaryTranscriptionModel = "gpt-4o-transcribe";
+      const fallbackTranscriptionModel = "whisper-1";
       type ChunkResult = {
         text: string;
         model: string;
@@ -1625,22 +1597,17 @@ export const onAudioUpload = onObjectFinalized(
         chunkPath: string,
         chunkIndex: number,
         totalChunks: number,
-        model: string,
-        prompt?: string
+        model: string
       ) => {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           try {
             const request: {
               file: fs.ReadStream;
               model: string;
-              prompt?: string;
             } = {
               file: fs.createReadStream(chunkPath),
               model,
             };
-            if (prompt) {
-              request.prompt = prompt;
-            }
             return await openai.audio.transcriptions.create(request);
           } catch (error: unknown) {
             const errorMessage =
@@ -1684,51 +1651,15 @@ export const onAudioUpload = onObjectFinalized(
         chunkPath: string,
         chunkIndex: number,
         totalChunks: number,
-        model: string,
-        prompt?: string
+        model: string
       ) => {
         const transcription = await transcribeChunkWithRetry(
           chunkPath,
           chunkIndex,
           totalChunks,
-          model,
-          prompt
+          model
         );
         return extractTranscriptText(transcription);
-      };
-      const transcribeAndSanitizeChunk = async (
-        chunkPath: string,
-        chunkIndex: number,
-        totalChunks: number,
-        model: string,
-        prompt?: string
-      ) => {
-        const rawText = await transcribeChunk(
-          chunkPath,
-          chunkIndex,
-          totalChunks,
-          model,
-          prompt
-        );
-        const sanitized = sanitizeChunkTranscript(
-          rawText,
-          TRANSCRIBE_MULTILINGUAL_PROMPT
-        );
-        if (sanitized.removed) {
-          logger.info("prompt_echo_removed", {
-            lectureId,
-            chunkIndex,
-            totalChunks,
-            model,
-            removedChars: Math.max(
-              0,
-              rawText.length - sanitized.cleanedText.length
-            ),
-            originalLength: rawText.length,
-            cleanedLength: sanitized.cleanedText.length,
-          });
-        }
-        return {rawText, sanitized};
       };
 
       for (let i = 0; i < chunkPaths.length; i++) {
@@ -1738,41 +1669,54 @@ export const onAudioUpload = onObjectFinalized(
         let modelUsed = primaryTranscriptionModel;
         let fallbackTriggered = false;
         let fallbackReason: string | undefined;
+        let chunkText = "";
 
-        const primaryResult = await transcribeAndSanitizeChunk(
-          chunkPath,
-          chunkIndex,
-          totalChunks,
-          primaryTranscriptionModel,
-          TRANSCRIBE_MULTILINGUAL_PROMPT
-        );
-        let chunkText = primaryResult.sanitized.cleanedText;
-
-        if (!chunkText || primaryResult.sanitized.hardEcho) {
+        try {
+          chunkText = await transcribeChunk(
+            chunkPath,
+            chunkIndex,
+            totalChunks,
+            primaryTranscriptionModel
+          );
+        } catch (error: unknown) {
           fallbackTriggered = true;
-          fallbackReason = !chunkText ?
-            (primaryResult.rawText ? "prompt_echo_empty" : "empty_text") :
-            "prompt_echo_hard_echo";
-          if (fallbackReason !== "empty_text") {
-            logger.warn("prompt_echo_chunk_fallback", {
-              lectureId,
-              chunkIndex,
-              totalChunks,
-              initialModel: primaryTranscriptionModel,
-              fallbackModel: fallbackTranscriptionModel,
-              reason: fallbackReason,
-              cleanedLength: primaryResult.sanitized.cleanedText.length,
-              hardEcho: primaryResult.sanitized.hardEcho,
-            });
-          }
+          fallbackReason = "primary_error";
           modelUsed = fallbackTranscriptionModel;
-          const fallbackResult = await transcribeAndSanitizeChunk(
+          logger.warn("Transcription chunk fallback triggered.", {
+            lectureId,
+            chunkIndex,
+            totalChunks,
+            initialModel: primaryTranscriptionModel,
+            fallbackModel: fallbackTranscriptionModel,
+            reason: fallbackReason,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          chunkText = await transcribeChunk(
             chunkPath,
             chunkIndex,
             totalChunks,
             fallbackTranscriptionModel
           );
-          chunkText = fallbackResult.sanitized.cleanedText;
+        }
+
+        if (!chunkText && modelUsed !== fallbackTranscriptionModel) {
+          fallbackTriggered = true;
+          fallbackReason = "empty_text";
+          modelUsed = fallbackTranscriptionModel;
+          logger.warn("Transcription chunk fallback triggered.", {
+            lectureId,
+            chunkIndex,
+            totalChunks,
+            initialModel: primaryTranscriptionModel,
+            fallbackModel: fallbackTranscriptionModel,
+            reason: fallbackReason,
+          });
+          chunkText = await transcribeChunk(
+            chunkPath,
+            chunkIndex,
+            totalChunks,
+            fallbackTranscriptionModel
+          );
         }
 
         chunkResults.push({
@@ -1919,10 +1863,6 @@ export const onAudioUpload = onObjectFinalized(
 
       let {chunkTranscripts, transcriptText} =
         buildTranscriptState(chunkResults);
-      if (isPromptEchoTranscript(transcriptText, chunkTranscripts)) {
-        await handleNoSpeechDetected("prompt_echo_initial");
-        return;
-      }
       let quality = evaluateTranscriptQuality(
         transcriptText,
         chunkTranscripts,
@@ -1970,13 +1910,12 @@ export const onAudioUpload = onObjectFinalized(
             const chunkPath = chunkPaths[index];
             const chunkIndex = index + 1;
             const totalChunks = chunkPaths.length;
-            const result = await transcribeAndSanitizeChunk(
+            const chunkText = await transcribeChunk(
               chunkPath,
               chunkIndex,
               totalChunks,
               fallbackTranscriptionModel
             );
-            const chunkText = result.sanitized.cleanedText;
             chunkResults[index] = {
               text: chunkText,
               model: fallbackTranscriptionModel,
@@ -2034,13 +1973,12 @@ export const onAudioUpload = onObjectFinalized(
             const chunkPath = reencodedChunkPaths[i];
             const chunkIndex = i + 1;
             const totalChunks = reencodedChunkPaths.length;
-            const result = await transcribeAndSanitizeChunk(
+            const chunkText = await transcribeChunk(
               chunkPath,
               chunkIndex,
               totalChunks,
               fallbackTranscriptionModel
             );
-            const chunkText = result.sanitized.cleanedText;
             reencodedResults.push({
               text: chunkText,
               model: fallbackTranscriptionModel,
@@ -2105,37 +2043,6 @@ export const onAudioUpload = onObjectFinalized(
             error: err instanceof Error ? err.message : String(err),
           });
         }
-      }
-
-      const cleanedFinalTranscript = stripPromptEchoLeakage(
-        transcriptText,
-        TRANSCRIBE_MULTILINGUAL_PROMPT
-      );
-      if (cleanedFinalTranscript !== transcriptText) {
-        logger.info("prompt_echo_final_cleaned", {
-          lectureId,
-          removedChars: Math.max(
-            0,
-            transcriptText.length - cleanedFinalTranscript.length
-          ),
-          originalLength: transcriptText.length,
-          cleanedLength: cleanedFinalTranscript.length,
-        });
-        transcriptText = cleanedFinalTranscript;
-        quality = evaluateTranscriptQuality(
-          transcriptText,
-          chunkTranscripts,
-          "final_cleanup"
-        );
-      }
-      if (!transcriptText) {
-        await handleNoSpeechDetected("prompt_echo_final_cleaned_empty");
-        return;
-      }
-
-      if (isPromptEchoTranscript(transcriptText, chunkTranscripts)) {
-        await handleNoSpeechDetected("prompt_echo_final");
-        return;
       }
 
       if (!transcriptText) {
