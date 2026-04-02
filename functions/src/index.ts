@@ -76,6 +76,10 @@ import {
   parseLectureAudioUploadPath,
 } from "./lectureMetadata";
 import {
+  resolveLectureTranscript,
+  type TranscriptPayload,
+} from "./lectureTranscript";
+import {
   normalizeForComparison,
 } from "./transcriptSanitizer";
 
@@ -2303,6 +2307,7 @@ type SummaryInProgressValue =
 type SummaryLockResult = {
   acquired: boolean;
   reclaimed?: boolean;
+  transcriptPayload?: TranscriptPayload;
   reason?: "missing" | "not_ready" | "in_progress" | "rate_limited";
   rateLimitReason?: RateLimitReason;
   retryAfterMs?: number;
@@ -2602,11 +2607,7 @@ export const summarizeKhutbah = onDocumentWritten(
       return;
     }
 
-    const transcript = typeof lecture.transcript === "string" ?
-      lecture.transcript.trim() :
-      "";
-
-    if (!transcript) {
+    if (!resolveLectureTranscript(lecture, {prefer: "raw"})) {
       return;
     }
 
@@ -2646,7 +2647,15 @@ export const summarizeKhutbah = onDocumentWritten(
           return {acquired: false, reason: "missing"};
         }
 
-        if (current?.status !== "transcribed" || current?.summary) {
+        const transcriptPayload = current ?
+          resolveLectureTranscript(current, {prefer: "raw"}) :
+          null;
+
+        if (
+          current?.status !== "transcribed" ||
+          current?.summary ||
+          !transcriptPayload
+        ) {
           return {acquired: false, reason: "not_ready"};
         }
 
@@ -2675,14 +2684,19 @@ export const summarizeKhutbah = onDocumentWritten(
           tx.set(userRef, rateLimitDecision.updates, {merge: true});
         }
 
-        tx.update(docRef, {
+        const summaryUpdates: Record<string, unknown> = {
           summaryInProgress: buildSummaryInProgress(lockNowMs),
           status: "summarizing",
-        });
+        };
+        if (transcriptPayload.repairTranscript) {
+          summaryUpdates.transcript = transcriptPayload.repairTranscript;
+        }
+        tx.update(docRef, summaryUpdates);
 
         return {
           acquired: true,
           reclaimed: hasCurrentInProgress && currentInProgressStale,
+          transcriptPayload,
         };
       }
     );
@@ -2717,6 +2731,11 @@ export const summarizeKhutbah = onDocumentWritten(
     }
 
     try {
+      const transcript = lockResult.transcriptPayload?.text ?? "";
+      if (!transcript) {
+        return;
+      }
+
       const openai = new OpenAI({
         apiKey: openaiKey.value(),
       });
@@ -7111,11 +7130,6 @@ async function logWeeklyActionRun(
   }
 }
 
-type TranscriptPayload = {
-  text: string;
-  source: string;
-};
-
 type RecapHttpState = {
   status: string;
   variantKey: string;
@@ -7137,30 +7151,6 @@ type RecapHttpState = {
   stale: boolean;
   path: string | null;
 };
-
-/**
- * Resolve the best transcript source from a user lecture document.
- *
- * @param {Record<string, unknown>} lecture Lecture document data.
- * @return {TranscriptPayload | null} Transcript payload or null.
- */
-function resolveLectureTranscript(
-  lecture: Record<string, unknown>
-): TranscriptPayload | null {
-  const formatted = typeof lecture.transcriptFormatted === "string" ?
-    normalizeRecapTranscript(lecture.transcriptFormatted) :
-    "";
-  if (formatted) {
-    return {text: formatted, source: "lecture.transcriptFormatted"};
-  }
-  const raw = typeof lecture.transcript === "string" ?
-    normalizeRecapTranscript(lecture.transcript) :
-    "";
-  if (raw) {
-    return {text: raw, source: "lecture.transcript"};
-  }
-  return null;
-}
 
 /**
  * Resolve transcript for a masjid khutbah from transcript artifact paths.
@@ -7192,7 +7182,7 @@ async function resolveMasjidTranscript(
         normalizeRecapTranscript(snap.data()?.text as string) :
         "";
       if (text) {
-        return {text, source: ref.path};
+        return {text, source: ref.path, repairTranscript: null};
       }
     } catch {
       continue;
@@ -7203,7 +7193,11 @@ async function resolveMasjidTranscript(
     normalizeRecapTranscript(khutbah.transcriptPreview) :
     "";
   if (preview) {
-    return {text: preview, source: "khutbah.transcriptPreview"};
+    return {
+      text: preview,
+      source: "khutbah.transcriptPreview",
+      repairTranscript: null,
+    };
   }
   return null;
 }
