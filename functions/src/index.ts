@@ -82,6 +82,8 @@ import {
 import {
   normalizeForComparison,
 } from "./transcriptSanitizer";
+import {
+} from "./youtubeStreamTranscriptExport";
 
 export {
   addOneMonth,
@@ -5721,6 +5723,25 @@ interface UserDoc {
   };
 }
 
+type QueueMasjidKhutbahInput = {
+  masjidId: string;
+  youtubeUrl: string;
+  title?: string;
+  speaker?: string;
+  manualTranscript?: string;
+  date?: FirebaseFirestore.Timestamp | null;
+  durationSec?: number | null;
+  tags?: string[];
+  createdByUid: string;
+};
+
+type QueueMasjidKhutbahResult = {
+  deduped: boolean;
+  status: string;
+  khutbahId: string;
+  youtubeVideoId: string;
+};
+
 interface ScheduleGroup {
   userIds: string[];
   time: string;
@@ -8823,6 +8844,121 @@ function normalizePromotedSummary(rawSummary: unknown): {
 }
 
 /**
+ * Queue a masjid khutbah for downstream processing.
+ *
+ * Shared by the admin HTTP endpoint and the weekly automated ingestion job.
+ *
+ * @param {QueueMasjidKhutbahInput} input Queue payload.
+ * @return {Promise<QueueMasjidKhutbahResult>} Queue result.
+ */
+async function queueMasjidKhutbahInternal(
+  input: QueueMasjidKhutbahInput
+): Promise<QueueMasjidKhutbahResult> {
+  const masjidId = input.masjidId.trim();
+  const youtubeUrl = input.youtubeUrl.trim();
+  if (!masjidId || !youtubeUrl) {
+    throw new Error("masjidId and youtubeUrl are required");
+  }
+
+  const videoId = extractYouTubeVideoId(youtubeUrl);
+  if (!videoId) {
+    throw new Error("Invalid YouTube URL");
+  }
+
+  const manualTranscript = input.manualTranscript?.trim() ?? "";
+  if (manualTranscript.length > YOUTUBE_CAPTIONS_MAX_CHARS) {
+    throw new Error(
+      `manualTranscript exceeds ${YOUTUBE_CAPTIONS_MAX_CHARS} chars`
+    );
+  }
+
+  const masjidRef = db.collection("masjids").doc(masjidId);
+  const masjidSnap = await masjidRef.get();
+  if (!masjidSnap.exists) {
+    throw new Error("Masjid not found");
+  }
+
+  const title = input.title?.trim() ?? "";
+  const speaker = input.speaker?.trim() ?? "";
+  const durationSec =
+    typeof input.durationSec === "number" && input.durationSec > 0 ?
+      Math.floor(input.durationSec) :
+      null;
+  const tags = (input.tags ?? [])
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
+
+  const khutbahRef = masjidRef.collection("khutbahs").doc(videoId);
+  const queueResult = await db.runTransaction(async (tx) => {
+    const existingSnap = await tx.get(khutbahRef);
+    const existingData =
+      existingSnap.data() as Record<string, unknown> | undefined;
+    const existingStatus = typeof existingData?.status === "string" ?
+      existingData.status :
+      null;
+
+    if (
+      existingSnap.exists &&
+      existingStatus &&
+      ["queued", "processing", "ready"].includes(existingStatus)
+    ) {
+      return {deduped: true, status: existingStatus};
+    }
+
+    const createData: Record<string, unknown> = {
+      youtubeUrl,
+      youtubeVideoId: videoId,
+      title: title || "Khutbah Summary",
+      status: "queued",
+      createdByUid: input.createdByUid,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      errorStage: admin.firestore.FieldValue.delete(),
+      errorMessage: admin.firestore.FieldValue.delete(),
+    };
+    if (speaker) {
+      createData.speaker = speaker;
+    } else {
+      createData.speaker = admin.firestore.FieldValue.delete();
+    }
+    if (input.date) {
+      createData.date = input.date;
+    } else {
+      createData.date = admin.firestore.FieldValue.delete();
+    }
+    if (durationSec) {
+      createData.durationSec = durationSec;
+    } else {
+      createData.durationSec = admin.firestore.FieldValue.delete();
+    }
+    if (tags.length > 0) {
+      createData.tags = tags;
+    } else {
+      createData.tags = admin.firestore.FieldValue.delete();
+    }
+    if (manualTranscript) {
+      createData.manualTranscript = manualTranscript;
+    } else {
+      createData.manualTranscript = admin.firestore.FieldValue.delete();
+    }
+
+    tx.set(khutbahRef, createData, {merge: true});
+    tx.set(masjidRef, {
+      lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+    return {deduped: false, status: "queued"};
+  });
+
+  return {
+    deduped: queueResult.deduped,
+    status: queueResult.status,
+    khutbahId: videoId,
+    youtubeVideoId: videoId,
+  };
+}
+
+/**
  * Returns whether the currently-authenticated user is an approved masjid
  * admin UID.
  */
@@ -8967,31 +9103,11 @@ export const adminQueueMasjidKhutbah = onRequest(
       res.status(400).json({error: "masjidId and youtubeUrl are required"});
       return;
     }
-
-    const videoId = extractYouTubeVideoId(youtubeUrl);
-    if (!videoId) {
-      res.status(400).json({error: "Invalid YouTube URL"});
-      return;
-    }
-
-    const masjidRef = db.collection("masjids").doc(masjidId);
-    const masjidSnap = await masjidRef.get();
-    if (!masjidSnap.exists) {
-      res.status(404).json({error: "Masjid not found"});
-      return;
-    }
-
     const title = typeof rawTitle === "string" ? rawTitle.trim() : "";
     const speaker = typeof rawSpeaker === "string" ? rawSpeaker.trim() : "";
     const manualTranscript = typeof rawManualTranscript === "string" ?
       rawManualTranscript.trim() :
       "";
-    if (manualTranscript.length > YOUTUBE_CAPTIONS_MAX_CHARS) {
-      res.status(400).json({
-        error: `manualTranscript exceeds ${YOUTUBE_CAPTIONS_MAX_CHARS} chars`,
-      });
-      return;
-    }
     const parsedDurationSec =
       typeof rawDurationSec === "number" && rawDurationSec > 0 ?
         Math.floor(rawDurationSec) :
@@ -9013,68 +9129,42 @@ export const adminQueueMasjidKhutbah = onRequest(
           .filter((item) => item.length > 0) :
         [];
 
-    const khutbahRef = masjidRef.collection("khutbahs").doc(videoId);
-    const queueResult = await db.runTransaction(async (tx) => {
-      const existingSnap = await tx.get(khutbahRef);
-      const existingData =
-        existingSnap.data() as Record<string, unknown> | undefined;
-      const existingStatus = typeof existingData?.status === "string" ?
-        existingData.status :
-        null;
-
-      if (
-        existingSnap.exists &&
-        existingStatus &&
-        ["queued", "processing", "ready"].includes(existingStatus)
-      ) {
-        return {deduped: true, status: existingStatus};
-      }
-
-      const createData: Record<string, unknown> = {
+    try {
+      const queueResult = await queueMasjidKhutbahInternal({
+        masjidId,
         youtubeUrl,
-        youtubeVideoId: videoId,
-        title: title || "Khutbah Summary",
-        status: "queued",
+        title,
+        speaker,
+        manualTranscript,
+        date: parsedDate,
+        durationSec: parsedDurationSec,
+        tags,
         createdByUid: uid,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        errorStage: admin.firestore.FieldValue.delete(),
-        errorMessage: admin.firestore.FieldValue.delete(),
-      };
-      if (speaker) {
-        createData.speaker = speaker;
-      }
-      if (parsedDate) {
-        createData.date = parsedDate;
-      }
-      if (parsedDurationSec) {
-        createData.durationSec = parsedDurationSec;
-      }
-      if (tags.length > 0) {
-        createData.tags = tags;
-      }
-      if (manualTranscript) {
-        createData.manualTranscript = manualTranscript;
-      } else {
-        createData.manualTranscript = admin.firestore.FieldValue.delete();
-      }
+      });
 
-      tx.set(khutbahRef, createData, {merge: true});
-      tx.set(masjidRef, {
-        lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      }, {merge: true});
-      return {deduped: false, status: "queued"};
-    });
-
-    res.status(200).json({
-      ok: true,
-      masjidId,
-      khutbahId: videoId,
-      youtubeVideoId: videoId,
-      deduped: queueResult.deduped,
-      status: queueResult.status,
-    });
+      res.status(200).json({
+        ok: true,
+        masjidId,
+        khutbahId: queueResult.khutbahId,
+        youtubeVideoId: queueResult.youtubeVideoId,
+        deduped: queueResult.deduped,
+        status: queueResult.status,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Queue failed";
+      if (message === "Masjid not found") {
+        res.status(404).json({error: message});
+        return;
+      }
+      if (
+        message === "Invalid YouTube URL" ||
+        message.includes("manualTranscript exceeds")
+      ) {
+        res.status(400).json({error: message});
+        return;
+      }
+      res.status(500).json({error: message});
+    }
   }
 );
 
