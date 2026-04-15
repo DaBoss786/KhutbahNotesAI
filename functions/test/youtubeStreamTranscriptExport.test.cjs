@@ -257,6 +257,179 @@ var ytInitialData = {
   ]);
 });
 
+test("extractRecentStreamVideosFromHtml falls back to channel root video grid", () => {
+  const html = `<!doctype html><html><body><script>
+var ytInitialData = {
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "title": "Home",
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@theicnyc"
+                }
+              }
+            },
+            "content": {
+              "richGridRenderer": {
+                "contents": [
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "videoRenderer": {
+                          "videoId": "video-root-1",
+                          "title": {
+                            "runs": [
+                              {"text": "Friday Khutbah | Imam Example"}
+                            ]
+                          },
+                          "publishedTimeText": {
+                            "simpleText": "2 days ago"
+                          },
+                          "navigationEndpoint": {
+                            "commandMetadata": {
+                              "webCommandMetadata": {
+                                "url": "/watch?v=video-root-1"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "videoRenderer": {
+                          "videoId": "video-root-2",
+                          "title": {
+                            "runs": [
+                              {"text": "Community Update"}
+                            ]
+                          },
+                          "publishedTimeText": {
+                            "simpleText": "5 days ago"
+                          },
+                          "navigationEndpoint": {
+                            "commandMetadata": {
+                              "webCommandMetadata": {
+                                "url": "/watch?v=video-root-2"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+};
+</script></body></html>`;
+
+  const videos = extractRecentStreamVideosFromHtml(html, 2);
+  assert.deepEqual(videos, [
+    {
+      videoId: "video-root-1",
+      title: "Friday Khutbah | Imam Example",
+      videoUrl: "https://www.youtube.com/watch?v=video-root-1",
+      publishedText: "2 days ago",
+    },
+    {
+      videoId: "video-root-2",
+      title: "Community Update",
+      videoUrl: "https://www.youtube.com/watch?v=video-root-2",
+      publishedText: "5 days ago",
+    },
+  ]);
+});
+
+test("extractRecentStreamVideosFromHtml falls back when streams tab has no content", () => {
+  const html = `<!doctype html><html><body><script>
+var ytInitialData = {
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "title": "Streams",
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@channel/streams"
+                }
+              }
+            }
+          }
+        },
+        {
+          "tabRenderer": {
+            "title": "Videos",
+            "selected": true,
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@channel/videos"
+                }
+              }
+            },
+            "content": {
+              "richGridRenderer": {
+                "contents": [
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "videoRenderer": {
+                          "videoId": "video-fallback-1",
+                          "title": {
+                            "runs": [
+                              {"text": "Friday Sermon | Imam Example"}
+                            ]
+                          },
+                          "publishedTimeText": {
+                            "simpleText": "1 day ago"
+                          },
+                          "navigationEndpoint": {
+                            "commandMetadata": {
+                              "webCommandMetadata": {
+                                "url": "/watch?v=video-fallback-1"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+};
+</script></body></html>`;
+
+  const videos = extractRecentStreamVideosFromHtml(html, 1);
+  assert.deepEqual(videos, [
+    {
+      videoId: "video-fallback-1",
+      title: "Friday Sermon | Imam Example",
+      videoUrl: "https://www.youtube.com/watch?v=video-fallback-1",
+      publishedText: "1 day ago",
+    },
+  ]);
+});
+
 test("filterStreamVideos keeps only matching khutbah-like titles", () => {
   const videos = filterStreamVideos([
     {

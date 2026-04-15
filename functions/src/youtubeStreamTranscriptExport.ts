@@ -347,20 +347,20 @@ function extractInitialDataFromHtml(
 }
 
 /**
- * Pick the Streams tab from YouTube initial data.
+ * Pick the Streams tab from YouTube initial data when available.
  *
  * @param {Record<string, unknown>} initialData Parsed initial data.
- * @return {Record<string, unknown>} Tab renderer payload.
+ * @return {Record<string, unknown> | null} Tab renderer payload or null.
  */
 function findStreamsTab(
   initialData: Record<string, unknown>
-): Record<string, unknown> {
+): Record<string, unknown> | null {
   const tabs = getNested(
     initialData,
     ["contents", "twoColumnBrowseResultsRenderer", "tabs"]
   );
   if (!Array.isArray(tabs)) {
-    throw new Error("YouTube channel page is missing channel tabs.");
+    return null;
   }
 
   for (const tab of tabs) {
@@ -381,7 +381,67 @@ function findStreamsTab(
     }
   }
 
-  throw new Error("Could not find the Streams tab on the YouTube channel.");
+  return null;
+}
+
+/**
+ * Extract a rich-grid contents array from a tab renderer.
+ *
+ * @param {Record<string, unknown> | null} tabRenderer Tab renderer payload.
+ * @return {unknown[] | null} Grid contents or null.
+ */
+function extractRichGridContents(
+  tabRenderer: Record<string, unknown> | null
+): unknown[] | null {
+  const contents = getNested(
+    tabRenderer,
+    ["content", "richGridRenderer", "contents"]
+  );
+  return Array.isArray(contents) ? contents : null;
+}
+
+/**
+ * Pick a fallback channel tab that exposes a video grid.
+ *
+ * Used for channels that do not expose a dedicated Streams tab.
+ *
+ * @param {Record<string, unknown>} initialData Parsed initial data.
+ * @return {Record<string, unknown> | null} Tab renderer payload or null.
+ */
+function findFallbackChannelTab(
+  initialData: Record<string, unknown>
+): Record<string, unknown> | null {
+  const tabs = getNested(
+    initialData,
+    ["contents", "twoColumnBrowseResultsRenderer", "tabs"]
+  );
+  if (!Array.isArray(tabs)) {
+    return null;
+  }
+
+  for (const tab of tabs) {
+    const renderer = asRecord(asRecord(tab)?.tabRenderer);
+    if (!renderer) {
+      continue;
+    }
+
+    const title = flattenText(renderer.title).toLowerCase();
+    if (!["home", "videos", "live"].includes(title)) {
+      continue;
+    }
+    if (extractRichGridContents(renderer)) {
+      return renderer;
+    }
+  }
+
+  for (const tab of tabs) {
+    const renderer = asRecord(asRecord(tab)?.tabRenderer);
+    if (renderer && extractRichGridContents(renderer)) {
+      return renderer;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -497,12 +557,16 @@ export function extractRecentStreamVideosFromHtml(
 
   const initialData = extractInitialDataFromHtml(html);
   const streamsTab = findStreamsTab(initialData);
-  const contents = getNested(
-    streamsTab,
-    ["content", "richGridRenderer", "contents"]
-  );
-  if (!Array.isArray(contents)) {
-    throw new Error("Streams tab is missing rich grid contents.");
+  const fallbackTab = findFallbackChannelTab(initialData);
+  const contents =
+    extractRichGridContents(streamsTab) ??
+    extractRichGridContents(fallbackTab);
+  if (!contents) {
+    throw new Error(
+      streamsTab && !fallbackTab ?
+        "Streams tab is missing rich grid contents." :
+        "Could not find a YouTube channel tab with recent videos."
+    );
   }
 
   const videos: StreamVideo[] = [];
