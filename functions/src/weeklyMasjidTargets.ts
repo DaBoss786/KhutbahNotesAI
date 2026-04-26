@@ -62,4 +62,8 @@ export const WEEKLY_MASJID_INGESTION_TARGETS: WeeklyMasjidIngestionTarget[] = [
     masjidId: "Ft0ehhuvTHzHn421vw61",
     channelUrl: "https://www.youtube.com/@FaithofLifeNetwork/streams",
   },
+  {
+    masjidId: "wxwiOrqUu0sqp4Dj0h9k",
+    channelUrl: "https://www.youtube.com/@therahmacenter638/streams",
+  },
 ];

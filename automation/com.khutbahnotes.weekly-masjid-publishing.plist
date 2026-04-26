@@ -12,7 +12,9 @@
   <key>WorkingDirectory</key>
   <string>/Users/abbasanwar/Desktop/Projects/Khutbah Notes AI</string>
   <key>RunAtLoad</key>
-  <false/>
+  <true/>
+  <key>StartInterval</key>
+  <integer>3600</integer>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Weekday</key>

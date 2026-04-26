@@ -1741,7 +1741,6 @@ final class LectureStore: ObservableObject {
                     date: date,
                     durationMinutes: durationMinutes,
                     audioPath: audioPath,
-                    status: "processing",
                     errorMessage: nil,
                     uploadCompletion: UploadCompletionContext(
                         uploadId: uploadContext.uploadId,
@@ -1812,7 +1811,6 @@ final class LectureStore: ObservableObject {
         date: Date,
         durationMinutes: Int?,
         audioPath: String,
-        status: String,
         errorMessage: String?,
         uploadCompletion: UploadCompletionContext? = nil,
         onError: ((String) -> Void)? = nil
@@ -1821,9 +1819,6 @@ final class LectureStore: ObservableObject {
             "title": title,
             "date": Timestamp(date: date),
             "isFavorite": false,
-            "status": status,
-            "transcript": NSNull(),
-            "summary": NSNull(),
             "audioPath": audioPath
         ]
         docData["durationMinutes"] = durationMinutes ?? NSNull()
@@ -1876,6 +1871,46 @@ final class LectureStore: ObservableObject {
             }
     }
 
+    private func saveFailedLectureDocument(
+        userId: String,
+        lectureId: String,
+        title: String,
+        date: Date,
+        durationMinutes: Int?,
+        audioPath: String,
+        errorMessage: String
+    ) {
+        var docData: [String: Any] = [
+            "title": title,
+            "date": Timestamp(date: date),
+            "isFavorite": false,
+            "status": "failed",
+            "audioPath": audioPath,
+            "errorMessage": errorMessage,
+        ]
+        docData["durationMinutes"] = durationMinutes ?? NSNull()
+
+        db.collection("users")
+            .document(userId)
+            .collection("lectures")
+            .document(lectureId)
+            .setData(docData, merge: true) { error in
+                if let error = error {
+                    print("Error saving failed lecture doc: \(error)")
+                    Task { @MainActor in
+                        let transcriptionError = self.normalizedTranscriptionErrorCode(error)
+                        self.logTranscriptionFailure(
+                            lectureId: lectureId,
+                            stage: .request,
+                            errorCode: transcriptionError,
+                            httpStatus: nil,
+                            retryable: self.isRetryable(errorCode: transcriptionError)
+                        )
+                    }
+                }
+            }
+    }
+
     private func markUploadFailed(
         userId: String,
         lectureId: String,
@@ -1891,14 +1926,13 @@ final class LectureStore: ObservableObject {
             status: .failed,
             errorMessage: message
         )
-        saveLectureDocument(
+        saveFailedLectureDocument(
             userId: userId,
             lectureId: lectureId,
             title: title,
             date: date,
             durationMinutes: durationMinutes,
             audioPath: audioPath,
-            status: "failed",
             errorMessage: message
         )
     }

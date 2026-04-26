@@ -12,6 +12,7 @@ const {
   inferSpeakerFromTitle,
   normalizeCaptionFragment,
   parseTranscriptDocument,
+  resolveChannelOutputDir,
   slugifyChannelUrl,
   slugifyTitle,
   writeTranscriptFile,
@@ -455,6 +456,27 @@ test("filterStreamVideos keeps only matching khutbah-like titles", () => {
   });
 
   assert.deepEqual(videos.map((video) => video.videoId), ["a", "c"]);
+});
+
+test("resolveChannelOutputDir can force channel subfolders", () => {
+  assert.equal(
+    resolveChannelOutputDir(
+      "/tmp/transcripts",
+      "https://www.youtube.com/@channel/streams",
+      1,
+      true
+    ),
+    "/tmp/transcripts/channel"
+  );
+  assert.equal(
+    resolveChannelOutputDir(
+      "/tmp/transcripts",
+      "https://www.youtube.com/@channel/streams",
+      1,
+      false
+    ),
+    "/tmp/transcripts"
+  );
 });
 
 test("slugifyChannelUrl uses the handle for channel subfolders", () => {

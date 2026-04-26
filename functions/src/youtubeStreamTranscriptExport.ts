@@ -1430,6 +1430,26 @@ export async function exportRecentStreamTranscripts(options: {
 }
 
 /**
+ * Resolve the output directory for a channel in a multi-channel export.
+ *
+ * @param {string} baseOutputDir Base output directory.
+ * @param {string} channelUrl Channel URL.
+ * @param {number} channelCount Total number of requested channels.
+ * @param {boolean} useChannelSubdirectories Force per-channel folders.
+ * @return {string} Output directory for the channel.
+ */
+export function resolveChannelOutputDir(
+  baseOutputDir: string,
+  channelUrl: string,
+  channelCount: number,
+  useChannelSubdirectories = false
+): string {
+  return useChannelSubdirectories || channelCount > 1 ?
+    path.join(baseOutputDir, slugifyChannelUrl(channelUrl)) :
+    baseOutputDir;
+}
+
+/**
  * Run the export flow for multiple channel URLs.
  *
  * @param {Object} options Export options.
@@ -1441,13 +1461,16 @@ export async function exportRecentStreamTranscriptsForChannels(options: {
   outputDir: string;
   mode: ExportMode;
   titleKeywords?: string[];
+  useChannelSubdirectories?: boolean;
 }): Promise<MultiChannelExportResult> {
   const results: ExportRunResult[] = [];
   for (const channelUrl of options.channelUrls) {
-    const channelOutputDir =
-      options.channelUrls.length > 1 ?
-        path.join(options.outputDir, slugifyChannelUrl(channelUrl)) :
-        options.outputDir;
+    const channelOutputDir = resolveChannelOutputDir(
+      options.outputDir,
+      channelUrl,
+      options.channelUrls.length,
+      options.useChannelSubdirectories
+    );
     try {
       const result = await exportRecentStreamTranscripts({
         channelUrl,
