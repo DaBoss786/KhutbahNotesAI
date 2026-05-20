@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}New Job - Khutbah Clip Studio{% endblock %}
+{% block content %}
+<section class="hero-grid">
+  <div>
+    <h1>One khutbah URL to reviewed vertical clips.</h1>
+    <p class="lede">Ingest, generate candidates, approve, edit transcript boundaries, lock selections, then render only after confirmation.</p>
+    <div class="status-row">
+      <span class="status-chip {{ 'ok' if deps.ffmpeg else 'bad' }}">FFmpeg {{ 'ready' if deps.ffmpeg else 'missing' }}</span>
+      <span class="status-chip {{ 'ok' if deps.yt_dlp else 'bad' }}">yt-dlp {{ 'ready' if deps.yt_dlp else 'missing' }}</span>
+      <span class="status-chip {{ 'ok' if ai.enabled else 'warn' }}">{{ ai.label }}</span>
+    </div>
+  </div>
+  <form id="new-job-form" class="panel form-panel">
+    <label>
+      YouTube URL
+      <input name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+    </label>
+    <div class="two">
+      <label>
+        Speaker name
+        <input name="speaker_name" type="text" placeholder="Optional">
+      </label>
+      <label>
+        Masjid name
+        <input name="masjid_name" type="text" placeholder="Optional">
+      </label>
+    </div>
+    <div class="three">
+      <label>
+        Number of clips
+        <input name="clip_count" type="number" value="{{ defaults.clip_count }}" min="1" max="10">
+      </label>
+      <label>
+        Min seconds
+        <input name="min_duration" type="number" value="{{ defaults.min_duration }}" min="5" max="180">
+      </label>
+      <label>
+        Max seconds
+        <input name="max_duration" type="number" value="{{ defaults.max_duration }}" min="10" max="180">
+      </label>
+    </div>
+    <label>
+      Branding profile
+      <select name="branding_profile">
+        <option value="default">Khutbah Notes default</option>
+        <option value="minimal">Minimal watermark</option>
+        <option value="high-contrast">High contrast subtitles</option>
+      </select>
+    </label>
+    <button class="primary" type="submit">Start Ingest + Candidate Generation</button>
+    <p id="new-job-message" class="form-message"></p>
+  </form>
+</section>
+
+<section class="workflow-band">
+  <div class="step done">1. Ingest + transcript</div>
+  <div class="step done">2. AI candidate generation</div>
+  <div class="step">3. Candidate review</div>
+  <div class="step">4. Transcript edit</div>
+  <div class="step">5. Lock</div>
+  <div class="step">6. Render</div>
+</section>
+{% endblock %}
+

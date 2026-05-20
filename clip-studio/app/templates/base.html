@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Khutbah Clip Studio{% endblock %}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">KN</span>
+      <span>
+        <strong>Khutbah Clip Studio</strong>
+        <small>Local review-first shorts generator</small>
+      </span>
+    </a>
+    <nav>
+      <a href="/">New Job</a>
+      <a href="/history">Runs History</a>
+      <span class="ai-badge {{ 'on' if ai.enabled else 'off' }}">{{ ai.label }}</span>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
+

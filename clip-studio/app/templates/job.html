@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}{{ job.id }} - Khutbah Clip Studio{% endblock %}
+{% block content %}
+<section class="job-header">
+  <div>
+    <h1>{{ job.title or "Khutbah Clip Job" }}</h1>
+    <p><code>{{ job.id }}</code> - {{ job.status }} - {{ job.stage }}</p>
+  </div>
+  <div class="lock-card">
+    {% if job.locked_at %}
+      <span class="lock locked">Locked</span>
+      <small>{{ job.locked_at }}</small>
+    {% else %}
+      <span class="lock unlocked">Not Rendered - Awaiting Final Selection</span>
+      <small>Approve and lock selections before render.</small>
+    {% endif %}
+  </div>
+</section>
+
+<section class="tabs" data-tabs>
+  <button data-tab="progress" class="active">Progress</button>
+  <button data-tab="candidates">Candidate Review</button>
+  <button data-tab="transcript">Transcript Review & Edit</button>
+  <button data-tab="finalize">Finalize & Lock</button>
+  <button data-tab="render">Render & Export</button>
+</section>
+
+<section id="progress" class="tab-page active">
+  <div class="panel">
+    <h2>Processing logs</h2>
+    <div id="logs" class="logs">
+      {% for log in logs %}
+        <div class="log {{ log.level }}"><span>{{ log.created_at }}</span>{{ log.message }}</div>
+      {% else %}
+        <div class="log">Waiting for logs.</div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section id="candidates" class="tab-page">
+  <div class="candidate-layout">
+    <div class="panel sticky-preview">
+      <h2>Preview</h2>
+      {% if job.source_video_path %}
+        <video id="preview-video" controls src="/media/jobs/{{ job.id }}/source"></video>
+      {% else %}
+        <div class="empty-video">Video will appear after ingest.</div>
+      {% endif %}
+      <div class="bulk-actions">
+        <button data-bulk="approved">Approve All Drafts</button>
+        <button data-bulk="rejected">Reject All Drafts</button>
+      </div>
+    </div>
+    <div class="candidate-list" id="candidate-list" data-job-id="{{ job.id }}">
+      {% for candidate in candidates %}
+      <article class="candidate-card" data-candidate-id="{{ candidate.id }}" data-start="{{ candidate.start_time }}" data-end="{{ candidate.end_time }}">
+        <header>
+          <h3>{{ candidate.title }}</h3>
+          <span class="score">{{ "%.0f"|format(candidate.quality_score * 100) }}</span>
+        </header>
+        <p>{{ candidate.text_excerpt }}</p>
+        <div class="meta">{{ "%.1f"|format(candidate.start_time) }}s - {{ "%.1f"|format(candidate.end_time) }}s - {{ "%.1f"|format(candidate.end_time - candidate.start_time) }}s - {{ candidate.source }}</div>
+        <details>
+          <summary>Rationale</summary>
+          <pre>{{ candidate.rationale }}</pre>
+        </details>
+        <div class="segmented">
+          <button data-approval="approved" class="{{ 'selected' if candidate.status == 'approved' else '' }}">Approve</button>
+          <button data-approval="rejected" class="{{ 'selected' if candidate.status == 'rejected' else '' }}">Reject</button>
+          <button data-approval="draft" class="{{ 'selected' if candidate.status == 'draft' else '' }}">Draft</button>
+        </div>
+      </article>
+      {% else %}
+      <div class="panel">No candidates yet. Refresh after ingest completes.</div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section id="transcript" class="tab-page">
+  <div class="transcript-grid">
+    <div class="panel">
+      <h2>Selections</h2>
+      <div id="selection-list" data-job-id="{{ job.id }}">
+        {% for selection in selections %}
+        <article class="selection-card {{ selection.status }}" data-selection-id="{{ selection.id }}" data-start="{{ selection.start_time }}" data-end="{{ selection.end_time }}">
+          <div>
+            <strong>{{ selection.status|title }}</strong>
+            <span>{{ "%.1f"|format(selection.start_time) }}s - {{ "%.1f"|format(selection.end_time) }}s</span>
+          </div>
+          <p>{{ selection.text_excerpt[:180] }}</p>
+          <div class="nudge-row">
+            <button data-nudge="-5">-5s</button><button data-nudge="-2">-2s</button><button data-nudge="-1">-1s</button>
+            <button data-nudge="1">+1s</button><button data-nudge="2">+2s</button><button data-nudge="5">+5s</button>
+          </div>
+          <div class="edit-row">
+            <button data-status="approved">Approve</button>
+            <button data-status="rejected">Reject</button>
+            <button data-delete>Delete</button>
+          </div>
+        </article>
+        {% else %}
+        <p>No selections yet. Approve candidates or create one from transcript text.</p>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="panel transcript-panel">
+      <h2>Full transcript</h2>
+      <p class="hint">Click text to seek. Select text, then create a manual selection. Edits after locking auto-unlock the job.</p>
+      <button id="create-selection" data-job-id="{{ job.id }}">Create Selection From Highlight</button>
+      <label class="checkline"><input id="snap-sentence" type="checkbox" checked> Snap to sentence boundaries</label>
+      <div id="transcript-body">
+        {% for token in transcript.tokens %}
+          <span class="token" data-time="{{ token.start_time }}" data-end="{{ token.end_time }}">{{ token.text }}</span>
+        {% else %}
+          <span class="muted">Transcript will appear after ingest.</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="finalize" class="tab-page">
+  <div class="panel finalize-panel">
+    <h2>Finalize & Lock</h2>
+    <p>Only approved selections are rendered. Review and edit title/outro copy here before locking. Any later edit clears the lock.</p>
+    <div class="render-copy-list">
+      {% for selection in selections if selection.status == "approved" %}
+        <form class="render-copy-card" data-selection-id="{{ selection.id }}" data-job-id="{{ job.id }}">
+          <div class="render-copy-head">
+            <strong>{{ "%.1f"|format(selection.start_time) }}s - {{ "%.1f"|format(selection.end_time) }}s</strong>
+            <span>{{ "%.1f"|format(selection.end_time - selection.start_time) }}s</span>
+          </div>
+          <label>
+            Title slide headline
+            <textarea name="intro_title" rows="2">{{ selection.intro_title }}</textarea>
+          </label>
+          <label>
+            Title slide subline
+            <input name="intro_subtitle" value="{{ selection.intro_subtitle }}">
+          </label>
+          <label>
+            Closing slide headline
+            <textarea name="outro_title" rows="3">{{ selection.outro_title }}</textarea>
+          </label>
+          <label>
+            Closing slide subline
+            <input name="outro_subtitle" value="{{ selection.outro_subtitle }}">
+          </label>
+          <button type="submit">Save Slide Text</button>
+          <span class="save-state"></span>
+        </form>
+      {% else %}
+        <p>No approved selections yet.</p>
+      {% endfor %}
+    </div>
+    <button id="lock-job" class="primary" data-job-id="{{ job.id }}">Lock Final Selections</button>
+    <button id="unlock-job" data-job-id="{{ job.id }}">Unlock</button>
+    <p id="lock-message"></p>
+  </div>
+</section>
+
+<section id="render" class="tab-page">
+  <div class="panel render-panel">
+    <h2>Render & Export</h2>
+    <p>Render is server-blocked unless selections are approved and locked.</p>
+    <button id="render-job" class="danger" data-job-id="{{ job.id }}" {% if not job.locked_at %}disabled{% endif %}>Render Locked Approved Clips</button>
+    <div class="outputs">
+      {% for output in outputs %}
+        <div class="output-row">
+          <span>{{ output.kind }} - {{ output.status }}</span>
+          {% if output.status == "complete" %}
+            <a href="/download/{{ job.id }}/{{ output.path.split('/')[-1] }}">Download</a>
+          {% endif %}
+        </div>
+      {% else %}
+        <p>No rendered outputs yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>window.KHUTBAH_JOB_ID = "{{ job.id }}";</script>
+{% endblock %}

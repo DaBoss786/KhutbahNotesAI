@@ -12,6 +12,7 @@ const {
   inferSpeakerFromTitle,
   normalizeCaptionFragment,
   parseTranscriptDocument,
+  resolveCandidateDiscoveryLimit,
   resolveChannelOutputDir,
   slugifyChannelUrl,
   slugifyTitle,
@@ -456,6 +457,13 @@ test("filterStreamVideos keeps only matching khutbah-like titles", () => {
   });
 
   assert.deepEqual(videos.map((video) => video.videoId), ["a", "c"]);
+});
+
+test("resolveCandidateDiscoveryLimit scans beyond requested publish count", () => {
+  assert.equal(resolveCandidateDiscoveryLimit(1), 5);
+  assert.equal(resolveCandidateDiscoveryLimit(3), 5);
+  assert.equal(resolveCandidateDiscoveryLimit(6), 6);
+  assert.equal(resolveCandidateDiscoveryLimit(2, 8), 8);
 });
 
 test("resolveChannelOutputDir can force channel subfolders", () => {

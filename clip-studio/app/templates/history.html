@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Runs History - Khutbah Clip Studio{% endblock %}
+{% block content %}
+<section class="page-head">
+  <h1>Runs History</h1>
+  <p>Reopen previous local jobs, review status, and download completed bundles.</p>
+</section>
+<section class="panel">
+  <table class="history-table">
+    <thead>
+      <tr>
+        <th>Job</th>
+        <th>Status</th>
+        <th>Stage</th>
+        <th>Speaker</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td><code>{{ job.id }}</code></td>
+        <td><span class="status-chip">{{ job.status }}</span></td>
+        <td>{{ job.stage }}</td>
+        <td>{{ job.speaker_name or "-" }}</td>
+        <td>{{ job.created_at }}</td>
+        <td><a class="small-button" href="/jobs/{{ job.id }}">Open</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No jobs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

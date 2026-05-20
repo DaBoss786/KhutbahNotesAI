@@ -109,6 +109,26 @@ const DEFAULT_HEADERS = {
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
 };
 const STREAM_DISCOVERY_ATTEMPTS = 3;
+const DEFAULT_TRANSCRIPT_FALLBACK_CANDIDATE_COUNT = 5;
+
+/**
+ * Resolve how many matching candidate videos to scan for transcripts.
+ *
+ * We still publish at most the requested limit, but we can inspect a few
+ * additional matching videos so one transcript-less upload does not block
+ * the whole channel.
+ *
+ * @param {number} limit Requested saved transcript count.
+ * @param {number} transcriptFallbackCandidateCount Candidate scan floor.
+ * @return {number} Matching candidate discovery limit.
+ */
+export function resolveCandidateDiscoveryLimit(
+  limit: number,
+  transcriptFallbackCandidateCount =
+  DEFAULT_TRANSCRIPT_FALLBACK_CANDIDATE_COUNT
+): number {
+  return Math.max(limit, transcriptFallbackCandidateCount);
+}
 
 /**
  * Sleep for the provided number of milliseconds.
@@ -1373,10 +1393,17 @@ export async function exportRecentStreamTranscripts(options: {
   outputDir: string;
   mode: ExportMode;
   titleKeywords?: string[];
+  transcriptFallbackCandidateCount?: number;
 }): Promise<ExportRunResult> {
+  const transcriptFallbackCandidateCount =
+    options.transcriptFallbackCandidateCount ??
+    DEFAULT_TRANSCRIPT_FALLBACK_CANDIDATE_COUNT;
   const videos = await discoverRecentStreamVideos(
     options.channelUrl,
-    options.limit,
+    resolveCandidateDiscoveryLimit(
+      options.limit,
+      transcriptFallbackCandidateCount
+    ),
     fetchText,
     {titleKeywords: options.titleKeywords}
   );
@@ -1385,6 +1412,10 @@ export async function exportRecentStreamTranscripts(options: {
   const skipped: SkippedTranscriptVideo[] = [];
 
   for (const video of videos) {
+    if (saved.length >= options.limit) {
+      break;
+    }
+
     const transcript = await fetchBestTranscriptForVideo(video.videoId);
     if (!transcript?.text) {
       skipped.push({
@@ -1462,6 +1493,7 @@ export async function exportRecentStreamTranscriptsForChannels(options: {
   mode: ExportMode;
   titleKeywords?: string[];
   useChannelSubdirectories?: boolean;
+  transcriptFallbackCandidateCount?: number;
 }): Promise<MultiChannelExportResult> {
   const results: ExportRunResult[] = [];
   for (const channelUrl of options.channelUrls) {
@@ -1478,6 +1510,8 @@ export async function exportRecentStreamTranscriptsForChannels(options: {
         outputDir: channelOutputDir,
         mode: options.mode,
         titleKeywords: options.titleKeywords,
+        transcriptFallbackCandidateCount:
+          options.transcriptFallbackCandidateCount,
       });
       results.push(result);
     } catch (error) {
