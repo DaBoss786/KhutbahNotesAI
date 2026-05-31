@@ -73,6 +73,9 @@ def init_db() -> None:
                 error_message TEXT,
                 source_video_path TEXT,
                 source_audio_path TEXT,
+                transcript_source TEXT,
+                timing_source TEXT,
+                timing_quality TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -134,6 +137,9 @@ def init_db() -> None:
                 intro_subtitle TEXT,
                 outro_title TEXT,
                 outro_subtitle TEXT,
+                crop_focus_x REAL DEFAULT 0.5,
+                crop_focus_y REAL DEFAULT 0.5,
+                subtitle_offset_ms INTEGER DEFAULT 0,
                 edited_at TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
@@ -150,12 +156,45 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS learning_examples (
+                id TEXT PRIMARY KEY,
+                source_key TEXT NOT NULL UNIQUE,
+                source_job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                source_selection_id TEXT REFERENCES selections(id) ON DELETE SET NULL,
+                source_candidate_id TEXT REFERENCES candidates(id) ON DELETE SET NULL,
+                label TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                text TEXT NOT NULL,
+                candidate_text TEXT,
+                final_text TEXT,
+                title TEXT,
+                start_time REAL,
+                end_time REAL,
+                duration REAL,
+                boundary_start_delta REAL,
+                boundary_end_delta REAL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_learning_examples_label
+                ON learning_examples(label, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_learning_examples_source_job
+                ON learning_examples(source_job_id);
             """
         )
         ensure_column(conn, "selections", "intro_title", "TEXT")
         ensure_column(conn, "selections", "intro_subtitle", "TEXT")
         ensure_column(conn, "selections", "outro_title", "TEXT")
         ensure_column(conn, "selections", "outro_subtitle", "TEXT")
+        ensure_column(conn, "selections", "crop_focus_x", "REAL DEFAULT 0.5")
+        ensure_column(conn, "selections", "crop_focus_y", "REAL DEFAULT 0.5")
+        ensure_column(conn, "selections", "subtitle_offset_ms", "INTEGER DEFAULT 0")
+        ensure_column(conn, "jobs", "transcript_source", "TEXT")
+        ensure_column(conn, "jobs", "timing_source", "TEXT")
+        ensure_column(conn, "jobs", "timing_quality", "TEXT")
 
 
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:

@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import uuid
 import zipfile
 
 from PIL import Image, ImageDraw, ImageFont
@@ -103,6 +104,34 @@ def hex_to_rgb(value: str) -> tuple[int, int, int]:
     return tuple(int(clean[i : i + 2], 16) for i in (0, 2, 4))
 
 
+def clamp_float(value, default: float = 0.5) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(0.0, min(1.0, parsed))
+
+
+def clamp_int(value, default: int = 0, minimum: int = -750, maximum: int = 750) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def reframe_filter(selection: dict) -> str:
+    focus_x = clamp_float(selection.get("crop_focus_x"))
+    focus_y = clamp_float(selection.get("crop_focus_y"))
+    crop_x = f"min(max({focus_x:.4f}*iw-540\\,0)\\,iw-1080)"
+    crop_y = f"min(max({focus_y:.4f}*ih-960\\,0)\\,ih-1920)"
+    return (
+        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+        f"crop=1080:1920:{crop_x}:{crop_y}[base];"
+        "[base][1:v]overlay=0:0:format=auto[v]"
+    )
+
+
 def ass_time(seconds: float) -> str:
     cs = int(round(seconds * 100))
     h = cs // 360000
@@ -115,7 +144,7 @@ def ass_time(seconds: float) -> str:
 
 
 def subtitle_lines(tokens: list[dict], start: float, end: float) -> list[dict]:
-    selected = [t for t in tokens if float(t["end_time"]) >= start and float(t["start_time"]) <= end]
+    selected = [t for t in tokens if float(t["end_time"]) > start and float(t["start_time"]) < end]
     lines = []
     current: list[dict] = []
     for token in selected:
@@ -255,7 +284,7 @@ def create_card(path: Path, title: str, subtitle: str, duration: float, outro: b
 
 
 def build_subtitle_blocks(tokens: list[dict], window_start: float, window_end: float) -> list[dict]:
-    selected = [t for t in tokens if float(t["end_time"]) >= window_start and float(t["start_time"]) <= window_end]
+    selected = [t for t in tokens if float(t["end_time"]) > window_start and float(t["start_time"]) < window_end]
     if not selected:
         return []
     measure = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
@@ -313,6 +342,31 @@ def subtitle_text_for_time(blocks: list[dict], absolute_time: float) -> tuple[li
     return line_tokens, active_index
 
 
+def subtitle_preview_blocks(tokens: list[dict], start: float, end: float) -> list[dict]:
+    blocks = []
+    for block in build_subtitle_blocks(tokens, start, end):
+        blocks.append(
+            {
+                "start_time": float(block["start_time"]),
+                "end_time": float(block["end_time"]),
+                "tokens": [
+                    {
+                        "text": str(token["text"]).strip(),
+                        "start_time": float(token["start_time"]),
+                        "end_time": float(token["end_time"]),
+                    }
+                    for token in block["tokens"]
+                    if str(token["text"]).strip()
+                ],
+            }
+        )
+    return blocks
+
+
+def adjusted_subtitle_time(absolute_time: float, subtitle_offset_ms: int = 0) -> float:
+    return absolute_time - clamp_int(subtitle_offset_ms) / 1000
+
+
 def draw_subtitle_overlay(path: Path, line_tokens: list[dict], active_index: int) -> None:
     image = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
@@ -356,13 +410,20 @@ def draw_subtitle_overlay(path: Path, line_tokens: list[dict], active_index: int
     image.save(path)
 
 
-def render_overlay_sequence(tokens: list[dict], start: float, end: float, output_dir: Path, fps: int = 10) -> Path:
+def render_overlay_sequence(
+    tokens: list[dict],
+    start: float,
+    end: float,
+    output_dir: Path,
+    fps: int = 10,
+    subtitle_offset_ms: int = 0,
+) -> Path:
     frames_dir = output_dir / "subtitle_frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
     frame_count = max(1, math.ceil((end - start) * fps))
     blocks = build_subtitle_blocks(tokens, start, end)
     for frame in range(frame_count):
-        t = start + frame / fps
+        t = adjusted_subtitle_time(start + frame / fps, subtitle_offset_ms)
         target = frames_dir / f"frame_{frame:05d}.png"
         payload = subtitle_text_for_time(blocks, t)
         if payload:
@@ -398,8 +459,9 @@ def render_selection(job: dict, selection: dict, tokens: list[dict], output_dir:
         settings.outro_seconds,
         outro=True,
     )
-    frames_dir = render_overlay_sequence(tokens, start, end, output_dir / stem)
-    vf = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[base];[base][1:v]overlay=0:0:format=auto[v]"
+    subtitle_offset_ms = clamp_int(selection.get("subtitle_offset_ms"))
+    frames_dir = render_overlay_sequence(tokens, start, end, output_dir / stem, subtitle_offset_ms=subtitle_offset_ms)
+    vf = reframe_filter(selection)
     run_ffmpeg(
         [
             "ffmpeg",
@@ -498,11 +560,81 @@ def render_selection(job: dict, selection: dict, tokens: list[dict], output_dir:
         "start_time": start,
         "end_time": end,
         "duration": duration,
+        "crop_focus_x": clamp_float(selection.get("crop_focus_x")),
+        "crop_focus_y": clamp_float(selection.get("crop_focus_y")),
+        "subtitle_offset_ms": subtitle_offset_ms,
         "mp4": str(final),
         "thumbnail": str(thumb),
     }
     (output_dir / f"{stem}.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return metadata
+
+
+def render_subtitle_preview(
+    job: dict,
+    selection: dict,
+    tokens: list[dict],
+    output_dir: Path,
+    preview_start: float | None = None,
+    preview_duration: float = 8.0,
+) -> dict:
+    source = Path(job["source_video_path"])
+    selection_start = float(selection["start_time"])
+    selection_end = float(selection["end_time"])
+    start = preview_start if preview_start is not None else selection_start
+    start = max(selection_start, min(float(start), max(selection_start, selection_end - 0.25)))
+    end = min(selection_end, start + max(1.0, min(float(preview_duration), 15.0)))
+    duration = max(0.25, end - start)
+    stem = f"preview_{selection['id']}_{uuid.uuid4().hex[:8]}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    final = output_dir / f"{stem}.mp4"
+    subtitle_offset_ms = clamp_int(selection.get("subtitle_offset_ms"))
+    frames_dir = render_overlay_sequence(tokens, start, end, output_dir / stem, subtitle_offset_ms=subtitle_offset_ms)
+    run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start),
+            "-t",
+            str(duration),
+            "-i",
+            str(source),
+            "-framerate",
+            "10",
+            "-i",
+            str(frames_dir / "frame_%05d.png"),
+            "-filter_complex",
+            reframe_filter(selection),
+            "-map",
+            "[v]",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            str(final),
+        ]
+    )
+    return {
+        "selection_id": selection["id"],
+        "start_time": start,
+        "end_time": end,
+        "duration": duration,
+        "subtitle_offset_ms": subtitle_offset_ms,
+        "mp4": str(final),
+    }
 
 
 def render_job(job_id: str) -> list[dict]:
@@ -532,7 +664,21 @@ def render_job(job_id: str) -> list[dict]:
     zip_path = output_dir / "khutbah_clips_bundle.zip"
     json_path.write_text(json.dumps(rendered, indent=2), encoding="utf-8")
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["selection_id", "title", "start_time", "end_time", "duration", "mp4", "thumbnail"])
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "selection_id",
+                "title",
+                "start_time",
+                "end_time",
+                "duration",
+                "crop_focus_x",
+                "crop_focus_y",
+                "subtitle_offset_ms",
+                "mp4",
+                "thumbnail",
+            ],
+        )
         writer.writeheader()
         writer.writerows(rendered)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:

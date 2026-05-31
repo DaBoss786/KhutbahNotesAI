@@ -9,6 +9,7 @@
       <span class="status-chip {{ 'ok' if deps.ffmpeg else 'bad' }}">FFmpeg {{ 'ready' if deps.ffmpeg else 'missing' }}</span>
       <span class="status-chip {{ 'ok' if deps.yt_dlp else 'bad' }}">yt-dlp {{ 'ready' if deps.yt_dlp else 'missing' }}</span>
       <span class="status-chip {{ 'ok' if ai.enabled else 'warn' }}">{{ ai.label }}</span>
+      <span class="status-chip {{ 'ok' if learning.total else 'warn' }}">Learning {{ learning.positive }} selected / {{ learning.negative }} rejected</span>
     </div>
   </div>
   <form id="new-job-form" class="panel form-panel">
@@ -62,4 +63,3 @@
   <div class="step">6. Render</div>
 </section>
 {% endblock %}
-

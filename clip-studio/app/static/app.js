@@ -49,7 +49,7 @@ function setupPolling() {
     try {
       const data = await api(`/api/jobs/${jobId}`);
       const job = data.job;
-      const stagesToRefresh = ["review", "failed", "complete", "render_failed"];
+      const stagesToRefresh = ["review", "failed", "complete", "render_failed", "retime_failed"];
       if (stagesToRefresh.includes(job.status) && document.hidden === false) {
         const logs = document.getElementById("logs");
         if (logs) {
@@ -62,6 +62,15 @@ function setupPolling() {
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
+}
+
+function timingLabel(source) {
+  return {
+    youtube_word: "YouTube word timings",
+    whisper_word: "Whisper word timings",
+    estimated: "Estimated timings",
+    unknown: "Timing source unknown",
+  }[source || "unknown"] || source || "Timing source unknown";
 }
 
 function setupCandidates() {
@@ -185,6 +194,23 @@ function setupLockRender() {
     await api(`/api/jobs/${unlockButton.dataset.jobId}/unlock`, { method: "POST" });
     window.location.reload();
   });
+  document.getElementById("retime-transcript")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (!confirm("Improve timing with local Whisper word timestamps? This may take a few minutes and will unlock the job if it is locked.")) return;
+    button.disabled = true;
+    const previous = button.textContent;
+    button.textContent = "Timing repair queued...";
+    try {
+      await api(`/api/jobs/${button.dataset.jobId}/retime-transcript`, { method: "POST" });
+      if (msg) msg.textContent = "Timing repair started. Logs will update when it finishes.";
+    } catch (error) {
+      button.textContent = error.message;
+      setTimeout(() => {
+        button.disabled = false;
+        button.textContent = previous;
+      }, 2200);
+    }
+  });
   renderButton?.addEventListener("click", async () => {
     if (!confirm("Render locked approved clips now? This creates MP4 files locally and may take several minutes.")) return;
     try {
@@ -197,13 +223,186 @@ function setupLockRender() {
 }
 
 function setupRenderCopy() {
+  document.getElementById("sync-learning")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const panel = button.closest("[data-learning-panel]");
+    const status = panel?.querySelector("span");
+    button.disabled = true;
+    const previous = button.textContent;
+    button.textContent = "Updating...";
+    try {
+      const data = await api(`/api/jobs/${button.dataset.jobId}/learning/sync`, { method: "POST" });
+      if (status) {
+        status.textContent = `${data.stats.positive} selected examples / ${data.stats.negative} rejected examples saved locally.`;
+      }
+      button.textContent = "Updated";
+    } catch (error) {
+      button.textContent = error.message;
+    } finally {
+      setTimeout(() => {
+        button.disabled = false;
+        button.textContent = previous;
+      }, 1800);
+    }
+  });
   document.querySelectorAll(".render-copy-card").forEach((form) => {
+    const preview = form.querySelector(".reframe-preview");
+    const subtitleShell = form.querySelector("[data-subtitle-preview]");
+    const subtitleVideo = form.querySelector(".subtitle-preview-video");
+    const subtitleOverlay = form.querySelector(".subtitle-preview-overlay");
+    const exactPreviewVideo = form.querySelector(".exact-preview-video");
+    const exactPreviewState = form.querySelector(".exact-preview-state");
+    let subtitleBlocks = null;
+
+    const loadSubtitleBlocks = async () => {
+      if (!subtitleVideo || subtitleBlocks) return subtitleBlocks;
+      const data = await api(`/api/jobs/${form.dataset.jobId}/selections/${form.dataset.selectionId}/subtitle-preview`);
+      subtitleBlocks = data.blocks || [];
+      const timingSource = document.querySelector("[data-timing-source]");
+      if (timingSource && data.timing_source) {
+        timingSource.textContent = timingLabel(data.timing_source);
+      }
+      return subtitleBlocks;
+    };
+
+    const renderSubtitlePreview = () => {
+      if (!subtitleVideo || !subtitleOverlay || !subtitleBlocks) return;
+      const offsetMs = Number(form.querySelector("input[name='subtitle_offset_ms']")?.value || 0);
+      const adjustedTime = subtitleVideo.currentTime - offsetMs / 1000;
+      let block = subtitleBlocks.find((candidate) => adjustedTime >= candidate.start_time && adjustedTime < candidate.end_time);
+      if (!block) {
+        if (!subtitleBlocks.length) {
+          subtitleOverlay.innerHTML = "";
+          return;
+        }
+        block = adjustedTime < subtitleBlocks[0].start_time ? subtitleBlocks[0] : subtitleBlocks[subtitleBlocks.length - 1];
+      }
+      let activeIndex = 0;
+      block.tokens.forEach((token, index) => {
+        if (adjustedTime >= token.start_time) activeIndex = index;
+      });
+      subtitleOverlay.innerHTML = block.tokens.map((token, index) => {
+        const cls = index === activeIndex ? "active" : "";
+        return `<span class="${cls}">${escapeHtml(token.text)}</span>`;
+      }).join(" ");
+    };
+
+    const syncSubtitlePreviewCrop = () => {
+      if (!subtitleVideo) return;
+      const x = Number(form.querySelector("input[name='crop_focus_x']")?.value || 0.5) * 100;
+      const y = Number(form.querySelector("input[name='crop_focus_y']")?.value || 0.5) * 100;
+      subtitleVideo.style.objectPosition = `${x}% ${y}%`;
+    };
+
+    const updatePreviewFrame = () => {
+      const x = Number(form.querySelector("input[name='crop_focus_x']")?.value || 0.5) * 100;
+      const y = Number(form.querySelector("input[name='crop_focus_y']")?.value || 0.5) * 100;
+      if (preview) preview.style.objectPosition = `${x}% ${y}%`;
+      syncSubtitlePreviewCrop();
+    };
+    if (preview) {
+      preview.addEventListener("loadedmetadata", () => {
+        const targetTime = Number(preview.dataset.previewTime || 0);
+        if (Number.isFinite(targetTime)) preview.currentTime = Math.max(0, targetTime);
+      });
+    }
+    if (subtitleVideo) {
+      subtitleVideo.addEventListener("loadedmetadata", () => {
+        const start = Number(subtitleVideo.dataset.start || 0);
+        if (Number.isFinite(start)) subtitleVideo.currentTime = Math.max(0, start);
+        loadSubtitleBlocks().then(renderSubtitlePreview).catch(() => {});
+      });
+      subtitleVideo.addEventListener("timeupdate", () => {
+        const end = Number(subtitleVideo.dataset.end || 0);
+        if (end && subtitleVideo.currentTime >= end) {
+          subtitleVideo.pause();
+          subtitleVideo.currentTime = Number(subtitleVideo.dataset.start || 0);
+        }
+        renderSubtitlePreview();
+      });
+      subtitleVideo.addEventListener("seeked", renderSubtitlePreview);
+      subtitleVideo.addEventListener("play", () => {
+        loadSubtitleBlocks().then(renderSubtitlePreview).catch(() => {});
+      });
+    }
+    form.querySelector("[data-play-subtitle-preview]")?.addEventListener("click", async () => {
+      if (!subtitleVideo) return;
+      await loadSubtitleBlocks();
+      subtitleVideo.currentTime = Number(subtitleVideo.dataset.start || 0);
+      renderSubtitlePreview();
+      subtitleVideo.play().catch(() => {});
+    });
+    form.querySelectorAll("input[type='range'][data-range-value]").forEach((input) => {
+      const output = document.getElementById(input.dataset.rangeValue);
+      const sync = () => {
+        if (output) {
+          output.textContent = input.dataset.rangeFormat === "ms"
+            ? String(Math.round(Number(input.value)))
+            : String(Math.round(Number(input.value) * 100));
+        }
+        updatePreviewFrame();
+        renderSubtitlePreview();
+      };
+      input.addEventListener("input", sync);
+      sync();
+    });
+    form.querySelectorAll("[data-framing-x]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = form.querySelector("input[name='crop_focus_x']");
+        if (!input) return;
+        input.value = button.dataset.framingX;
+        input.dispatchEvent(new Event("input"));
+      });
+    });
+    form.querySelectorAll("[data-subtitle-offset]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = form.querySelector("input[name='subtitle_offset_ms']");
+        if (!input) return;
+        input.value = button.dataset.subtitleOffset;
+        input.dispatchEvent(new Event("input"));
+      });
+    });
+    form.querySelector("[data-render-subtitle-preview]")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const fd = new FormData(form);
+      const payload = Object.fromEntries(fd.entries());
+      payload.crop_focus_x = Number(payload.crop_focus_x || 0.5);
+      payload.crop_focus_y = Number(payload.crop_focus_y || 0.5);
+      payload.subtitle_offset_ms = Number(payload.subtitle_offset_ms || 0);
+      payload.duration = 8;
+      if (subtitleVideo && Number.isFinite(subtitleVideo.currentTime)) {
+        payload.preview_start = subtitleVideo.currentTime;
+      }
+      button.disabled = true;
+      if (exactPreviewState) exactPreviewState.textContent = "Rendering exact preview...";
+      try {
+        const data = await api(`/api/jobs/${form.dataset.jobId}/selections/${form.dataset.selectionId}/subtitle-preview-render`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (exactPreviewVideo) {
+          exactPreviewVideo.src = `${data.preview_url}?v=${Date.now()}`;
+          exactPreviewVideo.hidden = false;
+          exactPreviewVideo.load();
+        }
+        if (exactPreviewState) {
+          exactPreviewState.textContent = `Exact preview ready (${timingLabel(data.timing_source)}, ${data.subtitle_offset_ms}ms).`;
+        }
+      } catch (error) {
+        if (exactPreviewState) exactPreviewState.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const state = form.querySelector(".save-state");
       state.textContent = "Saving...";
       const fd = new FormData(form);
       const payload = Object.fromEntries(fd.entries());
+      if (payload.crop_focus_x !== undefined) payload.crop_focus_x = Number(payload.crop_focus_x);
+      if (payload.crop_focus_y !== undefined) payload.crop_focus_y = Number(payload.crop_focus_y);
+      if (payload.subtitle_offset_ms !== undefined) payload.subtitle_offset_ms = Number(payload.subtitle_offset_ms);
       try {
         await api(`/api/jobs/${form.dataset.jobId}/selections/${form.dataset.selectionId}`, {
           method: "PATCH",

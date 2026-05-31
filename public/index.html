@@ -3,24 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Khutbah Notes – Remember Every Friday Sermon</title>
-    <meta name="description" content="Record khutbahs and Islamic lectures, get AI summaries, translations, and reminders, and remember the Friday sermon and its lessons all week long, effortlessly.">
+    <title>Khutbah Notes: Khutbah Summaries, Transcripts & Islamic Lecture Notes</title>
+    <meta name="description" content="Record Friday khutbahs and Islamic lectures, get faithful transcripts, summaries, key takeaways, Quran and hadith references, translations, weekly reminders, and Masjid Channels on iPhone.">
     <link rel="canonical" href="https://khutbah-notes.com/">
-    <meta property="og:title" content="Khutbah Notes – Remember Every Friday Sermon">
-    <meta property="og:description" content="Record khutbahs and Islamic lectures, get AI summaries, translations, and reminders, and remember the Friday sermon and its lessons all week long, effortlessly.">
+    <meta property="og:title" content="Khutbah Notes: Khutbah Summaries, Transcripts & Islamic Lecture Notes">
+    <meta property="og:description" content="Record Friday khutbahs and Islamic lectures, get faithful transcripts, summaries, key takeaways, Quran and hadith references, translations, weekly reminders, and Masjid Channels on iPhone.">
     <meta property="og:url" content="https://khutbah-notes.com/">
     <meta property="og:type" content="website">
+    <meta property="og:image" content="https://khutbah-notes.com/android-chrome-512x512.png">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Khutbah Notes – Remember Every Friday Sermon">
-    <meta name="twitter:description" content="Record khutbahs and Islamic lectures, get AI summaries, translations, and reminders, and remember the Friday sermon and its lessons all week long, effortlessly.">
+    <meta name="twitter:title" content="Khutbah Notes: Khutbah Summaries, Transcripts & Islamic Lecture Notes">
+    <meta name="twitter:description" content="Record Friday khutbahs and Islamic lectures, get faithful transcripts, summaries, key takeaways, Quran and hadith references, translations, weekly reminders, and Masjid Channels on iPhone.">
+    <meta name="twitter:image" content="https://khutbah-notes.com/android-chrome-512x512.png">
     <script type="application/ld+json">
         {
             "@context": "https://schema.org",
-            "@type": "MobileApplication",
+            "@type": ["MobileApplication", "SoftwareApplication"],
             "name": "Khutbah Notes",
-            "description": "Record khutbahs and Islamic lectures, get AI summaries, translations, and reminders, and remember the Friday sermon and its lessons all week long, effortlessly.",
+            "description": "Record Friday khutbahs and Islamic lectures, get faithful transcripts, summaries, key takeaways, Quran and hadith references, translations, weekly reminders, and Masjid Channels on iPhone.",
             "operatingSystem": "iOS",
             "applicationCategory": "LifestyleApplication",
+            "applicationSubCategory": "Islamic education app",
+            "downloadUrl": "https://apps.apple.com/us/app/khutbah-notes-muslim-sermon/id6756526736",
+            "installUrl": "https://apps.apple.com/us/app/khutbah-notes-muslim-sermon/id6756526736",
+            "featureList": [
+                "Khutbah recording",
+                "Islamic lecture summaries",
+                "Khutbah transcripts",
+                "Quran and hadith references",
+                "Translations",
+                "Weekly reminders",
+                "Masjid Channels"
+            ],
             "offers": {
                 "@type": "Offer",
                 "price": "0",
@@ -736,6 +750,54 @@
             margin-right: auto;
         }
 
+        /* Masjid Channels Section */
+        .channels-section {
+            padding: 100px 0;
+            background: var(--cream-dark);
+        }
+
+        .channels-content {
+            max-width: 760px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .channels-copy h2 {
+            font-size: clamp(2rem, 4vw, 2.75rem);
+            margin-bottom: 20px;
+            color: var(--text-dark);
+        }
+
+        .channels-copy > p {
+            color: var(--text-muted);
+            font-size: 1.12rem;
+            line-height: 1.75;
+            margin-bottom: 28px;
+        }
+
+        .channels-feature-list {
+            list-style: none;
+            margin-bottom: 32px;
+            display: inline-block;
+            text-align: left;
+        }
+
+        .channels-feature-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            color: var(--text-muted);
+            margin-bottom: 14px;
+        }
+
+        .channels-feature-list svg {
+            width: 20px;
+            height: 20px;
+            color: var(--green-primary);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
         .btn-primary-green {
             display: inline-flex;
             align-items: center;
@@ -969,12 +1031,26 @@
             .language-grid {
                 grid-template-columns: repeat(3, 1fr);
             }
+
         }
 
         @media (max-width: 768px) {
             .pain-grid,
             .solution-grid {
                 grid-template-columns: 1fr;
+            }
+
+            nav .container {
+                height: 68px;
+            }
+
+            .nav-link {
+                display: none;
+            }
+
+            .nav-cta {
+                padding: 10px 16px;
+                font-size: 0.9rem;
             }
 
             .pricing-cards {
@@ -1031,6 +1107,7 @@
                 <img src="splash_logo.png" alt="Khutbah Notes">
             </a>
             <div class="nav-actions">
+                <a href="#masjid-channels" class="nav-link">Masjid Channels</a>
                 <a href="#download" class="nav-link">Pricing</a>
                 <a href="https://apps.apple.com/us/app/khutbah-notes-muslim-sermon/id6756526736" class="nav-cta">Download App</a>
             </div>
@@ -1047,8 +1124,8 @@
                 <span>❖</span>
                 <span class="hero-ornament-line"></span>
             </div>
-            <h1>Never Forget Another<br>Khutbah Again</h1>
-            <p class="hero-subtitle">Record khutbahs + Islamic lectures, get smart summaries, and reflect on the message all week long.</p>
+            <h1>Remember Every Khutbah<br>and Islamic Lecture</h1>
+            <p class="hero-subtitle">Record khutbahs, halaqahs, and Islamic lectures, then revisit clear summaries, transcripts, references, and reminders throughout the week.</p>
             <div class="hero-ctas">
                 <a href="https://apps.apple.com/us/app/khutbah-notes-muslim-sermon/id6756526736" class="btn-primary">
                     <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
@@ -1073,7 +1150,7 @@
             <div class="section-header">
                 <p class="section-label">The Challenge</p>
                 <h2>Sound Familiar?</h2>
-                <p>Every Friday, you leave the masjid inspired. By Monday, the message fades. You're not alone.</p>
+                <p>You leave the masjid or lecture hall inspired. By Monday, the message fades. You're not alone.</p>
             </div>
             <div class="pain-grid">
                 <div class="pain-card">
@@ -1084,7 +1161,7 @@
                         </svg>
                     </div>
                     <h3>Mind Wanders</h3>
-                    <p>It's hard to stay focused for 25+ minutes. You zone out, and by the end, you've missed key points.</p>
+                    <p>It's hard to stay focused for 25+ minutes. You zone out, and by the end, you've missed key points from the khutbah or lecture.</p>
                 </div>
                 <div class="pain-card">
                     <div class="pain-icon">
@@ -1095,7 +1172,7 @@
                         </svg>
                     </div>
                     <h3>Language Barrier</h3>
-                    <p>The khutbah is in Arabic or another language you don't fully understand. You catch fragments, but not the full message.</p>
+                    <p>The khutbah or Islamic lecture is in Arabic, Urdu, or another language you don't fully understand. You catch fragments, but not the full message.</p>
                 </div>
                 <div class="pain-card">
                     <div class="pain-icon">
@@ -1104,7 +1181,7 @@
                         </svg>
                     </div>
                     <h3>Forgotten by Sunday</h3>
-                    <p>Even when you're fully present, the insights slip away. By the next week, you can barely recall the topic.</p>
+                    <p>Even when you're fully present, the insights slip away. By the next week, you can barely recall the topic, Quran references, or action items.</p>
                 </div>
             </div>
         </div>
@@ -1116,23 +1193,23 @@
             <div class="section-header">
                 <p class="section-label">The Solution</p>
                 <h2>How Khutbah Notes Works</h2>
-                <p>Three simple steps to transform how you engage with Friday sermons.</p>
+                <p>Three simple steps to preserve the reminders from khutbahs, halaqahs, and Islamic lectures.</p>
             </div>
             <div class="solution-grid">
                 <div class="solution-card">
                     <div class="solution-step">1</div>
-                    <h3>Record the Khutbah</h3>
-                    <p>Discreetly capture the audio during Jumu'ah. Just tap record and let your phone do the rest while you focus on being present.</p>
+                    <h3>Record the Khutbah or Lecture</h3>
+                    <p>Discreetly capture the audio during Jumu'ah, a halaqah, or an Islamic class. Just tap record and stay present.</p>
                 </div>
                 <div class="solution-card">
                     <div class="solution-step">2</div>
                     <h3>Get Your Summary</h3>
-                    <p>Receive a complete transcription, key takeaways, referenced ayahs, and actionable reminders—all organized beautifully.</p>
+                    <p>Receive a transcript, key takeaways, referenced ayahs and hadith, and actionable reminders, organized for easy review.</p>
                 </div>
                 <div class="solution-card">
                     <div class="solution-step">3</div>
                     <h3>Reflect All Week</h3>
-                    <p>Revisit the message throughout the week. Stay connected to the khutbah's wisdom long after Friday ends.</p>
+                    <p>Revisit the message throughout the week. Stay connected to the lesson long after the gathering ends.</p>
                 </div>
             </div>
         </div>
@@ -1144,7 +1221,7 @@
             <div class="trust-content">
                 <div class="trust-text">
                     <h2>Your Khutbah. <span>Nothing Added.</span></h2>
-                    <p>We understand the importance of preserving authentic Islamic knowledge. That's why our smart summaries are designed with one principle: faithfulness to what the khateeb actually said.</p>
+                    <p>We understand the importance of preserving authentic Islamic knowledge. That's why every summary is designed with one principle: faithfulness to what the khateeb or teacher actually said.</p>
                     <ul class="trust-list">
                         <li>
                             <span class="trust-check">
@@ -1189,7 +1266,7 @@
                             </svg>
                         </div>
                         <h3>Content Integrity Promise</h3>
-                        <p>Smart summaries never introduce Islamic content that was not said by the khateeb. What you read is what was spoken.</p>
+                        <p>Summaries never introduce Islamic content that was not said by the khateeb or teacher. What you read is what was spoken.</p>
                     </div>
                 </div>
             </div>
@@ -1202,7 +1279,7 @@
             <div class="translation-content">
                 <div class="translation-text">
                     <h2>Understand Every Khutbah</h2>
-                    <p>Whether your khutbah is in Arabic, Urdu, or another language, get summaries translated into the language you understand best.</p>
+                    <p>Whether your khutbah or Islamic lecture is in Arabic, Urdu, or another language, get summaries translated into the language you understand best.</p>
                 </div>
                 <div class="translation-visual">
                     <div class="language-grid">
@@ -1237,6 +1314,40 @@
         </div>
     </section>
 
+    <!-- Masjid Channels Section -->
+    <section class="channels-section" id="masjid-channels">
+        <div class="container">
+            <div class="channels-content">
+                <div class="channels-copy">
+                    <p class="section-label">Masjid Channels</p>
+                    <h2>Follow Khutbah Summaries From Trusted Channels</h2>
+                    <p>Alongside your own recordings, Khutbah Notes helps you browse curated khutbah summaries from supported masjids and Islamic learning channels. Search by masjid, review recent talks, and keep meaningful reminders close.</p>
+                    <ul class="channels-feature-list">
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Browse searchable masjid khutbah channels with recent summaries.</span>
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Review speaker, date, main theme, key points, and weekly actions.</span>
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Save valuable khutbah reminders into your personal notes library.</span>
+                        </li>
+                    </ul>
+                    <a href="https://apps.apple.com/us/app/khutbah-notes-muslim-sermon/id6756526736" class="btn-primary-green">Explore Masjid Channels</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Pricing Section -->
     <section class="pricing-section" id="download">
         <div class="container">
@@ -1251,7 +1362,7 @@
                     <div class="pricing-label">Monthly</div>
                     <div class="pricing-amount">
                         <span class="pricing-currency">$</span>
-                        <span class="pricing-value">5.99</span>
+                        <span class="pricing-value">4.99</span>
                         <span class="pricing-period">/month</span>
                     </div>
                     <p class="pricing-note">Billed monthly</p>
@@ -1266,7 +1377,7 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="20 6 9 17 4 12"/>
                             </svg>
-                            Smart summaries & takeaways
+                            Summaries, transcripts & takeaways
                         </li>
                         <li>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1287,10 +1398,10 @@
                     <div class="pricing-label">Annual</div>
                     <div class="pricing-amount">
                         <span class="pricing-currency">$</span>
-                        <span class="pricing-value">59.99</span>
+                        <span class="pricing-value">44.99</span>
                         <span class="pricing-period">/year</span>
                     </div>
-                    <p class="pricing-note">Save $12 — that's 2 months free</p>
+                    <p class="pricing-note">Save $14.89 compared with monthly</p>
                     <ul class="pricing-features">
                         <li>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1302,7 +1413,7 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="20 6 9 17 4 12"/>
                             </svg>
-                            Smart summaries & takeaways
+                            Summaries, transcripts & takeaways
                         </li>
                         <li>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1327,8 +1438,8 @@
     <!-- Final CTA -->
     <section class="cta-section">
         <div class="container">
-            <h2>This Friday, Remember Everything</h2>
-            <p>Join Muslims around the world who are finally holding onto the wisdom of their weekly khutbahs.</p>
+            <h2>This Friday, Remember What Matters</h2>
+            <p>Join Muslims around the world who are holding onto the wisdom of their khutbahs and Islamic lectures.</p>
             <a href="https://apps.apple.com/us/app/khutbah-notes-muslim-sermon/id6756526736" class="btn-primary-green">
                 <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                     <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
@@ -1351,7 +1462,7 @@
                     <a href="mailto:support@khutbah-notes.com">support@khutbah-notes.com</a>
                 </div>
                 <div class="footer-copy">
-                    © 2025 Khutbah Notes. All rights reserved.
+                    © 2026 Khutbah Notes. All rights reserved.
                 </div>
             </div>
         </div>

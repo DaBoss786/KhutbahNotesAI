@@ -7,6 +7,11 @@ import re
 from app.config.settings import settings
 
 
+TIMESTAMP_RE = re.compile(r"<(?P<ts>\d\d:\d\d:\d\d\.\d{3})>")
+CAPTION_TAG_RE = re.compile(r"</?c(?:\.[^>]*)?>")
+HTML_TAG_RE = re.compile(r"<(?!\d\d:\d\d:\d\d\.\d{3})[^>]+>")
+
+
 def _words_from_text(text: str, start: float, end: float, segment_index: int) -> list[dict]:
     words = re.findall(r"\S+", text)
     if not words:
@@ -22,6 +27,39 @@ def _words_from_text(text: str, start: float, end: float, segment_index: int) ->
         }
         for i, word in enumerate(words)
     ]
+
+
+def clean_caption_text(text: str) -> str:
+    text = CAPTION_TAG_RE.sub("", text)
+    text = HTML_TAG_RE.sub("", text)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _timed_words_from_chunk(text: str, start: float, end: float, segment_index: int) -> list[dict]:
+    clean = clean_caption_text(text)
+    if not clean:
+        return []
+    return _words_from_text(clean, start, max(start + 0.01, end), segment_index)
+
+
+def parse_inline_timed_line(line: str, cue_start: float, cue_end: float, segment_index: int) -> tuple[str, list[dict]]:
+    matches = list(TIMESTAMP_RE.finditer(line))
+    if not matches:
+        text = clean_caption_text(line)
+        return text, _words_from_text(text, cue_start, cue_end, segment_index)
+
+    tokens: list[dict] = []
+    cursor = 0
+    chunk_start = cue_start
+    for match in matches:
+        chunk_end = parse_ts(match.group("ts"))
+        tokens.extend(_timed_words_from_chunk(line[cursor : match.start()], chunk_start, chunk_end, segment_index))
+        cursor = match.end()
+        chunk_start = chunk_end
+    tokens.extend(_timed_words_from_chunk(line[cursor:], chunk_start, cue_end, segment_index))
+    text = " ".join(token["text"] for token in tokens).strip()
+    return text, tokens
 
 
 def collapse_repeated_caption_text(text: str) -> str:
@@ -70,9 +108,10 @@ def remove_prefix_overlap(previous: str, current: str) -> str:
     return current
 
 
-def parse_vtt(path: Path) -> tuple[list[dict], list[dict]]:
+def parse_vtt(path: Path) -> tuple[list[dict], list[dict], dict]:
     segments: list[dict] = []
     tokens: list[dict] = []
+    has_inline_word_timing = False
     content = path.read_text(encoding="utf-8", errors="ignore")
     blocks = re.split(r"\n\s*\n", content)
     ts_re = re.compile(
@@ -88,27 +127,44 @@ def parse_vtt(path: Path) -> tuple[list[dict], list[dict]]:
             continue
         raw_lines = [line.strip() for line in block.splitlines() if line.strip() and "-->" not in line and not line.strip().isdigit()]
         timed_lines = [line for line in raw_lines if re.search(r"<\d\d:\d\d:\d\d\.\d{3}>", line)]
+        idx = len(segments)
+        segment_tokens: list[dict] = []
         if timed_lines:
-            raw_lines = timed_lines
-        lines: list[str] = []
-        for line in raw_lines:
-            stripped = re.sub(r"<[^>]+>", "", line).strip()
-            if not stripped:
-                continue
-            if lines and stripped == lines[-1]:
-                continue
-            lines.append(stripped)
-        text = re.sub(r"<[^>]+>", "", " ".join(lines))
-        text = html.unescape(re.sub(r"\s+", " ", text)).strip()
-        text = collapse_repeated_caption_text(text)
-        if segments:
-            text = remove_prefix_overlap(segments[-1]["text"], text)
+            has_inline_word_timing = True
+            text_parts: list[str] = []
+            for line in timed_lines:
+                line_text, line_tokens = parse_inline_timed_line(line, start, end, idx)
+                if not line_text:
+                    continue
+                if text_parts and line_text == text_parts[-1]:
+                    continue
+                text_parts.append(line_text)
+                segment_tokens.extend(line_tokens)
+            text = re.sub(r"\s+", " ", " ".join(text_parts)).strip()
+        else:
+            lines: list[str] = []
+            for line in raw_lines:
+                stripped = clean_caption_text(line)
+                if not stripped:
+                    continue
+                if lines and stripped == lines[-1]:
+                    continue
+                lines.append(stripped)
+            text = re.sub(r"\s+", " ", " ".join(lines)).strip()
+            text = collapse_repeated_caption_text(text)
+            if segments:
+                text = remove_prefix_overlap(segments[-1]["text"], text)
+            segment_tokens = _words_from_text(text, start, end, idx)
         if not text:
             continue
-        idx = len(segments)
         segments.append({"start_time": start, "end_time": end, "text": text})
-        tokens.extend(_words_from_text(text, start, end, idx))
-    return segments, tokens
+        tokens.extend(segment_tokens)
+    metadata = {
+        "transcript_source": f"youtube_caption:{path.name}",
+        "timing_source": "youtube_word" if has_inline_word_timing else "estimated",
+        "timing_quality": "word" if has_inline_word_timing else "estimated",
+    }
+    return segments, tokens, metadata
 
 
 def parse_ts(value: str) -> float:
@@ -122,7 +178,7 @@ def find_caption(job_dir: Path) -> Path | None:
     return captions[0] if captions else None
 
 
-def transcribe_audio(audio_path: Path) -> tuple[list[dict], list[dict]]:
+def transcribe_audio(audio_path: Path) -> tuple[list[dict], list[dict], dict]:
     try:
         from faster_whisper import WhisperModel
     except Exception as exc:
@@ -140,6 +196,7 @@ def transcribe_audio(audio_path: Path) -> tuple[list[dict], list[dict]]:
     )
     segments: list[dict] = []
     tokens: list[dict] = []
+    has_word_timestamps = False
     for seg in raw_segments:
         idx = len(segments)
         text = (seg.text or "").strip()
@@ -154,6 +211,7 @@ def transcribe_audio(audio_path: Path) -> tuple[list[dict], list[dict]]:
         )
         words = getattr(seg, "words", None) or []
         if words:
+            has_word_timestamps = True
             for word in words:
                 tokens.append(
                     {
@@ -165,14 +223,17 @@ def transcribe_audio(audio_path: Path) -> tuple[list[dict], list[dict]]:
                 )
         else:
             tokens.extend(_words_from_text(text, float(seg.start), float(seg.end), idx))
-    return segments, tokens
+    return segments, tokens, {
+        "transcript_source": "local_whisper",
+        "timing_source": "whisper_word" if has_word_timestamps else "estimated",
+        "timing_quality": "word" if has_word_timestamps else "estimated",
+    }
 
 
-def get_or_create_transcript(job_dir: Path, audio_path: Path) -> tuple[list[dict], list[dict], str]:
+def get_or_create_transcript(job_dir: Path, audio_path: Path) -> tuple[list[dict], list[dict], dict]:
     caption = find_caption(job_dir)
     if caption:
-        segments, tokens = parse_vtt(caption)
+        segments, tokens, metadata = parse_vtt(caption)
         if segments:
-            return segments, tokens, f"youtube_caption:{caption.name}"
-    segments, tokens = transcribe_audio(audio_path)
-    return segments, tokens, "local_whisper"
+            return segments, tokens, metadata
+    return transcribe_audio(audio_path)

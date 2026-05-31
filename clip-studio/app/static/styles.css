@@ -136,6 +136,11 @@ input, select {
   color: var(--ink);
 }
 
+input[type="range"] {
+  accent-color: var(--green);
+  padding: 0;
+}
+
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -304,7 +309,7 @@ video, .empty-video {
   font-size: 13px;
 }
 
-.segmented, .bulk-actions, .nudge-row, .edit-row {
+.segmented, .bulk-actions, .nudge-row, .edit-row, .preset-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -397,6 +402,26 @@ pre {
   margin: 18px 0;
 }
 
+.learning-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  color: var(--muted);
+}
+
+.learning-panel strong {
+  color: var(--green);
+}
+
+.learning-panel button {
+  padding: 8px 10px;
+}
+
 .render-copy-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -404,6 +429,94 @@ pre {
   display: grid;
   gap: 12px;
   background: #fbfdfb;
+}
+
+.reframe-control, .timing-control, .timing-status-panel, .exact-preview-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: white;
+}
+
+.reframe-control span,
+.reframe-control small,
+.timing-status-panel span,
+.timing-control span,
+.timing-control small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.reframe-preview {
+  width: 180px;
+  max-width: 100%;
+  aspect-ratio: 9 / 16;
+  display: block;
+  object-fit: cover;
+  object-position: 50% 50%;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0e1511;
+  justify-self: start;
+}
+
+.subtitle-preview-shell {
+  width: min(260px, 100%);
+  aspect-ratio: 9 / 16;
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0e1511;
+}
+
+.subtitle-preview-video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: 50% 50%;
+  border-radius: 0;
+}
+
+.subtitle-preview-overlay {
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 10%;
+  color: white;
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 900;
+  text-align: center;
+  text-shadow:
+    -2px -2px 0 #0a1210,
+    2px -2px 0 #0a1210,
+    -2px 2px 0 #0a1210,
+    2px 2px 0 #0a1210,
+    0 4px 8px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.subtitle-preview-overlay span.active {
+  color: var(--accent);
+}
+
+.exact-preview-video {
+  width: min(260px, 100%);
+  aspect-ratio: 9 / 16;
+  display: block;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0e1511;
+}
+
+.preset-row button {
+  padding: 8px 10px;
+  font-size: 13px;
 }
 
 .render-copy-head {

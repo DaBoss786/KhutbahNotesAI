@@ -31,6 +31,11 @@ fragments that start mid-thought, and snippets that require previous context.
 Return fewer than requested if the remaining options are weak. Empty is better
 than weak.
 
+When caption-only user_preference_examples are provided, treat selected examples
+as the user's taste profile and rejected examples as patterns to avoid. Do not
+copy their topics; copy the qualities that made them complete, contextual, and
+worth rendering.
+
 For each candidate include start_time, end_time, title, text_excerpt,
 quality_score, scores, rationale, hook, main_point, start_reason, end_reason,
 and risk_flags.
@@ -182,7 +187,13 @@ def ranked_windows(segments: list[dict], min_duration: float, max_duration: floa
     return windows[:limit]
 
 
-def build_openai_prompt(segments: list[dict], clip_count: int, min_duration: float, max_duration: float) -> dict[str, Any]:
+def build_openai_prompt(
+    segments: list[dict],
+    clip_count: int,
+    min_duration: float,
+    max_duration: float,
+    learning_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     transcript = "\n".join(
         f"[{s['start_time']:.1f}-{s['end_time']:.1f}] {s['text']}" for s in segments[:900]
     )
@@ -192,7 +203,7 @@ def build_openai_prompt(segments: list[dict], clip_count: int, min_duration: flo
         max_duration,
         limit=max(24, min(60, clip_count * 10)),
     )
-    return {
+    prompt = {
         "task": "Select the most relevant, impactful, complete khutbah short-video candidates for human review.",
         "selection_goal": "Publish-ready Islamic reminder clips that work for viewers encountering the clip cold.",
         "count_requested": clip_count,
@@ -207,6 +218,7 @@ def build_openai_prompt(segments: list[dict], clip_count: int, min_duration: flo
             "Optimize boundaries so the clip starts where the point begins and ends when the thought is complete.",
             "You may adjust start_time and end_time within nearby transcript boundaries if it improves completeness.",
             "Do not force the requested count; return fewer candidates if the remaining windows are weak.",
+            "Use user_preference_examples as caption-only guidance when present: imitate selected examples and avoid rejected patterns.",
         ],
         "rubric": {
             "clarity": "The point is easy to understand immediately.",
@@ -253,6 +265,15 @@ def build_openai_prompt(segments: list[dict], clip_count: int, min_duration: flo
             ]
         },
     }
+    if learning_context and (learning_context.get("positive_examples") or learning_context.get("negative_examples")):
+        prompt["user_preference_examples"] = {
+            "description": (
+                "Caption-only examples learned from this user's final review behavior. "
+                "Positive examples are clips the user selected/rendered. Negative examples are clips the user rejected."
+            ),
+            **learning_context,
+        }
+    return prompt
 
 
 def normalize_openai_candidate(item: dict[str, Any], min_duration: float, max_duration: float) -> dict[str, Any] | None:
@@ -278,13 +299,20 @@ def normalize_openai_candidate(item: dict[str, Any], min_duration: float, max_du
     }
 
 
-def enhance_with_openai(segments: list[dict], fallback: list[dict], clip_count: int, min_duration: float, max_duration: float) -> list[dict]:
+def enhance_with_openai(
+    segments: list[dict],
+    fallback: list[dict],
+    clip_count: int,
+    min_duration: float,
+    max_duration: float,
+    learning_context: dict[str, Any] | None = None,
+) -> list[dict]:
     if not settings.openai_api_key:
         return fallback
     try:
         from openai import OpenAI
         client = OpenAI(api_key=settings.openai_api_key)
-        prompt = build_openai_prompt(segments, clip_count, min_duration, max_duration)
+        prompt = build_openai_prompt(segments, clip_count, min_duration, max_duration, learning_context)
         response = client.responses.create(
             model=settings.openai_model,
             input=[
@@ -307,6 +335,12 @@ def enhance_with_openai(segments: list[dict], fallback: list[dict], clip_count: 
         return fallback
 
 
-def generate_candidates(segments: list[dict], clip_count: int, min_duration: float, max_duration: float) -> list[dict]:
+def generate_candidates(
+    segments: list[dict],
+    clip_count: int,
+    min_duration: float,
+    max_duration: float,
+    learning_context: dict[str, Any] | None = None,
+) -> list[dict]:
     fallback = fallback_candidates(segments, clip_count, min_duration, max_duration)
-    return enhance_with_openai(segments, fallback, clip_count, min_duration, max_duration)
+    return enhance_with_openai(segments, fallback, clip_count, min_duration, max_duration, learning_context)

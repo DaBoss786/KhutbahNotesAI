@@ -66,4 +66,8 @@ export const WEEKLY_MASJID_INGESTION_TARGETS: WeeklyMasjidIngestionTarget[] = [
     masjidId: "wxwiOrqUu0sqp4Dj0h9k",
     channelUrl: "https://www.youtube.com/@therahmacenter638/streams",
   },
+  {
+    masjidId: "the_usuli_institute",
+    channelUrl: "https://www.youtube.com/@TheUsuliInstitute/streams",
+  },
 ];

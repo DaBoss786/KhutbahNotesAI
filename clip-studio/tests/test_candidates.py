@@ -50,3 +50,42 @@ def test_openai_prompt_ranks_curated_windows_without_losing_review_rules():
     assert any("closing dua" in item for item in prompt["hard_exclusions"])
     assert all("make dua for brother Ahmed" not in item["text_excerpt"] for item in prompt["candidate_windows"])
     assert len(prompt["candidate_windows"]) == 2
+
+
+def test_openai_prompt_includes_caption_learning_examples_when_available():
+    segments = [
+        {
+            "start_time": 0,
+            "end_time": 35,
+            "text": "Allah teaches us that sincere repentance has a beginning, a complete return, and a practical change today.",
+        }
+    ]
+    learning_context = {
+        "stats": {"positive": 1, "negative": 1, "total": 2},
+        "positive_examples": [
+            {
+                "outcome": "rendered",
+                "title": "Sincere Repentance",
+                "text": "A complete reminder about returning to Allah with one clear action.",
+                "duration": 34.0,
+                "boundary_start_delta": -4.0,
+                "boundary_end_delta": 6.0,
+            }
+        ],
+        "negative_examples": [
+            {
+                "outcome": "rejected_candidate",
+                "title": "Mid Thought",
+                "text": "And this is why it matters from the thing we said before.",
+                "duration": 30.0,
+                "boundary_start_delta": None,
+                "boundary_end_delta": None,
+            }
+        ],
+    }
+
+    prompt = build_openai_prompt(segments, 3, 20, 60, learning_context)
+
+    assert "user_preference_examples" in prompt
+    assert prompt["user_preference_examples"]["positive_examples"][0]["outcome"] == "rendered"
+    assert "caption-only" in prompt["user_preference_examples"]["description"].lower()

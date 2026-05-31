@@ -64,6 +64,7 @@ node_modules/
 
 # dotenv environment variables file
 .env
+.note-polisher-password.local
 
 # dataconnect generated files
 .dataconnect

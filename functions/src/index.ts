@@ -84,6 +84,7 @@ import {
 } from "./transcriptSanitizer";
 import {
 } from "./youtubeStreamTranscriptExport";
+import {createNotePolisherHandler} from "./notePolisher";
 
 export {
   addOneMonth,
@@ -100,6 +101,25 @@ const db = admin.firestore();
 const openaiKey = defineSecret("OPENAI_API_KEY");
 const rcWebhookSecret = defineSecret("RC_WEBHOOK_SECRET");
 const onesignalApiKey = defineSecret("ONESIGNAL_API_KEY");
+const notePolisherPasswordHash = defineSecret("NOTE_POLISHER_PASSWORD_HASH");
+const notePolisherSessionSecret = defineSecret("NOTE_POLISHER_SESSION_SECRET");
+
+export const notePolisher = onRequest(
+  {
+    region: "us-central1",
+    secrets: [
+      openaiKey,
+      notePolisherPasswordHash,
+      notePolisherSessionSecret,
+    ],
+  },
+  createNotePolisherHandler({
+    db,
+    openaiKey,
+    passwordHash: notePolisherPasswordHash,
+    sessionSecret: notePolisherSessionSecret,
+  })
+);
 
 const storageBucketName = "khutbah-notes-ai.firebasestorage.app";
 const REVENUECAT_ENTITLEMENT_ID = "Khutbah Notes Pro";

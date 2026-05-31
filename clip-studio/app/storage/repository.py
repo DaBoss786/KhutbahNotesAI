@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import uuid
 
 from app.storage.db import db, json_dumps, now_iso, row_to_dict
@@ -87,6 +88,14 @@ def logs_for_job(job_id: str) -> list[dict]:
     return [row_to_dict(row) for row in rows if row]
 
 
+def normalized_text(text: str | None) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def word_set(text: str | None) -> set[str]:
+    return {w.lower() for w in re.findall(r"[A-Za-z]{4,}", text or "")}
+
+
 def default_render_copy(job: dict, selection: dict) -> dict:
     title = selection.get("candidate_title") or selection.get("title") or ""
     if not title:
@@ -107,10 +116,16 @@ def hydrate_selection(job: dict, selection: dict) -> dict:
     for key, value in defaults.items():
         if not selection.get(key):
             selection[key] = value
+    if selection.get("crop_focus_x") is None:
+        selection["crop_focus_x"] = 0.5
+    if selection.get("crop_focus_y") is None:
+        selection["crop_focus_y"] = 0.5
+    if selection.get("subtitle_offset_ms") is None:
+        selection["subtitle_offset_ms"] = 0
     return selection
 
 
-def replace_transcript(job_id: str, segments: list[dict], tokens: list[dict]) -> None:
+def replace_transcript(job_id: str, segments: list[dict], tokens: list[dict], metadata: dict | None = None) -> None:
     with db() as conn:
         conn.execute("DELETE FROM transcript_tokens WHERE job_id = ?", (job_id,))
         conn.execute("DELETE FROM transcript_segments WHERE job_id = ?", (job_id,))
@@ -134,9 +149,25 @@ def replace_transcript(job_id: str, segments: list[dict], tokens: list[dict]) ->
                 """,
                 (job_id, segment_id, tok["start_time"], tok["end_time"], tok["text"], idx),
             )
+        if metadata:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET transcript_source = ?, timing_source = ?, timing_quality = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    metadata.get("transcript_source") or "",
+                    metadata.get("timing_source") or "",
+                    metadata.get("timing_quality") or "",
+                    now_iso(),
+                    job_id,
+                ),
+            )
 
 
 def get_transcript(job_id: str) -> dict:
+    job = get_job(job_id)
     with db() as conn:
         segs = conn.execute(
             "SELECT * FROM transcript_segments WHERE job_id = ? ORDER BY start_time ASC",
@@ -149,6 +180,11 @@ def get_transcript(job_id: str) -> dict:
     return {
         "segments": [row_to_dict(row) for row in segs],
         "tokens": [row_to_dict(row) for row in toks],
+        "metadata": {
+            "transcript_source": job.get("transcript_source") or "",
+            "timing_source": job.get("timing_source") or "unknown",
+            "timing_quality": job.get("timing_quality") or "unknown",
+        },
     }
 
 
@@ -246,6 +282,7 @@ def set_candidate_approvals(job_id: str, approvals: dict[str, str]) -> None:
                 """,
                 (status, now, job_id, candidate_id),
             )
+    sync_learning_examples_for_job(job_id)
     unlock_job(job_id, reason="Approval changed after lock.")
 
 
@@ -306,6 +343,9 @@ def update_selection(job_id: str, selection_id: str, payload: dict) -> dict:
             "intro_subtitle",
             "outro_title",
             "outro_subtitle",
+            "crop_focus_x",
+            "crop_focus_y",
+            "subtitle_offset_ms",
         ]
         if k in payload
     }
@@ -356,6 +396,7 @@ def lock_job(job_id: str, locked_by: str = "local-user") -> dict:
             """,
             (now, locked_by, job_id),
         )
+    sync_learning_examples_for_job(job_id)
     add_log(job_id, "Final selections locked.")
     return get_job(job_id)
 
@@ -443,3 +484,238 @@ def get_outputs(job_id: str) -> list[dict]:
             (job_id,),
         ).fetchall()
     return [row_to_dict(row) for row in rows if row]
+
+
+def sync_learning_examples_for_job(job_id: str) -> dict:
+    job = get_job(job_id)
+    now = now_iso()
+    positive_count = 0
+    negative_count = 0
+    with db() as conn:
+        conn.execute("DELETE FROM learning_examples WHERE source_job_id = ?", (job_id,))
+
+        positive_rows = conn.execute(
+            """
+            SELECT
+                selections.*,
+                candidates.title AS candidate_title,
+                candidates.text_excerpt AS candidate_text,
+                candidates.start_time AS candidate_start_time,
+                candidates.end_time AS candidate_end_time,
+                EXISTS(
+                    SELECT 1 FROM outputs
+                    WHERE outputs.selection_id = selections.id
+                      AND outputs.kind = 'mp4'
+                      AND outputs.status = 'complete'
+                ) AS rendered
+            FROM selections
+            LEFT JOIN candidates ON candidates.id = selections.candidate_id
+            WHERE selections.job_id = ?
+              AND selections.status = 'approved'
+            """,
+            (job_id,),
+        ).fetchall()
+        for row in positive_rows:
+            item = row_to_dict(row)
+            rendered = bool(item.get("rendered"))
+            if not rendered and not item.get("locked_at") and not job.get("locked_at"):
+                continue
+            final_text = normalized_text(item.get("text_excerpt"))
+            if not final_text:
+                continue
+            candidate_start = item.get("candidate_start_time")
+            candidate_end = item.get("candidate_end_time")
+            boundary_start_delta = (
+                float(item["start_time"]) - float(candidate_start)
+                if candidate_start is not None
+                else None
+            )
+            boundary_end_delta = (
+                float(item["end_time"]) - float(candidate_end)
+                if candidate_end is not None
+                else None
+            )
+            metadata = {
+                "speaker_name": job.get("speaker_name") or "",
+                "masjid_name": job.get("masjid_name") or "",
+                "youtube_url": job.get("youtube_url") or "",
+                "boundary_start_delta": boundary_start_delta,
+                "boundary_end_delta": boundary_end_delta,
+            }
+            conn.execute(
+                """
+                INSERT INTO learning_examples(
+                    id, source_key, source_job_id, source_selection_id, source_candidate_id,
+                    label, outcome, text, candidate_text, final_text, title,
+                    start_time, end_time, duration, boundary_start_delta, boundary_end_delta,
+                    metadata, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_id("learn"),
+                    f"{job_id}:{item['id']}:positive",
+                    job_id,
+                    item["id"],
+                    item.get("candidate_id"),
+                    "positive",
+                    "rendered" if rendered else "locked",
+                    final_text,
+                    normalized_text(item.get("candidate_text")),
+                    final_text,
+                    item.get("candidate_title") or "",
+                    item["start_time"],
+                    item["end_time"],
+                    float(item["end_time"]) - float(item["start_time"]),
+                    boundary_start_delta,
+                    boundary_end_delta,
+                    json_dumps(metadata),
+                    now,
+                    now,
+                ),
+            )
+            positive_count += 1
+
+        rejected_candidates = conn.execute(
+            """
+            SELECT * FROM candidates
+            WHERE job_id = ? AND status = 'rejected'
+            """,
+            (job_id,),
+        ).fetchall()
+        for row in rejected_candidates:
+            item = row_to_dict(row)
+            text = normalized_text(item.get("text_excerpt"))
+            if not text:
+                continue
+            conn.execute(
+                """
+                INSERT INTO learning_examples(
+                    id, source_key, source_job_id, source_candidate_id,
+                    label, outcome, text, candidate_text, final_text, title,
+                    start_time, end_time, duration, metadata, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_id("learn"),
+                    f"{job_id}:{item['id']}:negative-candidate",
+                    job_id,
+                    item["id"],
+                    "negative",
+                    "rejected_candidate",
+                    text,
+                    text,
+                    "",
+                    item.get("title") or "",
+                    item["start_time"],
+                    item["end_time"],
+                    float(item["end_time"]) - float(item["start_time"]),
+                    json_dumps({"reason": "Rejected during candidate review."}),
+                    now,
+                    now,
+                ),
+            )
+            negative_count += 1
+
+        rejected_selections = conn.execute(
+            """
+            SELECT selections.*, candidates.title AS candidate_title
+            FROM selections
+            LEFT JOIN candidates ON candidates.id = selections.candidate_id
+            WHERE selections.job_id = ?
+              AND selections.status = 'rejected'
+              AND selections.candidate_id IS NULL
+            """,
+            (job_id,),
+        ).fetchall()
+        for row in rejected_selections:
+            item = row_to_dict(row)
+            text = normalized_text(item.get("text_excerpt"))
+            if not text:
+                continue
+            conn.execute(
+                """
+                INSERT INTO learning_examples(
+                    id, source_key, source_job_id, source_selection_id,
+                    label, outcome, text, candidate_text, final_text, title,
+                    start_time, end_time, duration, metadata, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_id("learn"),
+                    f"{job_id}:{item['id']}:negative-selection",
+                    job_id,
+                    item["id"],
+                    "negative",
+                    "rejected_selection",
+                    text,
+                    text,
+                    "",
+                    item.get("candidate_title") or "",
+                    item["start_time"],
+                    item["end_time"],
+                    float(item["end_time"]) - float(item["start_time"]),
+                    json_dumps({"reason": "Rejected during transcript selection review."}),
+                    now,
+                    now,
+                ),
+            )
+            negative_count += 1
+    return {"positive": positive_count, "negative": negative_count}
+
+
+def learning_stats() -> dict:
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT label, COUNT(*) AS count
+            FROM learning_examples
+            GROUP BY label
+            """
+        ).fetchall()
+    counts = {row["label"]: int(row["count"]) for row in rows}
+    return {
+        "positive": counts.get("positive", 0),
+        "negative": counts.get("negative", 0),
+        "total": sum(counts.values()),
+    }
+
+
+def learning_examples_for_prompt(reference_text: str = "", positive_limit: int = 8, negative_limit: int = 5) -> dict:
+    query_words = word_set(reference_text)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM learning_examples
+            ORDER BY updated_at DESC
+            LIMIT 250
+            """
+        ).fetchall()
+    examples = [row_to_dict(row) for row in rows if row]
+
+    def score(example: dict) -> tuple[int, str]:
+        if not query_words:
+            return (0, example.get("updated_at") or "")
+        overlap = len(query_words & word_set(example.get("text")))
+        return (overlap, example.get("updated_at") or "")
+
+    positives = [item for item in examples if item.get("label") == "positive"]
+    negatives = [item for item in examples if item.get("label") == "negative"]
+    positives.sort(key=score, reverse=True)
+    negatives.sort(key=score, reverse=True)
+
+    def compact(item: dict) -> dict:
+        return {
+            "outcome": item.get("outcome"),
+            "title": item.get("title") or "",
+            "text": item.get("text") or "",
+            "duration": round(float(item.get("duration") or 0), 1),
+            "boundary_start_delta": item.get("boundary_start_delta"),
+            "boundary_end_delta": item.get("boundary_end_delta"),
+        }
+
+    return {
+        "stats": learning_stats(),
+        "positive_examples": [compact(item) for item in positives[:positive_limit]],
+        "negative_examples": [compact(item) for item in negatives[:negative_limit]],
+    }

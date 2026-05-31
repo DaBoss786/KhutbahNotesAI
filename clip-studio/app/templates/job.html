@@ -125,6 +125,16 @@
   <div class="panel finalize-panel">
     <h2>Finalize & Lock</h2>
     <p>Only approved selections are rendered. Review and edit title/outro copy here before locking. Any later edit clears the lock.</p>
+    <div class="learning-panel" data-learning-panel>
+      <strong>Caption learning</strong>
+      <span>{{ learning.positive }} selected examples / {{ learning.negative }} rejected examples saved locally.</span>
+      <button type="button" id="sync-learning" data-job-id="{{ job.id }}">Update Learning From This Run</button>
+    </div>
+    <div class="timing-status-panel">
+      <strong>Subtitle timing source</strong>
+      <span data-timing-source>{{ timing_label(job.timing_source, job.timing_quality) }}</span>
+      <button type="button" id="retime-transcript" data-job-id="{{ job.id }}">Improve Timing For This Job</button>
+    </div>
     <div class="render-copy-list">
       {% for selection in selections if selection.status == "approved" %}
         <form class="render-copy-card" data-selection-id="{{ selection.id }}" data-job-id="{{ job.id }}">
@@ -148,7 +158,61 @@
             Closing slide subline
             <input name="outro_subtitle" value="{{ selection.outro_subtitle }}">
           </label>
-          <button type="submit">Save Slide Text</button>
+          <div class="reframe-control">
+            <div>
+              <strong>Speaker framing</strong>
+              <span>Move toward the speaker, then save before locking and rendering.</span>
+            </div>
+            {% if job.source_video_path %}
+              <video class="reframe-preview" muted playsinline preload="metadata" data-preview-time="{{ selection.start_time }}" src="/media/jobs/{{ job.id }}/source"></video>
+            {% endif %}
+            <label>
+              Horizontal crop
+              <input type="range" name="crop_focus_x" min="0" max="1" step="0.01" value="{{ selection.crop_focus_x or 0.5 }}" data-range-value="crop-x-{{ selection.id }}">
+              <small>Left <span id="crop-x-{{ selection.id }}">{{ "%.0f"|format((selection.crop_focus_x or 0.5) * 100) }}</span>% Right</small>
+            </label>
+            <label>
+              Vertical crop
+              <input type="range" name="crop_focus_y" min="0" max="1" step="0.01" value="{{ selection.crop_focus_y or 0.5 }}" data-range-value="crop-y-{{ selection.id }}">
+              <small>Top <span id="crop-y-{{ selection.id }}">{{ "%.0f"|format((selection.crop_focus_y or 0.5) * 100) }}</span>% Bottom</small>
+            </label>
+            <div class="preset-row">
+              <button type="button" data-framing-x="0.25">Speaker Left</button>
+              <button type="button" data-framing-x="0.50">Center</button>
+              <button type="button" data-framing-x="0.72">Speaker Right</button>
+            </div>
+          </div>
+          <div class="timing-control">
+            <div>
+              <strong>Subtitle timing</strong>
+              <span>Quick preview updates live. Use exact preview before locking. Negative values make highlights earlier; positive values make them later.</span>
+            </div>
+            {% if job.source_video_path %}
+              <div class="subtitle-preview-shell" data-subtitle-preview>
+                <video class="subtitle-preview-video" controls playsinline preload="metadata" data-start="{{ selection.start_time }}" data-end="{{ selection.end_time }}" src="/media/jobs/{{ job.id }}/source"></video>
+                <div class="subtitle-preview-overlay" aria-hidden="true"></div>
+              </div>
+              <button type="button" data-play-subtitle-preview>Play Quick Preview</button>
+            {% endif %}
+            <label>
+              Highlight offset
+              <input type="range" name="subtitle_offset_ms" min="-750" max="750" step="25" value="{{ selection.subtitle_offset_ms or 0 }}" data-range-value="subtitle-offset-{{ selection.id }}" data-range-format="ms">
+              <small>Earlier <span id="subtitle-offset-{{ selection.id }}">{{ selection.subtitle_offset_ms or 0 }}</span> ms Later</small>
+            </label>
+            <div class="preset-row">
+              <button type="button" data-subtitle-offset="-250">Earlier -250ms</button>
+              <button type="button" data-subtitle-offset="0">On Time</button>
+              <button type="button" data-subtitle-offset="250">Later +250ms</button>
+            </div>
+            {% if job.source_video_path %}
+              <div class="exact-preview-panel">
+                <button type="button" data-render-subtitle-preview>Render Exact Subtitle Preview</button>
+                <span class="exact-preview-state"></span>
+                <video class="exact-preview-video" controls playsinline hidden></video>
+              </div>
+            {% endif %}
+          </div>
+          <button type="submit">Save Slide Text, Framing & Timing</button>
           <span class="save-state"></span>
         </form>
       {% else %}

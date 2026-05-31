@@ -32,6 +32,17 @@ class SelectionPatch(BaseModel):
     intro_subtitle: str | None = None
     outro_title: str | None = None
     outro_subtitle: str | None = None
+    crop_focus_x: float | None = Field(default=None, ge=0, le=1)
+    crop_focus_y: float | None = Field(default=None, ge=0, le=1)
+    subtitle_offset_ms: int | None = Field(default=None, ge=-750, le=750)
+
+
+class SubtitlePreviewRenderRequest(BaseModel):
+    crop_focus_x: float | None = Field(default=None, ge=0, le=1)
+    crop_focus_y: float | None = Field(default=None, ge=0, le=1)
+    subtitle_offset_ms: int | None = Field(default=None, ge=-750, le=750)
+    preview_start: float | None = None
+    duration: float = Field(default=8, ge=1, le=15)
 
 
 class LockRequest(BaseModel):
